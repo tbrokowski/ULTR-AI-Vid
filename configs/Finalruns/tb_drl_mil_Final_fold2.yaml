@@ -1,0 +1,211 @@
+# Multi-Task Lung Ultrasound Classification Configuration
+# Complete configuration file for training and evaluation
+
+# ==========================================
+# EXPERIMENT CONFIGURATION
+# ==========================================
+experiment_name: "drl_mil_tb_classifier_Final_fold2"
+experiment_dir: "./checkpoints/drl_mil_tb_classifier_Final_fold2"
+seed: 42
+device: "cuda"  # "cuda" or "cpu"
+
+# Training control
+train: true
+evaluate_best_valid_model: true
+
+# Model weights and resuming
+model_weights: null  # Path to pretrained weights, null if none
+best_model_path: null  # Path to best model for evaluation only
+resume_from_checkpoint: '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/drl_mil_tb_classifier_Final_fold2/checkpoint_latest.pth'
+reset_optimizers: false  # Whether to reset optimizer states when loading
+
+# ==========================================
+# MULTI-TASK CONFIGURATION
+# ==========================================
+
+# Active tasks - choose from: ['TB Label', 'Pneumonia Label', 'Covid Label']
+active_tasks:
+  - "TB Label"
+
+# Task-specific weights for loss balancing
+task_weights:
+  "TB Label": 1.0
+  "Pneumonia Label": 1.0
+  "Covid Label": 1.0
+
+# Positive class weights for handling class imbalance
+task_pos_weights:
+  "TB Label": 1.4
+  "Pneumonia Label": 1.4
+  "Covid Label": 6.0
+
+# Pathology prediction configuration
+use_pathology_loss: true
+pathology_weight: 0.6
+pathology_pos_weights: [1.0, 4.0, 15.0, 1.8]
+num_pathologies: 4
+pathology_classes:
+  - "A-line"
+  - "Large Consolidations"
+  - "Pleural Effusion"
+  - "Other Pathology"
+
+# ==========================================
+# FRAME SELECTION STRATEGY
+# ==========================================
+
+# Frame selection strategy: 'random', 'attention', or 'RL'
+selection_strategy: "RL"
+
+# RL-specific parameters (only used when selection_strategy == 'RL')
+patient_weight: 1.0
+tb_weight: 1.0
+correct_factor: 1.5
+incorrect_factor: 3.0
+reward_scale: 1.0
+entropy_weight: 0.05
+rl_clamp_neg: -3.0
+rl_clamp_pos: 3.0
+rl_accumulation_steps: 16 #8 #potentially change to 16
+
+# Temperature control (for RL and attention strategies)
+temperature: 0.9
+temperature_min: 0.1
+temperature_max: 3.0
+temperature_decay: 0.995
+
+# Actor-Critic parameters (RL only)
+rl_learning_rate: 0.00005 ##changed from 0.0001
+actor_lr: 0.0005
+actor_weight_decay: 0.00001
+critic_lr: 0.001
+critic_weight_decay: 0.00001
+gamma_rl: 0.99
+gamma: 0.98
+gae_lambda: 0.95
+use_frame_history: true
+frame_selector_max_norm: 0.5  #potentially change to 0.25
+
+# ==========================================
+# DATA CONFIGURATION
+# ==========================================
+
+# Dataset paths - UPDATE THESE FOR YOUR DATA
+root_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v3"
+labels_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v2/labels/labels_multidiagnosis.csv"
+file_metadata_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v3/processed_files_2.csv"
+split_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/test_files/Fold_2.csv"
+image_folder: "images"
+video_folder: "videos"
+
+# Data loading parameters
+batch_size: 2
+num_workers: 6
+frame_sampling: 32
+depth_filter: "15"  # Options: 'all', '5', '15'
+
+# Image processing
+target_height: 224
+target_width: 224
+in_channels: 3
+
+# Site selection and ordering
+files_per_site: "all"  # Can be integer or "all"
+site_order: null  # Optional list of site names, null for default order
+pad_missing_sites: true
+max_sites: null  # Optional maximum number of sites
+num_sites: 21
+mode: "video"  # 'video', 'image', or 'both'
+pooling: "attention"  # 'max', 'avg', or 'attention'
+
+# ==========================================
+# MODEL ARCHITECTURE
+# ==========================================
+
+# Model configuration
+model_type: "tb_rl_mil"
+model_name: "drl_mil_tb_classifier_fold0"
+
+# Model dimensions
+hidden_dim: 512
+dropout_rate: 0.3
+num_classes: 1  # Binary classification for each task
+classification_type: "binary"
+
+# Cross-site attention configuration
+use_cross_site_attention: false
+cross_site_num_heads: 8
+use_site_positional_encoding: true
+
+# CLIP backbone configuration
+backbone: "clip"  # Using CLIP vision encoder
+freeze_backbone: false
+pretrained: true
+local_weights_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights"
+
+# ==========================================
+# TRAINING CONFIGURATION
+# ==========================================
+
+# Training schedule
+num_epochs: 20
+accumulation_steps: 8
+use_amp: true
+
+# Learning rates and weight decay
+learning_rate: 0.00001
+weight_decay: 0.00001
+
+# Backbone parameters
+backbone_lr: 0.00001
+backbone_weight_decay: 0.00001
+backbone_T_0: 4
+backbone_T_mult: 2
+backbone_eta_min: 0.000001
+
+# Pathology module parameters
+pathology_lr: 0.0001
+pathology_weight_decay: 0.00001
+pathology_T_0: 4
+pathology_T_mult: 2
+pathology_eta_min: 0.000001
+
+# Patient pipeline parameters
+patient_pipeline_lr: 0.0001
+patient_pipeline_weight_decay: 0.00001
+patient_pipeline_T_0: 4
+patient_pipeline_T_mult: 2
+patient_pipeline_eta_min: 0.000001
+
+# Integration and MIL parameters
+integration_lr: 0.0001
+integration_weight_decay: 0.00001
+
+# Classifier parameters
+classifier_lr: 0.001
+classifier_weight_decay: 0.00002
+
+# Loss configuration
+pos_weight: 1.4  # Default positive weight for binary classification
+
+# ==========================================
+# EVALUATION CONFIGURATION
+# ==========================================
+
+# Evaluation metrics and early stopping
+eval_metric: "auc"  # Primary metric for model selection
+eval_metric_goal: "max"  # 'max' or 'min'
+early_stopping_patience: 8
+
+# ==========================================
+# DIRECTORIES
+# ==========================================
+log_dir: "logs"
+save_dir: "models"
+checkpoint_dir: "checkpoints"
+pred_save_dir: "predictions"
+
+# ==========================================
+# TASK SPECIFIC CONFIGURATION
+# ==========================================
+task: "TB Label"

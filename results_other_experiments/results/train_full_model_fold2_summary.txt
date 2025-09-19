@@ -1,0 +1,32 @@
+TB-DRL Model Evaluation Summary
+================================
+
+Experiment: full_model
+Split: train
+Fold: 2
+
+Data Summary:
+  Total patients: 321
+  Total sites: 9440
+  Average sites per patient: 29.41
+
+Performance Metrics:
+  accuracy: 0.8411
+  precision: 0.8273
+  recall: 0.7398
+  specificity: 0.9040
+  f1: 0.7811
+  balanced_accuracy: 0.8219
+  auc: 0.9027
+  auprc: 0.8753
+  true_positives: 91.0000
+  false_positives: 19.0000
+  true_negatives: 179.0000
+  false_negatives: 32.0000
+
+Complex Data Summary:
+  patient_features: 321 items
+  mil_attention: 321 items
+  site_features: 4089 items
+  site_rl_data: 4089 items
+  patient_pathology_scores: 321 items
