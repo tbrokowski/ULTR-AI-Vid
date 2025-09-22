@@ -91,12 +91,12 @@ frame_selector_max_norm: 0.5  #potentially change to 0.25
 # ==========================================
 
 # Dataset paths - UPDATE THESE FOR YOUR DATA
-root_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v3"
-labels_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v2/labels/labels_multidiagnosis.csv"
-file_metadata_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v3/processed_files_2.csv"
-split_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/test_files/Fold_3.csv"
+root_dir: "./Data"
+labels_csv: "./Data/labels/labels_multidiagnosis.csv"
+file_metadata_csv: "./Data/processed_files_2.csv"
+split_csv: "./Data/test_files/Fold_3.csv"
 image_folder: "images"
-video_folder: "videos"
+video_folder: "LusBeninVideos"
 
 # Data loading parameters
 batch_size: 2
