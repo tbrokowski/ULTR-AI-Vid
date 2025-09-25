@@ -220,3 +220,6 @@ __marimo__/
 
 # Location of video
 Data/LusBeninVideos/
+
+# Docker
+*dockerignore*

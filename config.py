@@ -83,12 +83,12 @@ class MultiTaskConfig:
     # ==========================================
     
     # Dataset paths
-    root_dir: str = "/path/to/data"
-    labels_csv: str = "/path/to/labels.csv"
-    file_metadata_csv: str = "/path/to/metadata.csv"
+    root_dir: str = "./Data"
+    labels_csv: str = "./Data/labels/labels.csv"
+    file_metadata_csv: str = "./Data/metadata.csv"
     split_csv: Optional[str] = None
     image_folder: str = "images"
-    video_folder: str = "videos"
+    video_folder: str = "./Data/LusBeninVideos"
     
     # Data loading
     batch_size: int = 8
@@ -121,7 +121,7 @@ class MultiTaskConfig:
     backbone: str = "clip"
     freeze_backbone: bool = True
     pretrained: bool = True
-    local_weights_dir: str = "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights"
+    local_weights_dir: str = "./NetworkArchitecture/CLIP_weights"
     
     # ==========================================
     # TRAINING CONFIGURATION

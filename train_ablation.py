@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 from torch.nn import BCEWithLogitsLoss
 from sklearn.metrics import roc_curve
 from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix, classification_report, auc
@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from Dataloaders.dataset_multitask import LungUltrasoundDataModule
-from NetworkArchitecture.OOMHandler import OOMHandler
+from dataset import LungUltrasoundDataModule
+#from NetworkArchitecture.OOMHandler import OOMHandler
 
 from NetworkArchitecture.ablation_models import create_ablation_model
 
