@@ -88,7 +88,7 @@ pooling: "attention"  # 'max', 'avg', or 'attention'
 # ==========================================
 
 # Model configuration
-model_name: "ablation_mean_pool_tb_classifier_fold1"
+model_name: "ablation_mean_pool_tb_classifier_fold2"
 
 # Model dimensions
 hidden_dim: 512

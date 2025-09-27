@@ -6,7 +6,7 @@
 # ==========================================
 experiment_name: "ablation_mean_pool_tb_classifier_fold1"
 experiment_dir: "./checkpoints/mean_pool/ablation_mean_pool_tb_classifier_fold1"
-seed: 42
+model_name: "ablation_mean_pool_tb_classifier_fold1"
 device: "cuda"  # "cuda" or "cpu"
 model_name: "ablation_mean_pool_tb_classifier_fold1"
 
@@ -18,7 +18,7 @@ evaluate_best_valid_model: true
 # Model weights and resuming
 model_weights: null  # Path to pretrained weights, null if none
 best_model_path: null  # Path to best model for evaluation only
-resume_from_checkpoint: '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/ablation_mean_pool_tb_classifier_fold0/checkpoint_best_metric_0.7215.pth'
+resume_from_checkpoint: '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/ablation_mean_pool_tb_classifier_fold1/checkpoint_best_metric_0.7215.pth'
 reset_optimizers: false  # Whether to reset optimizer states when loading
 
 # ==========================================

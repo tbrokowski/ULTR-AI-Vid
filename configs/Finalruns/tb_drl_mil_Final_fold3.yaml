@@ -124,7 +124,7 @@ pooling: "attention"  # 'max', 'avg', or 'attention'
 
 # Model configuration
 model_type: "tb_rl_mil"
-model_name: "drl_mil_tb_classifier_fold0"
+model_name: "drl_mil_tb_classifier_fold3"
 
 # Model dimensions
 hidden_dim: 512

@@ -1,15 +1,13 @@
-# Mean-Pool Baseline Configuration
-# Average all frame features per site (no frame selection)
+# CNN-LSTM Ablation Configuration
+# CNN feature extraction followed by LSTM temporal modeling
 
 # ==========================================
 # EXPERIMENT CONFIGURATION
 # ==========================================
-experiment_name: "ablation_mean_pool_tb_classifier_fold3"
-experiment_dir: "./checkpoints/mean_pool/ablation_mean_pool_tb_classifier_fold3"
+experiment_name: "ablation_cnn_lstm_tb_classifier_fold4"
+experiment_dir: "./checkpoints/cnnlstm/ablation_cnn_lstm_tb_classifier_fold4"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
-model_name: "ablation_mean_pool_tb_classifier_fold3"
-
 
 # Training control
 train: true
@@ -18,15 +16,15 @@ evaluate_best_valid_model: true
 # Model weights and resuming
 model_weights: null  # Path to pretrained weights, null if none
 best_model_path: null  # Path to best model for evaluation only
-resume_from_checkpoint: #'/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/ablation_mean_pool_tb_classifier_fold0/checkpoint_best_metric_0.7215.pth'
+resume_from_checkpoint: null
 reset_optimizers: false  # Whether to reset optimizer states when loading
 
 # ==========================================
 # ABLATION MODEL CONFIGURATION
 # ==========================================
 
-# Ablation model type - Mean pooling baseline
-model_type: "mean_pool"
+# Ablation model type - CNN-LSTM
+model_type: "cnn_lstm"
 
 # Active tasks - choose from: ['TB Label', 'Pneumonia Label', 'Covid Label']
 active_tasks:
@@ -59,14 +57,14 @@ pathology_classes:
 root_dir: "./Data"
 labels_csv: "./Data/labels/labels_multidiagnosis.csv"
 file_metadata_csv: "./Data/processed_files_2.csv"
-split_csv: "./Data/test_files/Fold_3.csv"
+split_csv: "./Data/test_files/Fold_4.csv"
 image_folder: "images"
 video_folder: "LusBeninVideos"
 
 # Data loading parameters
 batch_size: 2
 num_workers: 6
-frame_sampling: 32
+frame_sampling: 16  # CNN-LSTM can handle more frames
 depth_filter: "15"  # Options: 'all', '5', '15'
 
 # Image processing
@@ -88,7 +86,7 @@ pooling: "attention"  # 'max', 'avg', or 'attention'
 # ==========================================
 
 # Model configuration
-model_name: "ablation_mean_pool_tb_classifier_fold3"
+model_name: "ablation_cnn_lstm_tb_classifier_fold4"
 
 # Model dimensions
 hidden_dim: 512
@@ -96,11 +94,10 @@ dropout_rate: 0.3
 num_classes: 1  # Binary classification for each task
 classification_type: "binary"
 
-# CLIP backbone configuration
-backbone: "clip"  # Using CLIP vision encoder
+# CNN-LSTM backbone configuration
+backbone: "cnn_lstm"  # Using ResNet + LSTM
 freeze_backbone: false
 pretrained: true
-local_weights_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights"
 
 # ==========================================
 # TRAINING CONFIGURATION
@@ -112,12 +109,12 @@ accumulation_steps: 8
 use_amp: true
 
 # Learning rates and weight decay
-learning_rate: 0.00001
-weight_decay: 0.00001
+learning_rate: 0.0001  # Slightly higher for CNN-LSTM
+weight_decay: 0.0001
 
 # Backbone parameters
-backbone_lr: 0.00001
-backbone_weight_decay: 0.00001
+backbone_lr: 0.0001  # Higher for CNN-LSTM
+backbone_weight_decay: 0.0001
 backbone_eta_min: 0.000001
 
 # Pathology module parameters
@@ -126,7 +123,7 @@ pathology_weight_decay: 0.00001
 pathology_eta_min: 0.000001
 
 # Patient pipeline parameters
-patient_pipeline_lr: 0.0001
+patient_pipeline_lr: 0.001
 patient_pipeline_weight_decay: 0.00001
 patient_pipeline_eta_min: 0.000001
 

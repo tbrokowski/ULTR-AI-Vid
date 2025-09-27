@@ -1,32 +1,31 @@
-# Mean-Pool Baseline Configuration
-# Average all frame features per site (no frame selection)
+# 3D CNN Ablation Configuration
+# ResNet3D backbone from torchvision for video understanding
 
 # ==========================================
 # EXPERIMENT CONFIGURATION
 # ==========================================
-experiment_name: "ablation_mean_pool_tb_classifier_fold3"
-experiment_dir: "./checkpoints/mean_pool/ablation_mean_pool_tb_classifier_fold3"
+experiment_name: "ablation_3d_cnn_tb_classifier_fold2"
+experiment_dir: "./checkpoints/3dcnn/ablation_3d_cnn_tb_classifier_fold2"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
-model_name: "ablation_mean_pool_tb_classifier_fold3"
-
 
 # Training control
 train: true
 evaluate_best_valid_model: true
 
+
 # Model weights and resuming
 model_weights: null  # Path to pretrained weights, null if none
 best_model_path: null  # Path to best model for evaluation only
-resume_from_checkpoint: #'/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/ablation_mean_pool_tb_classifier_fold0/checkpoint_best_metric_0.7215.pth'
+resume_from_checkpoint: null
 reset_optimizers: false  # Whether to reset optimizer states when loading
 
 # ==========================================
 # ABLATION MODEL CONFIGURATION
 # ==========================================
 
-# Ablation model type - Mean pooling baseline
-model_type: "mean_pool"
+# Ablation model type - 3D CNN (ResNet3D)
+model_type: "3d_cnn"
 
 # Active tasks - choose from: ['TB Label', 'Pneumonia Label', 'Covid Label']
 active_tasks:
@@ -59,14 +58,14 @@ pathology_classes:
 root_dir: "./Data"
 labels_csv: "./Data/labels/labels_multidiagnosis.csv"
 file_metadata_csv: "./Data/processed_files_2.csv"
-split_csv: "./Data/test_files/Fold_3.csv"
+split_csv: "./Data/test_files/Fold_2.csv"
 image_folder: "images"
 video_folder: "LusBeninVideos"
 
 # Data loading parameters
-batch_size: 2
-num_workers: 6
-frame_sampling: 32
+batch_size: 1  # Reduced for 3D CNN memory requirements
+num_workers: 6  # Reduced for 3D CNN
+frame_sampling: 16  # Reduced for 3D CNN - typically use fewer frames
 depth_filter: "15"  # Options: 'all', '5', '15'
 
 # Image processing
@@ -88,7 +87,7 @@ pooling: "attention"  # 'max', 'avg', or 'attention'
 # ==========================================
 
 # Model configuration
-model_name: "ablation_mean_pool_tb_classifier_fold3"
+model_name: "ablation_3d_cnn_tb_classifier_fold2"
 
 # Model dimensions
 hidden_dim: 512
@@ -96,38 +95,37 @@ dropout_rate: 0.3
 num_classes: 1  # Binary classification for each task
 classification_type: "binary"
 
-# CLIP backbone configuration
-backbone: "clip"  # Using CLIP vision encoder
+# 3D CNN backbone configuration
+backbone: "resnet3d"  # Using ResNet3D from torchvision
 freeze_backbone: false
 pretrained: true
-local_weights_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights"
 
 # ==========================================
 # TRAINING CONFIGURATION
 # ==========================================
 
 # Training schedule
-num_epochs: 20
-accumulation_steps: 8
+num_epochs: 25  # May need more epochs for 3D CNN
+accumulation_steps: 32  # Larger accumulation due to smaller batch size
 use_amp: true
 
-# Learning rates and weight decay
-learning_rate: 0.00001
-weight_decay: 0.00001
+# Learning rates and weight decay - adjusted for 3D CNN
+learning_rate: 0.0001  # Higher LR for 3D CNN
+weight_decay: 0.0001
 
-# Backbone parameters
-backbone_lr: 0.00001
-backbone_weight_decay: 0.00001
+# Backbone parameters - 3D CNN specific
+backbone_lr: 0.0001  # Higher for 3D CNN
+backbone_weight_decay: 0.0001
 backbone_eta_min: 0.000001
 
 # Pathology module parameters
-pathology_lr: 0.0001
-pathology_weight_decay: 0.00001
+pathology_lr: 0.001  # Higher for simpler pathology modules
+pathology_weight_decay: 0.0001
 pathology_eta_min: 0.000001
 
 # Patient pipeline parameters
-patient_pipeline_lr: 0.0001
-patient_pipeline_weight_decay: 0.00001
+patient_pipeline_lr: 0.001  # Higher for patient pipeline
+patient_pipeline_weight_decay: 0.0001
 patient_pipeline_eta_min: 0.000001
 
 # Loss configuration
@@ -140,7 +138,7 @@ pos_weight: 1.4  # Default positive weight for binary classification
 # Evaluation metrics and early stopping
 eval_metric: "auc"  # Primary metric for model selection
 eval_metric_goal: "max"  # 'max' or 'min'
-early_stopping_patience: 8
+early_stopping_patience: 10  # Longer patience for 3D CNN
 
 # ==========================================
 # DIRECTORIES

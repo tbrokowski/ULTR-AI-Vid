@@ -4,8 +4,8 @@
 # ==========================================
 # EXPERIMENT CONFIGURATION
 # ==========================================
-experiment_name: "drl_mil_tb_classifier_Aug26_fold1"
-experiment_dir: "./checkpoints/drl_mil_tb_classifier_Aug26_fold1"
+experiment_name: "drl_mil_tb_classifier_Final_fold1"
+experiment_dir: "./checkpoints/drl_mil_tb_classifier_Final_fold1"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 
@@ -16,7 +16,7 @@ evaluate_best_valid_model: true
 # Model weights and resuming
 model_weights: null  # Path to pretrained weights, null if none
 best_model_path: null  # Path to best model for evaluation only
-resume_from_checkpoint: /gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/drl_mil_tb_classifier_Aug26_fold1/checkpoint_latest.pth #null #'/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/drl_mil_tb_classifier_Final_fold1/checkpoint_latest.pth'
+resume_from_checkpoint: './checkpoints/drl_mil_tb_classifier_Final_fold1/checkpoint_latest.pth'  # updated to match Final naming
 reset_optimizers: false  # Whether to reset optimizer states when loading
 
 # ==========================================
@@ -124,7 +124,7 @@ pooling: "attention"  # 'max', 'avg', or 'attention'
 
 # Model configuration
 model_type: "tb_rl_mil"
-model_name: "drl_mil_tb_classifier_fold0"
+model_name: "drl_mil_tb_classifier_fold1"
 
 # Model dimensions
 hidden_dim: 512

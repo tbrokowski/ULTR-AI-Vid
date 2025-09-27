@@ -1,15 +1,13 @@
-# Mean-Pool Baseline Configuration
-# Average all frame features per site (no frame selection)
+# Single-Task Ablation Configuration
+# RL Selector but no pathology detection (single-task only)
 
 # ==========================================
 # EXPERIMENT CONFIGURATION
 # ==========================================
-experiment_name: "ablation_mean_pool_tb_classifier_fold3"
-experiment_dir: "./checkpoints/mean_pool/ablation_mean_pool_tb_classifier_fold3"
+experiment_name: "ablation_single_task_tb_classifier_fold3"
+experiment_dir: "./checkpoints/singletask/ablation_single_task_tb_classifier_fold3"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
-model_name: "ablation_mean_pool_tb_classifier_fold3"
-
 
 # Training control
 train: true
@@ -18,17 +16,17 @@ evaluate_best_valid_model: true
 # Model weights and resuming
 model_weights: null  # Path to pretrained weights, null if none
 best_model_path: null  # Path to best model for evaluation only
-resume_from_checkpoint: #'/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/ablation_mean_pool_tb_classifier_fold0/checkpoint_best_metric_0.7215.pth'
+resume_from_checkpoint: null
 reset_optimizers: false  # Whether to reset optimizer states when loading
 
 # ==========================================
 # ABLATION MODEL CONFIGURATION
 # ==========================================
 
-# Ablation model type - Mean pooling baseline
-model_type: "mean_pool"
+# Ablation model type - Single task (no pathology)
+model_type: "single_task"
 
-# Active tasks - choose from: ['TB Label', 'Pneumonia Label', 'Covid Label']
+# Active tasks - only TB Label
 active_tasks:
   - "TB Label"
 
@@ -40,16 +38,12 @@ task_weights:
 task_pos_weights:
   "TB Label": 1.4
 
-# Pathology prediction configuration
-use_pathology_loss: true
-pathology_weight: 0.9
-pathology_pos_weights: [1.0, 4.0, 15.0, 4.0]
+# Pathology prediction configuration - DISABLED for single task
+use_pathology_loss: false
+pathology_weight: 0.0
+pathology_pos_weights: []
 num_pathologies: 4
-pathology_classes:
-  - "A-line"
-  - "Large Consolidations"
-  - "Pleural Effusion"
-  - "Other Pathology"
+pathology_classes: []
 
 # ==========================================
 # DATA CONFIGURATION
@@ -88,7 +82,7 @@ pooling: "attention"  # 'max', 'avg', or 'attention'
 # ==========================================
 
 # Model configuration
-model_name: "ablation_mean_pool_tb_classifier_fold3"
+model_name: "ablation_single_task_tb_classifier_fold3"
 
 # Model dimensions
 hidden_dim: 512
@@ -119,11 +113,6 @@ weight_decay: 0.00001
 backbone_lr: 0.00001
 backbone_weight_decay: 0.00001
 backbone_eta_min: 0.000001
-
-# Pathology module parameters
-pathology_lr: 0.0001
-pathology_weight_decay: 0.00001
-pathology_eta_min: 0.000001
 
 # Patient pipeline parameters
 patient_pipeline_lr: 0.0001
