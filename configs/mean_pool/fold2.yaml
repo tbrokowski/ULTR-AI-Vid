@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_mean_pool_tb_classifier_fold2"
-experiment_dir: "./checkpoints/mean_pool/ablation_mean_pool_tb_classifier_fold2"
+experiment_dir: "./ablation_results/checkpoints/mean_pool/ablation_mean_pool_tb_classifier_fold2"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 model_name: "ablation_mean_pool_tb_classifier_fold2"
@@ -18,7 +18,7 @@ evaluate_best_valid_model: true
 # Model weights and resuming
 model_weights: null  # Path to pretrained weights, null if none
 best_model_path: null  # Path to best model for evaluation only
-resume_from_checkpoint: #'/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/ablation_mean_pool_tb_classifier_fold0/checkpoint_best_metric_0.7215.pth'
+resume_from_checkpoint: null #'/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/ablation_mean_pool_tb_classifier_fold0/checkpoint_best_metric_0.7215.pth'
 reset_optimizers: false  # Whether to reset optimizer states when loading
 
 # ==========================================
@@ -100,7 +100,7 @@ classification_type: "binary"
 backbone: "clip"  # Using CLIP vision encoder
 freeze_backbone: false
 pretrained: true
-local_weights_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights"
+local_weights_dir: "./NetworkArchitecture/CLIP_weights"
 
 # ==========================================
 # TRAINING CONFIGURATION
@@ -145,10 +145,10 @@ early_stopping_patience: 8
 # ==========================================
 # DIRECTORIES
 # ==========================================
-log_dir: "logs"
-save_dir: "models"
-checkpoint_dir: "checkpoints"
-pred_save_dir: "predictions"
+log_dir: "ablation_results/logs"
+save_dir: "ablation_results/models"
+checkpoint_dir: "ablation_results/checkpoints"
+pred_save_dir: "ablation_results/predictions"
 
 # ==========================================
 # TASK SPECIFIC CONFIGURATION

@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_3d_cnn_tb_classifier_fold1"
-experiment_dir: "./checkpoints/3dcnn/ablation_3d_cnn_tb_classifier_fold1"
+experiment_dir: "./ablation_results/checkpoints/3dcnn/ablation_3d_cnn_tb_classifier_fold1"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 
@@ -143,10 +143,10 @@ early_stopping_patience: 10  # Longer patience for 3D CNN
 # ==========================================
 # DIRECTORIES
 # ==========================================
-log_dir: "logs"
-save_dir: "models"
-checkpoint_dir: "checkpoints"
-pred_save_dir: "predictions"
+log_dir: "ablation_results/logs"
+save_dir: "ablation_results/models"
+checkpoint_dir: "ablation_results/checkpoints"
+pred_save_dir: "ablation_results/predictions"
 
 # ==========================================
 # TASK SPECIFIC CONFIGURATION

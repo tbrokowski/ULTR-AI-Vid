@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "drl_mil_tb_classifier_Final_fold1"
-experiment_dir: "./checkpoints/drl_mil_tb_classifier_Final_fold1"
+experiment_dir: "./ablation_results/checkpoints/drl_mil_tb_classifier_Final_fold1"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 
@@ -16,7 +16,7 @@ evaluate_best_valid_model: true
 # Model weights and resuming
 model_weights: null  # Path to pretrained weights, null if none
 best_model_path: null  # Path to best model for evaluation only
-resume_from_checkpoint: './checkpoints/drl_mil_tb_classifier_Final_fold1/checkpoint_latest.pth'  # updated to match Final naming
+resume_from_checkpoint: null #'./checkpoints/drl_mil_tb_classifier_Final_fold1/checkpoint_latest.pth'  # updated to match Final naming
 reset_optimizers: false  # Whether to reset optimizer states when loading
 
 # ==========================================
@@ -141,7 +141,7 @@ use_site_positional_encoding: true
 backbone: "clip"  # Using CLIP vision encoder
 freeze_backbone: false
 pretrained: true
-local_weights_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights"
+local_weights_dir: "./NetworkArchitecture/CLIP_weights"
 
 # ==========================================
 # TRAINING CONFIGURATION
@@ -200,10 +200,10 @@ early_stopping_patience: 8
 # ==========================================
 # DIRECTORIES
 # ==========================================
-log_dir: "logs"
-save_dir: "models"
-checkpoint_dir: "checkpoints"
-pred_save_dir: "predictions"
+log_dir: "ablation_results/logs"
+save_dir: "ablation_results/models"
+checkpoint_dir: "ablation_results/checkpoints"
+pred_save_dir: "ablation_results/predictions"
 
 # ==========================================
 # TASK SPECIFIC CONFIGURATION
