@@ -46,13 +46,12 @@ RUN if [ "$INSTALL_LLM_EXTRAS" = "1" ]; then \
 RUN set -eux; arch=$(uname -m); if [ "$arch" != "aarch64" ] && [ "$arch" != "arm64" ]; then echo "ERROR: This image is ARM64-only (detected $arch)" >&2; exit 1; fi
 
 # Install VS Code CLI for remote tunnel access (ARM64 specific)
-RUN set -eux; \
-    curl -L "https://code.visualstudio.com/sha/download?build=stable&os=cli-linux-arm64" -o /tmp/vscode_cli.tar.gz; \
-    mkdir -p /opt/vscode-cli; \
-    tar -xzf /tmp/vscode_cli.tar.gz -C /opt/vscode-cli; \
-    ln -sf /opt/vscode-cli/code /usr/local/bin/code; \
-    rm /tmp/vscode_cli.tar.gz; \
-    code --version
+RUN mkdir -p /workspace/code
+WORKDIR /workspace/code
+RUN curl -Lk 'https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-arm64' --output vscode_cli.tar.gz
+RUN tar -xf vscode_cli.tar.gz
+RUN mv ./code /usr/bin
+RUN rm -rf /workspace/code
 
 # Copy your code into the image (good for cluster runs)
 # When developing locally, you can override this with a bind mount (-v $PWD:/workspace)
