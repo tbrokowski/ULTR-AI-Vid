@@ -2090,7 +2090,7 @@ class Config:
         
         # Experiment settings
         self.experiment_name = "ablation_tb_classifier_fold0"
-        self.experiment_dir = "./ablation_results/checkpoints/ablation_tb_classifier_fold0"
+        self.experiment_dir = "./ablation_results/no_rl/fold0_ablation_tb_classifier"
         self.evaluate_best_valid_model = True
         
         # Model weights and resuming
@@ -2197,30 +2197,15 @@ class Config:
         # Note: Directories will be created after loading YAML config
     
     def _create_default_directories(self):
-        """Create default directories if no YAML config is loaded."""
-
-        # Ensure experiment_dir exists
+        """Set up default directory paths (don't create directories yet)."""
+        # Only set up directory paths, don't create them yet
+        # They will be created when needed in load_from_yaml or create_directories
         if hasattr(self, 'experiment_dir') and self.experiment_dir:
-            os.makedirs(self.experiment_dir, exist_ok=True)
-            
             # Update directory paths to be within experiment_dir
             self.log_dir = os.path.join(self.experiment_dir, "logs")
             self.save_dir = os.path.join(self.experiment_dir, "models")
             self.checkpoint_dir = self.experiment_dir
             self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
-        
-        # Create all required directories
-        os.makedirs(self.log_dir, exist_ok=True)
-        os.makedirs(self.save_dir, exist_ok=True)
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
-        os.makedirs(self.pred_save_dir, exist_ok=True)
-
-        # Log the created directories
-        logger.info(f"Experiment directory: {self.experiment_dir}")
-        logger.info(f"Log directory: {self.log_dir}")
-        logger.info(f"Model save directory: {self.save_dir}")
-        logger.info(f"Checkpoint directory: {self.checkpoint_dir}")
-        logger.info(f"Prediction save directory: {self.pred_save_dir}")
     
     def load_from_yaml(self, yaml_path):
         """Load configuration from YAML file and override defaults."""
@@ -2242,38 +2227,48 @@ class Config:
                 else:
                     logger.warning(f"  Unknown config key: {key}")
             
-            # Create experiment directory and update relative paths
-            if hasattr(self, 'experiment_dir') and self.experiment_dir:
-                os.makedirs(self.experiment_dir, exist_ok=True)
-                
-                # Update directory paths to be within experiment_dir
-                self.log_dir = os.path.join(self.experiment_dir, "logs")
-                self.save_dir = os.path.join(self.experiment_dir, "models")
-                self.checkpoint_dir = self.experiment_dir  # Keep checkpoints at experiment_dir level
-                self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
-            else:
-                # Create experiment-specific directories from model_name
-                self.experiment_dir = os.path.join("./ablation_results/checkpoints", self.model_name)
-                os.makedirs(self.experiment_dir, exist_ok=True)
-                
-                # Update directory paths
-                self.log_dir = os.path.join(self.experiment_dir, "logs")
-                self.save_dir = os.path.join(self.experiment_dir, "models")
-                self.checkpoint_dir = self.experiment_dir
-                self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
-            
-            # Create all required directories
-            os.makedirs(self.log_dir, exist_ok=True)
-            os.makedirs(self.save_dir, exist_ok=True)
-            os.makedirs(self.checkpoint_dir, exist_ok=True)
-            os.makedirs(self.pred_save_dir, exist_ok=True)
+            # Update directory paths to be within experiment_dir
+            self.log_dir = os.path.join(self.experiment_dir, "logs")
+            self.save_dir = os.path.join(self.experiment_dir, "models")
+            self.checkpoint_dir = self.experiment_dir  # Keep checkpoints at experiment_dir level
+            self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
             
             logger.info(f"Configuration successfully loaded from {yaml_path}")
-            logger.info(f"Experiment directory: {self.experiment_dir}")
+            logger.info(f"Experiment directory will be: {self.experiment_dir}")
             
         except Exception as e:
             logger.error(f"Error loading config from {yaml_path}: {e}")
             raise e
+    
+    def create_directories(self):
+        """Create all required directories. Call this after configuration is fully loaded."""
+        if not hasattr(self, 'experiment_dir') or not self.experiment_dir:
+            logger.warning("No experiment_dir set, using default structure")
+            self._create_default_directories()
+        
+        # Ensure all directory paths are set
+        if not hasattr(self, 'log_dir'):
+            self.log_dir = os.path.join(self.experiment_dir, "logs")
+        if not hasattr(self, 'save_dir'):
+            self.save_dir = os.path.join(self.experiment_dir, "models")
+        if not hasattr(self, 'checkpoint_dir'):
+            self.checkpoint_dir = self.experiment_dir
+        if not hasattr(self, 'pred_save_dir'):
+            self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
+        
+        # Create all directories
+        os.makedirs(self.experiment_dir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        os.makedirs(self.pred_save_dir, exist_ok=True)
+        
+        # Log the created directories
+        logger.info(f"Created experiment directory: {self.experiment_dir}")
+        logger.info(f"Created log directory: {self.log_dir}")
+        logger.info(f"Created model save directory: {self.save_dir}")
+        logger.info(f"Created checkpoint directory: {self.checkpoint_dir}")
+        logger.info(f"Created prediction save directory: {self.pred_save_dir}")
     
     def to_dict(self):
         """Convert configuration to dictionary."""
@@ -2382,10 +2377,8 @@ def main():
     for key, value in config.to_dict().items():
         logger.info(f"  {key}: {value}")
     
-    # Ensure experiment directory exists (should already be created by load_from_yaml)
-    if not os.path.exists(config.experiment_dir):
-        os.makedirs(config.experiment_dir, exist_ok=True)
-        logger.info(f"Created experiment directory: {config.experiment_dir}")
+    # Create all required directories after configuration is fully loaded
+    config.create_directories()
     config_path = os.path.join(config.experiment_dir, "config.yaml")
     config.save(config_path)
     logger.info(f"Configuration saved to {config_path}")

@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_mean_pool_tb_classifier_fold1"
-experiment_dir: "./ablation_results/checkpoints/mean_pool/ablation_mean_pool_tb_classifier_fold1"
+experiment_dir: "./ablation_results/mean_pool/fold1_ablation_mean_pool_tb_classifier"
 model_name: "ablation_mean_pool_tb_classifier_fold1"
 device: "cuda"  # "cuda" or "cpu"
 model_name: "ablation_mean_pool_tb_classifier_fold1"

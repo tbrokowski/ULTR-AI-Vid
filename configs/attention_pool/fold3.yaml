@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_attention_pool_tb_classifier_fold3"
-experiment_dir: "./ablation_results/checkpoints/attention_pool/ablation_attention_pool_tb_classifier_fold3"
+experiment_dir: "./ablation_results/attention_pool/fold3_ablation_attention_pool_tb_classifier"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 
