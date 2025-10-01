@@ -1182,7 +1182,7 @@ class AblationTrainer:
                 cm = confusion_matrix(tb_targets, tb_predictions)
                 logger.info(f"\nConfusion Matrix for TB ({split_name}):\n{cm}")
                 
-                report = classification_report(tb_targets, tb_predictions)
+                report = classification_report(tb_targets, tb_predictions, zero_division=0)
                 logger.info(f"\nClassification Report for TB ({split_name}):\n{report}")
             except Exception as e:
                 logger.warning(f"Could not compute confusion matrix or classification report: {e}")
@@ -1313,7 +1313,7 @@ class AblationTrainer:
 
     def save_checkpoint(self, epoch, metrics, is_best=False):
         """Save checkpoint with TB-focused metrics."""
-        save_dir = pathlib.Path(self.config.experiment_dir)
+        save_dir = pathlib.Path(self.config.checkpoint_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
         
         checkpoint = {
@@ -1465,7 +1465,7 @@ class AblationTrainer:
                     logger.error(f"Failed to load pretrained weights: {e}")
         else:
             # Training mode - load best checkpoint
-            best_model_path = os.path.join(self.config.experiment_dir, "checkpoint_best.pth")
+            best_model_path = os.path.join(self.config.checkpoint_dir, "checkpoint_best.pth")
             if not os.path.exists(best_model_path):
                 logger.warning(f"Best model checkpoint not found at {best_model_path}. Skipping evaluation.")
                 return
@@ -1899,16 +1899,42 @@ class AblationTrainer:
         
         if self.use_pathology_loss and all_pathology_targets_np and pathology_dim is not None:
             try:
-                pathology_targets = np.vstack(all_pathology_targets_np)
-                pathology_logits = np.vstack(all_pathology_logits_np)
-                pathology_probs = np.vstack(all_pathology_probs_np)
-                pathology_preds = np.vstack(all_pathology_preds_np)
+                # Check and pad arrays to have consistent dimensions
+                max_dim = max(arr.shape[1] for arr in all_pathology_targets_np)
+                
+                # Pad arrays to have consistent dimensions
+                padded_targets = []
+                padded_logits = []
+                padded_probs = []
+                padded_preds = []
+                
+                for targets, logits, probs, preds in zip(all_pathology_targets_np, all_pathology_logits_np, all_pathology_probs_np, all_pathology_preds_np):
+                    if targets.shape[1] < max_dim:
+                        # Pad with zeros
+                        pad_width = max_dim - targets.shape[1]
+                        targets = np.pad(targets, ((0, 0), (0, pad_width)), mode='constant', constant_values=0)
+                        logits = np.pad(logits, ((0, 0), (0, pad_width)), mode='constant', constant_values=0)
+                        probs = np.pad(probs, ((0, 0), (0, pad_width)), mode='constant', constant_values=0)
+                        preds = np.pad(preds, ((0, 0), (0, pad_width)), mode='constant', constant_values=0)
+                    
+                    padded_targets.append(targets)
+                    padded_logits.append(logits)
+                    padded_probs.append(probs)
+                    padded_preds.append(preds)
+                
+                pathology_targets = np.vstack(padded_targets)
+                pathology_logits = np.vstack(padded_logits)
+                pathology_probs = np.vstack(padded_probs)
+                pathology_preds = np.vstack(padded_preds)
+                
+                # Use the smaller of pathology_dim and actual max dimension
+                effective_dim = min(pathology_dim, max_dim)
                 
                 pathology_class_names = getattr(self.config, 'pathology_classes', [
-                    f"pathology_{i}" for i in range(pathology_dim)])
+                    f"pathology_{i}" for i in range(effective_dim)])
                 
                 for i, class_name in enumerate(pathology_class_names):
-                    if i < pathology_targets.shape[1]:
+                    if i < pathology_targets.shape[1] and i < effective_dim:
                         class_targets = pathology_targets[:, i]
                         class_preds = pathology_preds[:, i]
                         class_probs = pathology_probs[:, i]
@@ -1972,7 +1998,7 @@ class AblationTrainer:
             cm = confusion_matrix(targets, predictions)
             logger.info(f"\nConfusion Matrix ({name}):\n{cm}")
             
-            report = classification_report(targets, predictions)
+            report = classification_report(targets, predictions, zero_division=0)
             logger.info(f"\nClassification Report ({name}):\n{report}")
             
             class_counts = pd.Series(targets).value_counts()
@@ -2204,7 +2230,7 @@ class Config:
             # Update directory paths to be within experiment_dir
             self.log_dir = os.path.join(self.experiment_dir, "logs")
             self.save_dir = os.path.join(self.experiment_dir, "models")
-            self.checkpoint_dir = self.experiment_dir
+            self.checkpoint_dir = os.path.join(self.experiment_dir, "checkpoints")
             self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
     
     def load_from_yaml(self, yaml_path):
@@ -2230,7 +2256,7 @@ class Config:
             # Update directory paths to be within experiment_dir
             self.log_dir = os.path.join(self.experiment_dir, "logs")
             self.save_dir = os.path.join(self.experiment_dir, "models")
-            self.checkpoint_dir = self.experiment_dir  # Keep checkpoints at experiment_dir level
+            self.checkpoint_dir = os.path.join(self.experiment_dir, "checkpoints")
             self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
             
             logger.info(f"Configuration successfully loaded from {yaml_path}")
@@ -2252,7 +2278,7 @@ class Config:
         if not hasattr(self, 'save_dir'):
             self.save_dir = os.path.join(self.experiment_dir, "models")
         if not hasattr(self, 'checkpoint_dir'):
-            self.checkpoint_dir = self.experiment_dir
+            self.checkpoint_dir = os.path.join(self.experiment_dir, "checkpoints")
         if not hasattr(self, 'pred_save_dir'):
             self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
         
@@ -2309,6 +2335,9 @@ def parse_args_and_load_config():
     parser.add_argument('--best_model_path', type=str, help='Path to best model for evaluation')
     parser.add_argument('--resume_from_checkpoint', type=str, help='Path to checkpoint to resume from')
     
+    # Data arguments
+    parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory')
+    
     # Mode arguments
     parser.add_argument('--train', action='store_true', default=True, help='Train mode')
     parser.add_argument('--eval_only', action='store_true', help='Evaluation only mode')
@@ -2360,6 +2389,10 @@ def parse_args_and_load_config():
     if args.resume_from_checkpoint is not None:
         config.resume_from_checkpoint = args.resume_from_checkpoint
         logger.info(f"Override resume_from_checkpoint: {args.resume_from_checkpoint}")
+        
+    if args.video_folder is not None:
+        config.video_folder = args.video_folder
+        logger.info(f"Override video_folder: {args.video_folder}")
         
     if args.eval_only:
         config.train = False
@@ -2427,24 +2460,24 @@ if __name__ == "__main__":
 
 
 # # 3D CNN ablation
-# python3 train_ablation.py --config configs/3dcnn/fold0.yaml
+# python3 train_ablation.py --config configs/3dcnn/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # CNN-LSTM ablation
-# python3 train_ablation.py --config configs/cnnlstm/fold0.yaml
+# python3 train_ablation.py --config configs/cnnlstm/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Video Transformer (ViViT) ablation
-# python3 train_ablation.py --config configs/vivit/fold0.yaml
+# python3 train_ablation.py --config configs/vivit/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 
 # # Attention pooling ablation
-# python3 train_ablation.py --config configs/attention_pool/fold0.yaml
+# python3 train_ablation.py --config configs/attention_pool/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Mean pooling ablation
-# python3 train_ablation.py --config configs/mean_pool/fold4.yaml
+# python3 train_ablation.py --config configs/mean_pool/fold4.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Single task ablation
-# python3 train_ablation.py --config configs/singletask/fold0.yaml
+# python3 train_ablation.py --config configs/singletask/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Uniform/No-RL ablation
-# python3 train_ablation.py --config configs/uniform/tb_drl_mil_Final_fold0.yaml
+# python3 train_ablation.py --config configs/uniform/tb_drl_mil_Final_fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
