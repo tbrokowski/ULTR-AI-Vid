@@ -1,3 +1,43 @@
+"""
+Multimodal Uncertainty Quantification for Tuberculosis Classification
+
+This module implements comprehensive uncertainty quantification methods for
+tuberculosis classification using multimodal data (clinical + imaging).
+It provides various approaches to capture model uncertainty including
+Monte Carlo Dropout, Deep Ensembles, and Bayesian Neural Networks.
+
+The module supports 13 different model architectures for comparative analysis:
+- Basic models: Clinical-only, Video-only, Simple multimodal
+- Advanced fusion: Early, late, and attention-based fusion
+- Uncertainty methods: MC Dropout variants, ensemble approaches
+- Specialized: Bayesian networks, variational approaches
+
+Key Features:
+    - Comprehensive uncertainty quantification methods
+    - Multiple multimodal fusion strategies
+    - Cross-validation with detailed evaluation metrics
+    - Calibration analysis for reliability assessment
+    - Uncertainty visualization and interpretation tools
+    - Clinical decision support with confidence estimates
+
+Dependencies:
+    - PyTorch (>=1.9.0)
+    - scikit-learn for metrics and calibration
+    - matplotlib for visualization
+    - Custom dataset and models modules
+
+Examples
+--------
+>>> # Run full experimental pipeline
+>>> config = {
+...     'clinical_data_path': 'clinical_data.csv',
+...     'base_h5_path': 'video_features/',
+...     'num_folds': 5,
+...     'epochs': 100
+... }
+>>> results = run_cross_validation(config)
+"""
+
 import os
 import json
 import argparse

@@ -1,3 +1,45 @@
+"""
+CLIP-DRL Multi-Task Learning Architecture for Lung Ultrasound Analysis
+
+This module implements the core CLIP-DRL (Contrastive Language-Image Pre-training
+with Deep Reinforcement Learning) architecture for multi-task lung ultrasound
+video analysis. The system combines CLIP features with reinforcement learning
+for optimal frame selection and multiple instance learning for video-level
+predictions.
+
+Key Architecture Components:
+    - CLIP Vision Encoder: Pre-trained visual feature extraction
+    - Reinforcement Learning Frame Selector: Learns optimal frame selection policy
+    - Multi-Scale Feature Extraction: Captures features at different scales
+    - Site Integration: Aggregates information across ultrasound probe sites
+    - Multi-Task Classifiers: Handles TB, Pneumonia, COVID-19 classification
+    - Pathology Detection: Auxiliary task for ultrasound pathology identification
+
+The architecture is designed for patient-level classification from multi-site
+lung ultrasound videos, where each patient may have videos from multiple
+anatomical sites (probe positions) and the model must learn to aggregate
+information appropriately.
+
+Key Features:
+    - Reinforcement learning for adaptive frame selection
+    - Multi-task learning with shared representations
+    - Attention mechanisms for site and frame importance weighting
+    - Memory-efficient processing for long video sequences
+    - Robust training with gradient clipping and normalization
+
+Dependencies:
+    - PyTorch (>=1.9.0)
+    - transformers for CLIP model components
+    - safetensors for model loading
+    - NumPy for numerical operations
+
+Notes
+-----
+This is the main production model architecture. For ablation studies and
+component analysis, see ablation_models.py which provides simplified
+versions and alternative approaches.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,7 +58,53 @@ logger = logging.getLogger(__name__)
 
 
 class RewardNormalizer:
-    """Tracks reward statistics and normalizes rewards."""
+    """
+    Reward normalization for reinforcement learning training stability.
+    
+    This class maintains running statistics of rewards during RL training
+    and provides normalization to improve training stability. Reward
+    normalization is crucial for RL algorithms as it helps maintain
+    consistent gradient magnitudes and prevents reward scale issues.
+    
+    The normalizer uses exponential moving averages to track reward
+    statistics and applies standardization (zero mean, unit variance)
+    to incoming rewards.
+    
+    Parameters
+    ----------
+    momentum : float, default=0.99
+        Momentum factor for exponential moving average updates.
+        Higher values give more weight to historical statistics.
+    epsilon : float, default=1e-5
+        Small constant added to variance for numerical stability
+        
+    Attributes
+    ----------
+    mean : float
+        Running average of reward values
+    var : float
+        Running variance of reward values
+    count : int
+        Total number of reward samples seen
+        
+    Methods
+    -------
+    update(rewards)
+        Update running statistics with new batch of rewards
+    normalize(reward)
+        Normalize a reward value using current statistics
+        
+    Notes
+    -----
+    The normalizer only applies normalization after seeing at least 10
+    samples to ensure statistical estimates are reasonably stable.
+    
+    Examples
+    --------
+    >>> normalizer = RewardNormalizer(momentum=0.99)
+    >>> normalizer.update([1.5, 2.0, 1.8, 2.2])
+    >>> normalized_reward = normalizer.normalize(1.9)
+    """
     
     def __init__(self, momentum=0.99, epsilon=1e-5):
         self.mean = 0.0
@@ -26,7 +114,18 @@ class RewardNormalizer:
         self.epsilon = epsilon
     
     def update(self, rewards):
-        """Update statistics with new rewards."""
+        """
+        Update running statistics with new batch of rewards.
+        
+        Parameters
+        ----------
+        rewards : torch.Tensor or array-like
+            Batch of reward values to incorporate into statistics
+            
+        Notes
+        -----
+        Uses Welford's online algorithm for stable variance computation.
+        """
         if isinstance(rewards, torch.Tensor):
             rewards = rewards.detach().cpu().numpy()
         
@@ -34,18 +133,34 @@ class RewardNormalizer:
         batch_var = np.var(rewards)
         batch_count = len(rewards)
         
-        # Update running statistics
+        # Update running statistics using online algorithm
         self.count += batch_count
         delta = batch_mean - self.mean
         self.mean = self.mean + delta * batch_count / max(self.count, 1)
         
-        # Update variance
+        # Update variance using Welford's method
         new_weight = batch_count / max(self.count, 1)
         self.var = (1 - new_weight) * self.var + new_weight * batch_var + \
                    new_weight * (1 - new_weight) * delta ** 2
     
     def normalize(self, reward):
-        """Normalize a reward using current statistics."""
+        """
+        Normalize a reward using current running statistics.
+        
+        Parameters
+        ----------
+        reward : float or torch.Tensor
+            Reward value to normalize
+            
+        Returns
+        -------
+        float or torch.Tensor
+            Normalized reward (zero mean, unit variance)
+            
+        Notes
+        -----
+        Returns original reward if fewer than 10 samples have been seen.
+        """
         if self.count > 10:  # Only normalize after seeing enough samples
             return (reward - self.mean) / (np.sqrt(self.var) + self.epsilon)
         return reward
@@ -757,14 +872,70 @@ class DeepAttentionMIL(nn.Module):
 
 class MultiTaskModel(nn.Module):
     """
-    Updated TB_DRL_MODEL that maintains original architecture but provides
-    the interface expected by the new training system.
+    Multi-Task Learning Model for Lung Ultrasound Video Classification.
     
-    This model:
-    - Keeps the original TB classification + pathology detection architecture
-    - Returns task_logits dict instead of tb_logits for compatibility
-    - Maintains all original functionality
-    - Works with the new training structure
+    This is the main model architecture that combines CLIP vision features with
+    deep reinforcement learning for optimal frame selection and multiple instance
+    learning for patient-level predictions. The model supports multi-task learning
+    for tuberculosis, pneumonia, and COVID-19 classification with pathology detection
+    as an auxiliary task.
+    
+    The architecture pipeline:
+    1. CLIP Vision Encoder: Extracts features from individual video frames
+    2. Frame Selection Agent: RL-based selection of most informative frames
+    3. Multi-Scale Feature Extraction: Captures features at different temporal scales
+    4. Site Integration: Aggregates information across multiple probe sites
+    5. Patient-Level MIL: Multiple instance learning for video-level prediction
+    6. Task Classifiers: Disease-specific classification heads
+    7. Pathology Modules: Auxiliary pathology detection (A-line, consolidations, etc.)
+    
+    Parameters
+    ----------
+    config : object
+        Configuration object containing model hyperparameters and settings
+        
+    Attributes
+    ----------
+    vision_encoder : CLIPVisionModel
+        Pre-trained CLIP vision encoder for frame feature extraction
+    frame_selector : FrameSelectionAgent
+        Reinforcement learning agent for optimal frame selection
+    pathology_modules : nn.ModuleList
+        List of pathology detection modules for auxiliary tasks
+    task_classifiers : nn.ModuleDict
+        Dictionary of disease-specific classification heads
+    patient_mil : DeepAttentionMIL
+        Multiple instance learning module for patient-level aggregation
+    site_integration : SiteIntegrationModule
+        Module for integrating information across ultrasound probe sites
+        
+    Methods
+    -------
+    forward(inputs)
+        Forward pass through the complete model pipeline
+    compute_losses(outputs, targets, task_pos_weights)
+        Compute multi-task losses including RL rewards
+    extract_features(site_videos)
+        Extract CLIP features from video frames
+    select_frames(features, masks)
+        Use RL agent to select optimal frames
+        
+    Examples
+    --------
+    >>> config = ModelConfig()
+    >>> model = MultiTaskModel(config)
+    >>> outputs = model(inputs)
+    >>> loss, components = model.compute_losses(outputs, targets, pos_weights)
+    
+    Notes
+    -----
+    The model is designed for patient-level classification where each patient
+    may have videos from multiple anatomical sites. The RL frame selection
+    learns to identify the most diagnostically relevant frames automatically.
+    
+    The multi-task setup allows joint learning of related tasks, potentially
+    improving performance through shared representations while the pathology
+    detection provides additional supervision signals.
     """
     
     def __init__(self, config):
@@ -779,7 +950,7 @@ class MultiTaskModel(nn.Module):
         self.num_sites = getattr(config, 'num_sites', 15)
         self.device = getattr(config, 'device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
         
-        # For compatibility with new training system
+        # Multi-task configuration
         self.active_tasks = getattr(config, 'active_tasks', ['TB Label'])
         self.use_pathology_loss = getattr(config, 'use_pathology_loss', True)
         self.task_weights = getattr(config, 'task_weights', {'TB Label': 1.0})
@@ -795,6 +966,7 @@ class MultiTaskModel(nn.Module):
             torch_dtype=torch.float32
         )
 
+        # Feature noise for regularization during training
         self.feature_noise_std = 0.05
         
         # Load local weights if available

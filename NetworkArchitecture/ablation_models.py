@@ -1,3 +1,46 @@
+"""
+Ablation Study Models for Lung Ultrasound Classification
+
+This module implements various model architectures for ablation studies in
+lung ultrasound video analysis. It provides alternative approaches to frame
+selection and video analysis to evaluate the contribution of different
+components in the main CLIP-DRL-MIL architecture.
+
+The module includes:
+- Frame selection strategies (uniform, mean pooling, attention-based)
+- Alternative video analysis architectures (3D CNN, CNN-LSTM, ViT)
+- Simplified versions of the main model for component analysis
+- Baseline models for performance comparison
+
+Key Components:
+    Frame Selectors:
+        - UniformFrameSelector: Uniform temporal subsampling
+        - MeanPoolingSelector: Average pooling across frames
+        - AttentionFrameSelector: Attention-based frame selection
+    
+    Video Models:
+        - CNN3DModel: 3D convolutional approach
+        - CNNLSTMModel: CNN feature extraction + LSTM temporal modeling
+        - VideoTransformerModel: Vision Transformer for video analysis
+    
+    Simplified Models:
+        - NoRLModel: Main architecture without RL frame selection
+        - SingleTaskModel: Single-task version for comparison
+
+Dependencies:
+    - PyTorch (>=1.9.0)
+    - torchvision for pretrained models
+    - transformers for CLIP and VideoMAE models
+    - safetensors for model loading
+    - Original CLIP_DRL_Aug11 components
+
+Notes
+-----
+These models are designed for ablation studies to understand the contribution
+of different architectural components. They share interfaces with the main
+model to enable fair comparison while isolating specific design choices.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,7 +70,57 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 class UniformFrameSelector(nn.Module):
-    """No-RL baseline: Uniform temporal subsampling of k frames per site."""
+    """
+    Uniform temporal frame sampling baseline for ablation studies.
+    
+    This class implements a simple uniform temporal subsampling strategy
+    that serves as a baseline for comparing against more sophisticated
+    frame selection methods like reinforcement learning or attention-based
+    approaches.
+    
+    The selector uniformly samples k frames from each video sequence and
+    applies a learned projection to extract relevant features. This provides
+    a deterministic, learning-free baseline for temporal frame selection.
+    
+    Parameters
+    ----------
+    feature_dim : int, default=768
+        Dimensionality of input features from backbone model
+    output_dim : int, default=512
+        Dimensionality of output projected features
+    k_frames : int, default=3
+        Number of frames to uniformly sample from each sequence
+    **kwargs
+        Additional keyword arguments for compatibility
+        
+    Attributes
+    ----------
+    feature_projection : nn.Sequential
+        Neural network for projecting features to output dimension
+    saved_actions : list
+        Compatibility attribute for RL interface
+    temperature : float
+        Compatibility attribute for temperature-based selection
+        
+    Methods
+    -------
+    forward(site_features, site_masks=None)
+        Perform uniform frame selection and feature projection
+    get_temperature()
+        Return current temperature (compatibility method)
+        
+    Notes
+    -----
+    This baseline helps evaluate whether sophisticated frame selection
+    strategies provide meaningful improvements over simple uniform sampling.
+    The uniform sampling ensures temporal coverage while avoiding any
+    learned biases in frame selection.
+    
+    Examples
+    --------
+    >>> selector = UniformFrameSelector(feature_dim=768, k_frames=5)
+    >>> selected_features = selector(video_features, masks)
+    """
     
     def __init__(self, feature_dim=768, output_dim=512, k_frames=3, **kwargs):
         super().__init__()
@@ -35,17 +128,26 @@ class UniformFrameSelector(nn.Module):
         self.output_dim = output_dim
         self.k_frames = k_frames
         
+        # Feature projection network for dimensionality reduction
         self.feature_projection = nn.Sequential(
             nn.Linear(feature_dim, output_dim),
             nn.LayerNorm(output_dim),
             nn.Tanh()
         )
         
-        # Compatibility attributes
+        # Compatibility attributes for RL interface
         self.saved_actions = []
         self.temperature = 1.0
     
     def get_temperature(self):
+        """
+        Return current temperature value for compatibility.
+        
+        Returns
+        -------
+        float
+            Current temperature value (always 1.0 for uniform selection)
+        """
         return self.temperature
     
     def clear_history(self):

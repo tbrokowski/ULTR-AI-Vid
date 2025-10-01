@@ -1,3 +1,26 @@
+"""
+Multi-Task Tuberculosis Classification Training Module
+
+This module implements a comprehensive training pipeline for tuberculosis (TB) classification
+using multi-task learning with reinforcement learning-based frame selection. The system
+combines CLIP (Contrastive Language-Image Pre-training) features with Deep Reinforcement
+Learning (DRL) and Multiple Instance Learning (MIL) for analyzing lung ultrasound videos.
+
+Key Features:
+    - Multi-task learning supporting TB, Pneumonia, and COVID-19 classification
+    - Reinforcement learning-based frame selection for optimal video analysis
+    - Multiple instance learning for handling video-level predictions
+    - Pathology classification as auxiliary task
+    - Advanced optimization with gradient accumulation and mixed precision training
+    - Comprehensive evaluation with uncertainty quantification
+
+Dependencies:
+    - PyTorch (>=1.9.0)
+    - scikit-learn (>=0.24.0)
+    - NumPy, Pandas, Matplotlib, Seaborn
+    - Custom modules: CLIP_DRL_Aug11, dataset_multitask, OOMHandler
+"""
+
 import os
 import sys
 import time
@@ -54,15 +77,104 @@ import gc
 import torch.cuda
 
 def optimize_memory():
-    """Free up memory cache."""
+    """
+    Optimize GPU memory usage by clearing cache and forcing garbage collection.
+    
+    This function helps prevent out-of-memory errors during training by
+    clearing Python's garbage collector and PyTorch's CUDA cache.
+    Should be called periodically during training, especially after
+    validation or when memory usage is high.
+    
+    Notes
+    -----
+    This is a utility function that should be used sparingly as frequent
+    calls can impact performance. Best used between training epochs or
+    after large batch processing.
+    """
     gc.collect()
     torch.cuda.empty_cache()
 
 
 class TBTrainer:
-    """TB-focused trainer using the modern multi-task architecture with single optimizer RL."""
+    """
+    Tuberculosis Classification Trainer with Multi-Task Learning and Reinforcement Learning.
+    
+    This class implements a comprehensive training pipeline for tuberculosis classification
+    from lung ultrasound videos using a multi-task learning framework. The system combines
+    CLIP features with Deep Reinforcement Learning for optimal frame selection and Multiple
+    Instance Learning for video-level predictions.
+    
+    The trainer supports multiple classification tasks (TB, Pneumonia, COVID-19) with
+    pathology detection as an auxiliary task. It uses reinforcement learning to learn
+    optimal frame selection policies and includes advanced training features like
+    gradient accumulation, mixed precision training, and early stopping.
+    
+    Parameters
+    ----------
+    config : object
+        Configuration object containing all training parameters, model architecture
+        settings, data paths, and hyperparameters.
+        
+    Attributes
+    ----------
+    device : torch.device
+        Device for training (CPU/GPU)
+    model : MultiTaskModel
+        The multi-task neural network model
+    optimizers : dict
+        Dictionary of optimizers for different model components
+    best_metric : float
+        Best validation metric achieved during training
+    best_epoch : int
+        Epoch number where best metric was achieved
+    active_tasks : list
+        List of active classification tasks
+    use_pathology_loss : bool
+        Whether to include pathology classification loss
+    selection_strategy : str
+        Frame selection strategy ('RL' for reinforcement learning)
+    reward_params : dict
+        Parameters for RL reward calculation
+        
+    Methods
+    -------
+    train(resume_from_checkpoint=None)
+        Execute the complete training loop
+    validate(epoch, loader=None, split_name="val")
+        Perform model validation on given dataset
+    _setup_data()
+        Initialize data loaders and data module
+    _setup_model()
+        Initialize and configure the model
+    _setup_training()
+        Setup optimizers and training components
+        
+    Examples
+    --------
+    >>> from config import Config
+    >>> config = Config()
+    >>> trainer = TBTrainer(config)
+    >>> best_metric, best_epoch = trainer.train()
+    
+    Notes
+    -----
+    The trainer implements a sophisticated multi-task learning approach where:
+    - Primary tasks: TB, Pneumonia, COVID-19 classification
+    - Auxiliary task: Pathology detection (A-line, consolidations, etc.)
+    - Frame selection: RL-based policy for optimal video frame selection
+    - Training strategy: Component-specific optimization with single RL optimizer
+    """
     
     def __init__(self, config):
+        """
+        Initialize the TB trainer with configuration.
+        
+        Parameters
+        ----------
+        config : object
+            Configuration object containing training parameters, model settings,
+            data paths, and hyperparameters.
+        """
         self.config = config
         self.device = config.device
         
@@ -105,7 +217,23 @@ class TBTrainer:
         self._setup_training()
 
     def _set_seed(self, seed):
-        """Set random seed for reproducibility."""
+        """
+        Set random seed for reproducible experiments.
+        
+        Parameters
+        ----------
+        seed : int
+            Random seed value to use for all random number generators.
+            
+        Notes
+        -----
+        Sets seeds for:
+        - Python's random module
+        - NumPy random number generator
+        - PyTorch CPU random number generator
+        - PyTorch CUDA random number generators (if available)
+        - cuDNN deterministic mode for reproducible results
+        """
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -116,7 +244,27 @@ class TBTrainer:
             torch.backends.cudnn.benchmark = False
     
     def _setup_data(self):
-        """Set up the data module with updated structure."""
+        """
+        Initialize data loaders and data module for training.
+        
+        Sets up the lung ultrasound data module with patient-level data loaders
+        for training, validation, and testing. Configures data preprocessing
+        parameters including frame sampling, depth filtering, and site handling.
+        
+        Notes
+        -----
+        The data module handles:
+        - Multi-site video loading with optional padding for missing sites
+        - Frame sampling from videos (default: 32 frames)
+        - Depth filtering for ultrasound probe positioning
+        - Patient-level aggregation for classification tasks
+        - Batch processing with configurable batch sizes
+        
+        The setup creates three data loaders:
+        - self.train_loader: Training data
+        - self.val_loader: Validation data  
+        - self.test_loader: Test data
+        """
         self.data_module = LungUltrasoundDataModule(
             root_dir=self.config.root_dir,
             labels_csv=self.config.labels_csv,
@@ -148,7 +296,27 @@ class TBTrainer:
         logger.info(f"Test dataset size: {len(self.data_module.patient_test)}")
     
     def _setup_model(self):
-        """Set up the model configured for TB classification."""
+        """
+        Initialize and configure the multi-task model for TB classification.
+        
+        Sets up the MultiTaskModel with CLIP-DRL architecture for tuberculosis
+        classification. Handles model initialization, pretrained weight loading,
+        device placement, and optional monitoring setup.
+        
+        The model architecture includes:
+        - CLIP backbone for feature extraction
+        - Deep reinforcement learning for frame selection
+        - Multiple instance learning for video-level predictions
+        - Multi-task heads for TB, pneumonia, COVID-19 classification
+        - Pathology detection auxiliary task
+        
+        Notes
+        -----
+        If pretrained weights are specified in config.model_weights, attempts
+        to load them. Falls back to random initialization if loading fails.
+        Sets up optional monitoring for RL training and gradient analysis
+        if monitoring utilities are available.
+        """
         
         # The updated MultiTaskModel handles TB classification + pathology with the new interface
         self.model = MultiTaskModel(self.config)
@@ -189,7 +357,32 @@ class TBTrainer:
                 pass  
 
     def _setup_training(self):
-        """Set up optimizers with component-specific optimization using SINGLE RL optimizer."""
+        """
+        Initialize optimizers and training components with component-specific optimization.
+        
+        Sets up separate optimizers for different model components to enable
+        component-specific learning rates and optimization strategies. Uses a
+        single reinforcement learning optimizer for the frame selection policy.
+        
+        The training setup includes:
+        - Backbone optimizer: For CLIP vision encoder and feature extraction
+        - Pathology optimizers: Separate optimizers for each pathology module
+        - Patient pipeline optimizer: For site integration and MIL components
+        - Task classifier optimizer: For disease classification heads
+        - RL optimizer: Single optimizer for frame selection policy
+        
+        Optimizer Configuration:
+        - AdamW optimizer with configurable learning rates
+        - Component-specific weight decay settings
+        - Gradient accumulation for large effective batch sizes
+        - Mixed precision training support
+        
+        Notes
+        -----
+        The component-specific optimization allows different parts of the model
+        to learn at different rates, which is crucial for the multi-task learning
+        setup where some components may need more aggressive optimization than others.
+        """
 
         backbone_params = []      
         pathology_params = []    
@@ -200,6 +393,7 @@ class TBTrainer:
         num_pathology_modules = len(self.model.pathology_modules) if self.model.pathology_modules else 0
         pathology_module_params = [[] for _ in range(num_pathology_modules)]
         
+        # Organize parameters by model component for targeted optimization
         for name, param in self.model.named_parameters():
             if 'vision_encoder' in name and param.requires_grad:
                 backbone_params.append(param)
@@ -218,7 +412,7 @@ class TBTrainer:
             elif any(component in name for component in ['site_integration', 'patient_mil', 'cross_site_attention']):
                 patient_pipeline_params.append(param)
         
-        # Backbone optimizer
+        # Backbone optimizer - handles feature extraction components
         self.backbone_optimizer = optim.AdamW(
             backbone_params,
             lr=getattr(self.config, 'backbone_lr', 0.00001),  
@@ -927,23 +1121,64 @@ class TBTrainer:
 
     def train_epoch(self, epoch):
         """
-        TB-focused training epoch using the modern training structure.
+        Execute one training epoch with multi-task learning and RL frame selection.
+        
+        This method implements the core training loop for one epoch, handling:
+        - Multi-task loss computation (TB, pneumonia, COVID-19, pathology)
+        - Reinforcement learning frame selection with reward computation
+        - Gradient accumulation for memory efficiency
+        - Mixed precision training for performance
+        - Component-specific optimization with different learning rates
+        
+        The training process includes temperature annealing for RL exploration,
+        comprehensive loss tracking, and gradient clipping for stability.
+        
+        Parameters
+        ----------
+        epoch : int
+            Current epoch number (0-indexed)
+            
+        Returns
+        -------
+        tuple
+            (average_total_loss, metrics_dict) where metrics_dict contains
+            detailed training metrics for all tasks
+            
+        Notes
+        -----
+        The epoch training follows this structure:
+        1. Set model to training mode and reset epoch state
+        2. Update RL temperature with decay schedule
+        3. Process batches with gradient accumulation
+        4. Compute multi-task losses and RL rewards
+        5. Perform component-specific optimization steps
+        6. Track and log comprehensive training metrics
+        
+        For memory efficiency, gradients are accumulated over multiple
+        mini-batches before performing optimization steps. This allows
+        training with larger effective batch sizes on limited GPU memory.
+        
+        Examples
+        --------
+        >>> trainer = TBTrainer(config)
+        >>> loss, metrics = trainer.train_epoch(epoch=5)
+        >>> print(f"Epoch 5 loss: {loss:.4f}")
         """
         self.model.train()
         self.epoch = epoch
         
+        # Update RL temperature with decay schedule for exploration control
         if self.selection_strategy == 'RL' and hasattr(self.model.frame_selector, 'update_temperature'):
             decay_rate = getattr(self.config, 'temperature_decay', 0.995)
             new_temp = self.model.frame_selector.update_temperature(decay=decay_rate)
             logger.info(f"Frame selection temperature: {new_temp:.4f} (epoch {epoch+1}) [decay: {decay_rate}]")
             
-            # ADDED: Prevent temperature from getting too low too fast
+            # Prevent temperature from decreasing too rapidly in early training
             if new_temp < 0.3 and epoch < 5:  # Keep higher temp for first 5 epochs
                 self.model.frame_selector.temperature = max(new_temp, 0.5)
                 logger.info(f"Temperature adjusted to: {self.model.frame_selector.temperature:.4f} (early training)")
 
-
-        # Reset model state
+        # Reset model state for new epoch
         self._reset_for_epoch()
         
         # Initialize tracking metrics
@@ -1457,7 +1692,46 @@ class TBTrainer:
 
     def validate(self, epoch, loader=None, split_name="val"):
         """
-        TB-focused validation.
+        Perform comprehensive validation on specified dataset split.
+        
+        This method evaluates the model on validation or test data without
+        gradient updates. It computes detailed metrics for all active tasks
+        including TB classification and pathology detection, providing
+        comprehensive performance assessment.
+        
+        Parameters
+        ----------
+        epoch : int
+            Current epoch number for logging purposes
+        loader : DataLoader, optional
+            Data loader to use for validation. If None, uses self.val_loader
+        split_name : str, default="val"
+            Name of the data split being evaluated ("val", "test", "train")
+            
+        Returns
+        -------
+        tuple
+            (average_loss, metrics_dict) where metrics_dict contains detailed
+            performance metrics for all tasks
+            
+        Notes
+        -----
+        Validation Process:
+        1. Set model to evaluation mode (disables dropout, batch norm updates)
+        2. Process batches without gradient computation
+        3. Collect predictions and targets for all tasks
+        4. Compute comprehensive metrics (AUC, AUPRC, F1, accuracy, etc.)
+        5. Handle pathology multi-label classification if enabled
+        6. Return aggregated metrics for monitoring and early stopping
+        
+        The method handles missing data gracefully and provides detailed
+        logging of performance across all tasks and pathology classes.
+        
+        Examples
+        --------
+        >>> trainer = TBTrainer(config)
+        >>> val_loss, val_metrics = trainer.validate(epoch=5, split_name="val")
+        >>> print(f"TB AUC: {val_metrics['TB Label_auc']:.4f}")
         """
         if loader is None:
             loader = self.val_loader
@@ -1465,12 +1739,13 @@ class TBTrainer:
         self.model.eval()
         running_loss = 0.0
 
-        # TB tracking
+        # Initialize tracking variables for TB classification
         all_tb_targets = []
         all_tb_predictions = []
         all_tb_logits = []
         all_tb_probs = []
         
+        # Initialize tracking for pathology detection
         pathology_labels_list = []
         pathology_scores_list = []
         pathology_masks_list = []  
@@ -1768,7 +2043,53 @@ class TBTrainer:
     
     def train(self, resume_from_checkpoint=None):
         """
-        Train the TB classification model.
+        Execute complete training loop for TB classification model.
+        
+        This method orchestrates the entire training process, including:
+        - Training loop with epoch management
+        - Validation and early stopping
+        - Model checkpointing and state management
+        - Learning rate scheduling
+        - Best model tracking and evaluation
+        
+        The training process supports resuming from checkpoints and includes
+        comprehensive logging and monitoring capabilities.
+        
+        Parameters
+        ----------
+        resume_from_checkpoint : str, optional
+            Path to checkpoint file to resume training from. If None,
+            starts training from scratch.
+            
+        Returns
+        -------
+        tuple
+            (best_metric, best_epoch) achieved during training
+            
+        Notes
+        -----
+        Training Loop Structure:
+        1. Initialize or resume from checkpoint
+        2. For each epoch:
+           - Execute training epoch with gradient updates
+           - Perform validation on validation set
+           - Update learning rate schedules
+           - Check for improvement and early stopping
+           - Save checkpoints and best model
+        3. Optionally evaluate best model on all splits
+        
+        Early stopping is triggered when validation metric doesn't improve
+        for config.early_stopping_patience epochs. The best model (by
+        validation metric) is saved and optionally evaluated on all splits.
+        
+        Examples
+        --------
+        >>> trainer = TBTrainer(config)
+        >>> best_auc, best_epoch = trainer.train()
+        >>> print(f"Best AUC: {best_auc:.4f} at epoch {best_epoch}")
+        
+        >>> # Resume training
+        >>> best_auc, best_epoch = trainer.train('checkpoint_epoch_10.pth')
         """
         logger.info(f"Starting TB training with task: {self.active_tasks}")
         logger.info(f"Using {self.selection_strategy} frame selection strategy")
@@ -1776,18 +2097,22 @@ class TBTrainer:
 
         start_epoch = 0
 
+        # Handle checkpoint resumption or fresh start
         if resume_from_checkpoint:
             start_epoch = self.resume_training_from_checkpoint(resume_from_checkpoint)
             logger.info(f"Resuming training from epoch {start_epoch}")
         else:
             logger.info(f"Starting training for {self.config.num_epochs} epochs...")
+            # Initialize tracking metrics based on optimization goal
             self.best_metric = float('-inf') if self.config.eval_metric_goal == 'max' else float('inf')
             self.best_epoch = 0
             self.epochs_without_improvement = 0
 
+        # Main training loop
         for epoch in range(start_epoch, self.config.num_epochs):
             logger.info(f"Epoch {epoch+1}/{self.config.num_epochs}")
             
+            # Execute training epoch
             train_loss, train_metrics = self.train_epoch(epoch)
         
             val_loss, val_metrics = self.validate(epoch)

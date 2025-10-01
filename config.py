@@ -1,3 +1,48 @@
+"""
+Multi-Task Lung Ultrasound Classification Configuration Module
+
+This module provides comprehensive configuration management for multi-task learning
+systems designed for lung ultrasound analysis. It supports various frame selection
+strategies including reinforcement learning, attention mechanisms, and random sampling
+for tuberculosis, pneumonia, and COVID-19 classification tasks.
+
+The configuration system enables flexible experimental setups with different model
+architectures, training strategies, and data processing pipelines while maintaining
+reproducibility and extensibility.
+
+Key Features:
+    - Multi-task classification configuration (TB, Pneumonia, COVID-19)
+    - Reinforcement learning frame selection parameters
+    - Pathology detection auxiliary task settings
+    - Flexible data loading and preprocessing options
+    - Model architecture and training hyperparameter management
+    - YAML configuration file support for experiment reproducibility
+
+Dependencies:
+    - PyTorch (>=1.9.0)
+    - PyYAML for configuration file handling
+    - dataclasses for structured configuration management
+
+Author: ULTR-AI Team
+Date: 2024
+License: MIT
+
+Examples
+--------
+>>> # Basic configuration setup
+>>> config = MultiTaskConfig()
+>>> config.active_tasks = ['TB Label', 'Pneumonia Label']
+>>> config.selection_strategy = 'RL'
+
+>>> # Load from YAML file
+>>> config = MultiTaskConfig()
+>>> config.load_from_yaml('configs/experiment.yaml')
+
+>>> # Override specific parameters
+>>> config.batch_size = 16
+>>> config.learning_rate = 1e-4
+"""
+
 import os
 import yaml
 import torch
@@ -11,8 +56,53 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MultiTaskConfig:
     """
-    Comprehensive configuration class for multi-task lung ultrasound classification
-    with configurable frame selection strategies.
+    Comprehensive configuration class for multi-task lung ultrasound classification.
+    
+    This dataclass provides a structured approach to managing all configuration
+    parameters for the multi-task learning system. It supports various training
+    strategies, model architectures, and data processing options while ensuring
+    type safety and default value management.
+    
+    The configuration is organized into logical sections:
+    - Core experiment settings (paths, device, seed)
+    - Multi-task learning parameters (tasks, weights, loss functions)
+    - Frame selection strategies (RL, attention, random)
+    - Data configuration (paths, preprocessing, augmentation)
+    - Model architecture settings (backbone, dimensions, layers)
+    - Training hyperparameters (optimizers, schedulers, regularization)
+    - Evaluation and logging settings
+    
+    Attributes
+    ----------
+    experiment_name : str
+        Unique identifier for the experiment
+    experiment_dir : str
+        Directory path for saving experiment outputs
+    seed : int
+        Random seed for reproducibility
+    device : str
+        Computing device ('cuda', 'cpu', or specific GPU ID)
+    train : bool
+        Whether to run training (False for evaluation-only mode)
+    active_tasks : List[str]
+        List of classification tasks to include
+    selection_strategy : str
+        Frame selection method ('RL', 'attention', 'random')
+    use_pathology_loss : bool
+        Whether to include pathology detection auxiliary task
+        
+    Notes
+    -----
+    The configuration supports YAML file loading for experiment reproducibility
+    and can be extended with additional parameters as needed. Default values
+    are chosen based on empirical performance across multiple experiments.
+    
+    Examples
+    --------
+    >>> config = MultiTaskConfig()
+    >>> config.active_tasks = ['TB Label', 'Pneumonia Label']
+    >>> config.batch_size = 16
+    >>> config.save_to_yaml('my_experiment.yaml')
     """
     
     # ==========================================

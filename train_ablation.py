@@ -1,3 +1,46 @@
+"""
+Ablation Study Training Module for Lung Ultrasound Classification
+
+This module implements comprehensive ablation studies for the lung ultrasound
+video classification system. It provides alternative model architectures and
+training strategies to evaluate the contribution of different components in
+the main CLIP-DRL-MIL framework.
+
+The ablation studies include:
+- Frame selection strategies: No RL, uniform sampling, mean pooling, attention
+- Video analysis approaches: 3D CNN, CNN-LSTM, Vision Transformers
+- Architecture simplifications: Single-task models, reduced complexity variants
+- Training methodology comparisons: Different optimization strategies
+
+Key Components:
+    AblationTrainer: Main training class for ablation experiments
+    Ablation Models: Simplified versions of the main architecture
+    Evaluation Framework: Comprehensive comparison metrics
+    
+The trainer maintains the same interface as the main training system while
+allowing systematic evaluation of individual architectural components.
+
+Dependencies:
+    - PyTorch (>=1.9.0)
+    - scikit-learn for evaluation metrics
+    - Custom ablation_models module
+    - LungUltrasoundDataModule for data handling
+
+
+Notes
+-----
+This module is specifically designed for ablation studies. For production
+training, use train_clip_drl_mil_Final-2.py which implements the complete
+CLIP-DRL-MIL architecture with all optimizations.
+
+Examples
+--------
+>>> config = AblationConfig()
+>>> config.model_type = 'no_rl'  # Test without RL frame selection
+>>> trainer = AblationTrainer(config)
+>>> best_metric, best_epoch = trainer.train()
+"""
+
 import os
 import sys
 import time
@@ -18,7 +61,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-#from torch.utils.tensorboard import SummaryWriter
 from torch.nn import BCEWithLogitsLoss
 from sklearn.metrics import roc_curve
 from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix, classification_report, auc
@@ -28,8 +70,6 @@ import seaborn as sns
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dataset import LungUltrasoundDataModule
-#from NetworkArchitecture.OOMHandler import OOMHandler
-
 from NetworkArchitecture.ablation_models import create_ablation_model
 
 try:
@@ -56,17 +96,89 @@ def optimize_memory():
 
 
 class AblationTrainer:
-    """Ablation model trainer - following the exact memory pattern of the original."""
+    """
+    Trainer for Ablation Study Experiments in Lung Ultrasound Classification.
+    
+    This class implements systematic ablation studies to evaluate the contribution
+    of different architectural components in the main CLIP-DRL-MIL framework.
+    It supports various simplified model architectures and training strategies
+    to understand which components are most critical for performance.
+    
+    The trainer maintains the same interface as the main training system while
+    providing access to ablated model variants including:
+    - No reinforcement learning (uniform/random frame selection)
+    - Mean pooling instead of attention mechanisms
+    - 3D CNN approaches without frame selection
+    - CNN-LSTM temporal modeling
+    - Single-task models without multi-task learning
+    
+    Parameters
+    ----------
+    config : object
+        Configuration object containing model type, hyperparameters,
+        data paths, and ablation study settings
+        
+    Attributes
+    ----------
+    model_type : str
+        Type of ablation model to use ('no_rl', 'mean_pool', '3d_cnn', etc.)
+    model : nn.Module
+        The ablated model architecture being evaluated
+    data_module : LungUltrasoundDataModule
+        Data loading and preprocessing module
+    optimizer : torch.optim.Optimizer
+        Optimizer for training the ablated model
+    best_metric : float
+        Best validation metric achieved during training
+    best_epoch : int
+        Epoch where best metric was achieved
+        
+    Methods
+    -------
+    train(resume_from_checkpoint=None)
+        Execute complete training loop for ablation model
+    validate(epoch, loader=None, split_name="val")
+        Perform validation on specified dataset split
+    _setup_model()
+        Initialize the specific ablation model architecture
+    _evaluate_best_model()
+        Comprehensive evaluation of best model on all splits
+        
+    Examples
+    --------
+    >>> # Test model without RL frame selection
+    >>> config = AblationConfig()
+    >>> config.model_type = 'no_rl'
+    >>> trainer = AblationTrainer(config)
+    >>> best_auc, best_epoch = trainer.train()
+    
+    >>> # Compare with 3D CNN approach
+    >>> config.model_type = '3d_cnn'
+    >>> trainer_3d = AblationTrainer(config)
+    >>> best_auc_3d, best_epoch_3d = trainer_3d.train()
+    
+    Notes
+    -----
+    The ablation trainer is designed to maintain exact compatibility with
+    the main training pipeline while systematically removing or replacing
+    specific components. This enables fair comparison of different
+    architectural choices and training strategies.
+    
+    Results from ablation studies help identify the most important components
+    for the target task and guide future architectural improvements.
+    """
     
     def __init__(self, config):
         self.config = config
         self.device = config.device
         
+        # Training state tracking
         self.best_metric = None
         self.best_epoch = 0
         self.epoch = 0
         self.epochs_without_improvement = 0
 
+        # Ablation model configuration
         self.model_type = getattr(config, 'model_type', 'no_rl')
         self.active_tasks = ['TB Label'] 
         self.use_pathology_loss = getattr(config, 'use_pathology_loss', True)
@@ -78,6 +190,7 @@ class AblationTrainer:
 
         self._set_seed(config.seed)
         
+        # Initialize data, model, and training components
         self._setup_data()
         self._setup_model()
         self._setup_training()

@@ -1,3 +1,44 @@
+"""
+Multimodal Dataset Module for Tuberculosis Classification with Uncertainty Quantification
+
+This module provides comprehensive dataset handling for multimodal tuberculosis
+classification combining clinical data and lung ultrasound video features.
+It includes robust data preprocessing, feature engineering, and uncertainty-aware
+data loading capabilities.
+
+Key Features:
+    - Multimodal data integration (clinical + imaging features)
+    - Robust preprocessing with outlier handling and imputation
+    - Feature selection and engineering for clinical relevance
+    - Cross-validation support with stratified splitting
+    - Missing data handling with multiple imputation strategies
+    - Standardization and normalization for different data modalities
+    - Patient-level aggregation for video features
+
+Classes:
+    MultimodalTBDataset: Main dataset class for multimodal TB data
+    
+Functions:
+    create_dataloaders: Create train/validation/test data loaders
+    analyze_dataset_distribution: Analyze class distribution and data quality
+    validate_data_consistency: Check data integrity across modalities
+
+Dependencies:
+    - PyTorch for data loading and tensor operations
+    - pandas for clinical data handling
+    - h5py for efficient video feature storage
+    - scikit-learn for preprocessing and validation
+    - NumPy for numerical operations
+
+
+Notes
+-----
+The dataset handles missing data gracefully and provides multiple imputation
+strategies. Video features are stored in HDF5 format for memory efficiency.
+Clinical features undergo medical relevance filtering to remove administrative
+or technical variables that don't contribute to diagnostic decisions.
+"""
+
 import pandas as pd
 import numpy as np
 import h5py
