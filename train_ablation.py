@@ -1646,13 +1646,21 @@ class AblationTrainer:
             # Also create a pivot table view for easier comparison
             pivot_file = output_file.replace('.csv', '_pivot.csv')
             for metric in metrics_to_include:
-                metric_pivot = consolidated_df.pivot_table(
-                    index='Pathology', 
-                    columns='Split', 
-                    values=metric
-                )
-                metric_pivot.to_csv(pivot_file.replace('.csv', f'_{metric}.csv'))
-                logger.info(f"Pivot table for {metric} saved to {pivot_file.replace('.csv', f'_{metric}.csv')}")
+                if metric in consolidated_df.columns and not consolidated_df[metric].isna().all():
+                    try:
+                        metric_pivot = consolidated_df.pivot_table(
+                            index='Pathology', 
+                            columns='Split', 
+                            values=metric
+                        )
+                        metric_pivot.to_csv(pivot_file.replace('.csv', f'_{metric}.csv'))
+                        logger.info(f"Pivot table for {metric} saved to {pivot_file.replace('.csv', f'_{metric}.csv')}")
+                    except KeyError as e:
+                        logger.warning(f"Metric '{metric}' not found in consolidated data: {e}")
+                    except Exception as e:
+                        logger.error(f"Error creating pivot table for {metric}: {e}")
+                else:
+                    logger.warning(f"Metric '{metric}' not available or all NaN values, skipping pivot table")
                 
         except Exception as e:
             logger.error(f"Error creating consolidated pathology summary: {e}")
@@ -1899,8 +1907,31 @@ class AblationTrainer:
         
         if self.use_pathology_loss and all_pathology_targets_np and pathology_dim is not None:
             try:
-                # Check and pad arrays to have consistent dimensions
-                max_dim = max(arr.shape[1] for arr in all_pathology_targets_np)
+                # Check array dimensions first
+                if not all_pathology_targets_np:
+                    logger.warning("No pathology targets available for processing")
+                    return detailed_results, tb_metrics, pathology_metrics
+                
+                # Get dimensions safely
+                array_shapes = [arr.shape for arr in all_pathology_targets_np]
+                logger.info(f"Pathology array shapes: {array_shapes}")
+                
+                # Check if all arrays have at least 2 dimensions
+                if any(len(shape) < 2 for shape in array_shapes):
+                    logger.warning("Found arrays with less than 2 dimensions, skipping pathology processing")
+                    return detailed_results, tb_metrics, pathology_metrics
+                
+                # Handle 3D arrays properly when calculating max_dim
+                max_dim = 0
+                for arr in all_pathology_targets_np:
+                    if len(arr.shape) == 3:
+                        # For 3D arrays, use the last dimension
+                        max_dim = max(max_dim, arr.shape[-1])
+                    elif len(arr.shape) == 2:
+                        # For 2D arrays, use the second dimension
+                        max_dim = max(max_dim, arr.shape[1])
+                
+                logger.info(f"Maximum pathology dimension: {max_dim}")
                 
                 # Pad arrays to have consistent dimensions
                 padded_targets = []
@@ -1909,6 +1940,20 @@ class AblationTrainer:
                 padded_preds = []
                 
                 for targets, logits, probs, preds in zip(all_pathology_targets_np, all_pathology_logits_np, all_pathology_probs_np, all_pathology_preds_np):
+                    # Handle 3D arrays by taking the mean across the site dimension (middle dimension)
+                    # This gives us patient-level pathology predictions instead of site-level
+                    if len(targets.shape) == 3:
+                        # Shape is (batch=1, sites, pathologies) -> (batch, pathologies)
+                        targets = targets.mean(axis=1)  # Average across sites for patient-level label
+                        logits = logits.mean(axis=1)   # Average across sites
+                        probs = probs.mean(axis=1)     # Average across sites  
+                        preds = (probs > 0.5).astype(float)  # Recalculate predictions from averaged probs
+                    
+                    # Ensure all arrays have the same number of dimensions
+                    if len(targets.shape) != 2 or len(logits.shape) != 2 or len(probs.shape) != 2 or len(preds.shape) != 2:
+                        logger.warning(f"Inconsistent array dimensions after processing: targets={targets.shape}, logits={logits.shape}, probs={probs.shape}, preds={preds.shape}")
+                        continue
+                        
                     if targets.shape[1] < max_dim:
                         # Pad with zeros
                         pad_width = max_dim - targets.shape[1]
@@ -1922,10 +1967,17 @@ class AblationTrainer:
                     padded_probs.append(probs)
                     padded_preds.append(preds)
                 
+                # Only proceed if we have valid padded arrays
+                if not padded_targets:
+                    logger.warning("No valid pathology arrays after padding, skipping pathology processing")
+                    return detailed_results, tb_metrics, pathology_metrics
+                    
                 pathology_targets = np.vstack(padded_targets)
                 pathology_logits = np.vstack(padded_logits)
                 pathology_probs = np.vstack(padded_probs)
                 pathology_preds = np.vstack(padded_preds)
+                
+                logger.info(f"Final pathology shapes: targets={pathology_targets.shape}, logits={pathology_logits.shape}")
                 
                 # Use the smaller of pathology_dim and actual max dimension
                 effective_dim = min(pathology_dim, max_dim)
