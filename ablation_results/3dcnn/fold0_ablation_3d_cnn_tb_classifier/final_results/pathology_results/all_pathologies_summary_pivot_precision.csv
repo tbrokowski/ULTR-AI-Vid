@@ -1,0 +1,5 @@
+Pathology,test,train,validation
+A-line,0.0,0.0,0.0
+Large Consolidations,0.0,0.0,0.0
+Other Pathology,0.35,0.3113207547169811,0.24691358024691357
+Pleural Effusion,0.0,0.0,0.0

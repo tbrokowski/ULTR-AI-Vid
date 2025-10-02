@@ -1,0 +1,13 @@
+Split,Pathology,accuracy,precision,recall,specificity,f1,auc,auprc
+test,A-line,,,,,,,
+test,Large Consolidations,,,,,,,
+test,Pleural Effusion,,,,,,,
+test,Other Pathology,,,,,,,
+validation,A-line,,,,,,,
+validation,Large Consolidations,,,,,,,
+validation,Pleural Effusion,,,,,,,
+validation,Other Pathology,,,,,,,
+train,A-line,,,,,,,
+train,Large Consolidations,,,,,,,
+train,Pleural Effusion,,,,,,,
+train,Other Pathology,,,,,,,

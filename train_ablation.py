@@ -1696,10 +1696,11 @@ class AblationTrainer:
         """Plot comparative metrics across different splits."""
         try:
             metrics_to_plot = ['accuracy', 'precision', 'recall', 'specificity', 'f1', 'auc', 'auprc']
-            metrics_to_plot = [m for m in metrics_to_plot if m in metrics_df.columns]
+            # Filter to only include metrics that exist in the dataframe and have non-NaN values
+            metrics_to_plot = [m for m in metrics_to_plot if m in metrics_df.columns and not metrics_df[m].isna().all()]
             
             if not metrics_to_plot:
-                logger.warning("No metrics available for comparison plot")
+                logger.warning("No metrics available for comparison plot - all metrics are NaN or missing")
                 return
             
             plt.figure(figsize=(12, 8))

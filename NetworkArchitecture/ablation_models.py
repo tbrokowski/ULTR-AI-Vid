@@ -381,16 +381,16 @@ class ResNet3DMultiTaskModel(nn.Module):
         # Use smaller ResNet3D model for better memory efficiency
         try:
             # Use R(2+1)D ResNet18 - more memory efficient than 3D ResNet
-            self.backbone = video_models.r2plus1d_18(pretrained=True)
+            self.backbone = video_models.r2plus1d_18(weights=video_models.R2Plus1D_18_Weights.DEFAULT)
             logger.info("Loaded R(2+1)D ResNet18")
         except:
             try:
                 # Fallback to MC3 ResNet18
-                self.backbone = video_models.mc3_18(pretrained=True) 
+                self.backbone = video_models.mc3_18(weights=video_models.MC3_18_Weights.DEFAULT) 
                 logger.info("Loaded MC3 ResNet18")
             except:
                 # Final fallback
-                self.backbone = video_models.r3d_18(pretrained=True)
+                self.backbone = video_models.r3d_18(weights=video_models.R3D_18_Weights.DEFAULT)
                 logger.info("Loaded R3D ResNet18")
         
         # Remove the final classification layer
@@ -814,7 +814,7 @@ class CNNLSTMMultiTaskModel(nn.Module):
         logger.info("Using CNN-LSTM with PyTorch ResNet + LSTM")
         
         # CNN backbone (ResNet18)
-        self.cnn_backbone = models.resnet18(pretrained=True)
+        self.cnn_backbone = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         # Remove final layers
         self.cnn_backbone = nn.Sequential(*list(self.cnn_backbone.children())[:-2])
         
