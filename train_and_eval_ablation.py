@@ -952,56 +952,56 @@ class AblationTrainer:
         
         progress_bar.close()
         
-        # all_metrics = {}
+        all_metrics = {}
         
-        # if all_tb_targets and all_tb_predictions and all_tb_logits:
-        #     tb_targets = torch.cat(all_tb_targets).numpy()
-        #     tb_predictions = torch.cat(all_tb_predictions).numpy()
-        #     tb_logits = torch.cat(all_tb_logits)
+        if all_tb_targets and all_tb_predictions and all_tb_logits:
+            tb_targets = torch.cat(all_tb_targets).numpy()
+            tb_predictions = torch.cat(all_tb_predictions).numpy()
+            tb_logits = torch.cat(all_tb_logits)
 
-            # tb_metrics = self._calculate_metrics(tb_targets, tb_predictions, tb_logits.numpy(), None, "TB Label")
+            tb_metrics = self._calculate_metrics(tb_targets, tb_predictions, tb_logits.numpy(), None, "TB Label")
 
-            # Add TB prefix to metrics
-            # for key, value in tb_metrics.items():
-            #     all_metrics[f'TB Label_{key}'] = value
+            Add TB prefix to metrics
+            for key, value in tb_metrics.items():
+                all_metrics[f'TB Label_{key}'] = value
         
         # Add pathology metrics if enabled
-        # if self.use_pathology_loss and pathology_labels_list and pathology_scores_list:
-        #     all_path_scores = torch.cat(pathology_scores_list, dim=0)
-        #     all_path_labels = torch.cat(pathology_labels_list, dim=0)
-        #     all_path_masks = torch.cat(pathology_masks_list, dim=0)
+        if self.use_pathology_loss and pathology_labels_list and pathology_scores_list:
+            all_path_scores = torch.cat(pathology_scores_list, dim=0)
+            all_path_labels = torch.cat(pathology_labels_list, dim=0)
+            all_path_masks = torch.cat(pathology_masks_list, dim=0)
             
-        #     path_metrics = self._calculate_pathology_metrics(
-        #         all_path_scores, all_path_labels, all_path_masks)
+            path_metrics = self._calculate_pathology_metrics(
+                all_path_scores, all_path_labels, all_path_masks)
             
-        #     all_metrics.update(path_metrics)
+            all_metrics.update(path_metrics)
         
         # Log metrics
-        # logger.info(f"Train TB metrics:")
-        # tb_metrics = {k.replace('TB Label_', ''): v for k, v in all_metrics.items() 
-        #               if k.startswith('TB Label_')}
-        # if tb_metrics:
-        #     logger.info(f"  TB Label: " + " | ".join([f"{k}: {v:.4f}" for k, v in tb_metrics.items()]))
+        logger.info(f"Train TB metrics:")
+        tb_metrics = {k.replace('TB Label_', ''): v for k, v in all_metrics.items() 
+                      if k.startswith('TB Label_')}
+        if tb_metrics:
+            logger.info(f"  TB Label: " + " | ".join([f"{k}: {v:.4f}" for k, v in tb_metrics.items()]))
         
-        # # Log pathology metrics if enabled
-        # if self.use_pathology_loss:
-        #     path_metrics = {k: v for k, v in all_metrics.items() if '/' in k}
-        #     if path_metrics:
-        #         logger.info(f"Train Pathology metrics:")
-        #         pathology_names = getattr(self.config, 'pathology_classes', 
-        #                                 ['A-line', 'Large consolidations', 'Pleural Effusion', 'Other Pathology'])
-        #         for name in pathology_names:
-        #             name_metrics = {k.split('/')[-1]: v for k, v in path_metrics.items() 
-        #                           if k.startswith(f'{name}/')}
-        #             if name_metrics:
-        #                 logger.info(f"  {name}: " + " | ".join([f"{k}: {v:.4f}" for k, v in name_metrics.items()]))
+        # Log pathology metrics if enabled
+        if self.use_pathology_loss:
+            path_metrics = {k: v for k, v in all_metrics.items() if '/' in k}
+            if path_metrics:
+                logger.info(f"Train Pathology metrics:")
+                pathology_names = getattr(self.config, 'pathology_classes', 
+                                        ['A-line', 'Large consolidations', 'Pleural Effusion', 'Other Pathology'])
+                for name in pathology_names:
+                    name_metrics = {k.split('/')[-1]: v for k, v in path_metrics.items() 
+                                  if k.startswith(f'{name}/')}
+                    if name_metrics:
+                        logger.info(f"  {name}: " + " | ".join([f"{k}: {v:.4f}" for k, v in name_metrics.items()]))
         
-        # # Step all schedulers
-        # for scheduler in self.schedulers:
-        #     scheduler.step()
+        # Step all schedulers
+        for scheduler in self.schedulers:
+            scheduler.step()
         
-        # return running_losses['total'] / max(1, len(self.train_loader)), all_metrics
-        return running_losses['total'] / max(1, len(self.train_loader))
+        return running_losses['total'] / max(1, len(self.train_loader)), all_metrics
+        # return running_losses['total'] / max(1, len(self.train_loader))
 
 
     
@@ -1192,6 +1192,317 @@ class AblationTrainer:
         return start_epoch + 1
 
 
+    #==================================================
+    # Validation and metric computation
+    #==================================================
+
+    def validate(self, epoch, loader=None, split_name="val"):
+        """TB-focused validation."""
+        if loader is None:
+            loader = self.val_loader
+        
+        self.model.eval()
+        running_loss = 0.0
+
+        # TB tracking
+        all_tb_targets = []
+        all_tb_predictions = []
+        all_tb_logits = []
+        all_tb_probs = []
+        
+        pathology_labels_list = []
+        pathology_scores_list = []
+        pathology_masks_list = []  
+        
+        progress_bar = tqdm(loader, desc=f"{split_name.capitalize()} Evaluation")
+        
+        with torch.no_grad():
+            for batch in progress_bar:
+                try:
+                    # Move data to device
+                    site_videos = batch['site_videos'].to(self.device)
+                    site_indices = batch['site_indices'].to(self.device)
+                    site_masks = batch['site_masks'].to(self.device)
+                    site_findings = batch['site_findings'].to(self.device)
+                    
+                    # TB labels (only TB task)
+                    tb_labels = batch['tb_labels'].to(self.device).float()
+                    # Dummy labels for multi-task model
+                    pneumonia_labels = torch.full_like(tb_labels, -1)
+                    covid_labels = torch.full_like(tb_labels, -1)
+                    
+                    # Prepare inputs
+                    inputs = {
+                        'site_videos': site_videos,
+                        'site_indices': site_indices,
+                        'site_masks': site_masks,
+                        'site_findings': site_findings,
+                        'is_patient_level': True
+                    }
+
+                    targets = {
+                        'tb_labels': tb_labels,
+                        'pneumonia_labels': pneumonia_labels,
+                        'covid_labels': covid_labels,
+                        'pathology_labels': site_findings
+                    }
+                    
+                    # Forward pass
+                    outputs = self.model(inputs)
+                    loss, _ = self.model.compute_losses(outputs, targets, self.task_pos_weights)
+                       
+                    running_loss += loss.item()
+                    
+                    # Collect predictions for TB
+                    task_logits = outputs.get('task_logits', {})
+                    
+                    if 'TB Label' in task_logits:
+                        logits = task_logits['TB Label']
+                        probs = torch.sigmoid(logits)
+                        preds = (probs > 0.5).float()
+                        
+                        all_tb_targets.append(tb_labels.detach().cpu())
+                        all_tb_predictions.append(preds.detach().cpu())
+                        all_tb_logits.append(logits.detach().cpu())
+                        all_tb_probs.append(probs.detach().cpu())
+                    elif 'tb_logits' in outputs:  
+                        logits = outputs['tb_logits']
+                        probs = torch.sigmoid(logits)
+                        preds = (probs > 0.5).float()
+                        
+                        all_tb_targets.append(tb_labels.detach().cpu())
+                        all_tb_predictions.append(preds.detach().cpu())
+                        all_tb_logits.append(logits.detach().cpu())
+                        all_tb_probs.append(probs.detach().cpu())
+
+                    # Collect pathology metrics if enabled
+                    if self.use_pathology_loss and 'pathology_scores' in outputs:
+                        path_scores = outputs['pathology_scores']
+                        path_labels = targets['pathology_labels']
+                        
+                        if path_scores.dim() == 3:
+                            B, N, P = path_scores.shape
+                            path_scores = path_scores.reshape(-1, P)
+                            path_labels = path_labels.reshape(-1, P)
+                        
+                        valid_mask = path_labels >= 0
+                        
+                        pathology_scores_list.append(path_scores.detach().cpu())
+                        pathology_labels_list.append(path_labels.detach().cpu())
+                        pathology_masks_list.append(valid_mask.detach().cpu())
+                    
+                    # Update progress bar
+                    progress_bar.set_postfix({
+                        'loss': running_loss / (progress_bar.n + 1)
+                    })
+                    
+                    # Clean up memory
+                    del site_videos, site_indices, site_masks, site_findings, inputs
+                    del tb_labels, pneumonia_labels, covid_labels, outputs, loss
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                
+                except RuntimeError as e:
+                    if 'out of memory' in str(e):
+                        logger.warning(f"WARNING: Out of memory during validation, skipping batch")
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        continue
+                    else:
+                        raise e
+        
+        # Calculate validation metrics
+        val_loss = running_loss / len(loader)
+        
+        # Calculate metrics for TB
+        all_metrics = {'loss': val_loss}
+        
+        if all_tb_targets and all_tb_predictions:
+            tb_targets = torch.cat(all_tb_targets)
+            tb_predictions = torch.cat(all_tb_predictions)
+            tb_logits = torch.cat(all_tb_logits)
+            tb_probs = torch.cat(all_tb_probs)
+            
+            tb_metrics = self._calculate_metrics(
+                tb_targets.numpy(), 
+                tb_predictions.numpy(), 
+                tb_logits.numpy(),
+                tb_probs.numpy(),
+                "TB Label"
+            )
+            
+            # Add TB prefix to metrics
+            for key, value in tb_metrics.items():
+                all_metrics[f'TB Label_{key}'] = value
+
+        # Add pathology metrics if enabled
+        if self.use_pathology_loss and pathology_labels_list and pathology_scores_list:
+            all_path_scores = torch.cat(pathology_scores_list, dim=0)
+            all_path_labels = torch.cat(pathology_labels_list, dim=0)
+            all_path_masks = torch.cat(pathology_masks_list, dim=0)
+            
+            path_metrics = self._calculate_pathology_metrics(
+                all_path_scores, all_path_labels, all_path_masks)
+            
+            all_metrics.update(path_metrics)
+
+        # Log metrics
+        logger.info(f"{split_name} TB metrics:")
+        tb_metrics = {k.replace('TB Label_', ''): v for k, v in all_metrics.items() 
+                      if k.startswith('TB Label_') and not '/' in k}
+        if tb_metrics:
+            logger.info(f"  TB Label: " + " | ".join([f"{k}: {v:.4f}" for k, v in tb_metrics.items()]))
+
+        # Log pathology metrics if enabled
+        if self.use_pathology_loss:
+            path_metrics = {k: v for k, v in all_metrics.items() if '/' in k}
+            if path_metrics:
+                logger.info(f"{split_name} Pathology metrics:")
+                pathology_names = getattr(self.config, 'pathology_classes', 
+                                        ['A-line', 'Large consolidations', 'Pleural Effusion', 'Other Pathology'])
+                for name in pathology_names:
+                    name_metrics = {k.split('/')[-1]: v for k, v in path_metrics.items() 
+                                  if k.startswith(f'{name}/')}
+                    if name_metrics:
+                        logger.info(f"  {name}: " + " | ".join([f"{k}: {v:.4f}" for k, v in name_metrics.items()]))
+        
+        # Print detailed metrics for TB
+        if all_tb_targets:
+            tb_targets = torch.cat(all_tb_targets).numpy().flatten()
+            tb_predictions = torch.cat(all_tb_predictions).numpy().flatten()
+            
+            try:
+                cm = confusion_matrix(tb_targets, tb_predictions)
+                logger.info(f"\nConfusion Matrix for TB ({split_name}):\n{cm}")
+                
+                report = classification_report(tb_targets, tb_predictions, zero_division=0)
+                logger.info(f"\nClassification Report for TB ({split_name}):\n{report}")
+            except Exception as e:
+                logger.warning(f"Could not compute confusion matrix or classification report: {e}")
+        
+        return val_loss, all_metrics
+
+    def _calculate_metrics(self, targets, predictions, logits, probs=None, task_name=""):
+        """Calculate performance metrics for TB classification."""
+        metrics = {}
+        
+        try:
+            # Ensure correct shapes
+            if targets.ndim == 2 and targets.shape[1] == 1:
+                targets = targets.flatten()
+            if predictions.ndim == 2 and predictions.shape[1] == 1:
+                predictions = predictions.flatten()
+            
+            # Print diagnostic information
+            diagnostic_data = {
+                'target': targets.flatten(),
+                'prediction': predictions.flatten()
+            }
+            
+            if logits.ndim == 1 or (logits.ndim == 2 and logits.shape[1] == 1):
+                diagnostic_data['logit'] = logits.flatten()
+            else:
+                diagnostic_data['logit'] = logits[:, 0].flatten()
+            
+            if probs is not None:
+                if probs.ndim == 1 or (probs.ndim == 2 and probs.shape[1] == 1):
+                    diagnostic_data['probability'] = probs.flatten()
+                else:
+                    diagnostic_data['probability'] = probs[:, 0].flatten()
+            
+            df = pd.DataFrame(diagnostic_data)
+            
+            # Log sample rows for diagnostic purposes
+            sample_rows = df.sample(min(5, len(df)))
+            logger.info(f"\nDiagnostic sample for {task_name} (5 random rows):")
+            logger.info(f"\n{sample_rows}")
+            
+            # Calculate metrics
+            metrics['accuracy'] = accuracy_score(targets, predictions)
+            metrics['precision'] = precision_score(targets, predictions, zero_division=0)
+            metrics['recall'] = recall_score(targets, predictions, zero_division=0)
+            metrics['specificity'] = recall_score(1-targets, 1-predictions, zero_division=0)
+            metrics['f1'] = f1_score(targets, predictions, zero_division=0)
+            
+            # Calculate AUC if probabilities are provided
+            if probs is not None:
+                try:
+                    metrics['auc'] = roc_auc_score(targets, probs)
+                    metrics['auprc'] = average_precision_score(targets, probs)
+                except ValueError:
+                    # Handle case with only one class
+                    metrics['auc'] = 0.5
+                    metrics['auprc'] = 0.5
+        
+        except Exception as e:
+            logger.error(f"Error calculating metrics for {task_name}: {e}")
+            # Provide default values
+            if 'accuracy' not in metrics:
+                metrics['accuracy'] = 0.0
+            if self.config.eval_metric not in metrics:
+                metrics[self.config.eval_metric] = 0.0
+        
+        return metrics
+
+    def _calculate_pathology_metrics(self, scores, labels, masks):
+        """Calculate metrics for each pathology class."""
+        metrics = {}
+        
+        pathology_names = getattr(self.config, 'pathology_classes', [
+            'A-line',
+            'Large consolidations', 
+            'Pleural Effusion',
+            'Other Pathology'
+        ])
+        
+        scores_np = scores.numpy()
+        labels_np = labels.numpy()
+        masks_np = masks.numpy()
+        
+        auroc_values = []
+        auprc_values = []
+        f1_values = []
+        
+        for i, name in enumerate(pathology_names):
+            if i < scores_np.shape[1]:
+                valid_indices = masks_np[:, i]
+                
+                if valid_indices.sum() > 0:
+                    class_scores = scores_np[valid_indices, i]
+                    class_labels = labels_np[valid_indices, i]
+                    
+                    if len(np.unique(class_labels)) < 2:
+                        logger.info(f"Skipping {name} metrics - only one class present")
+                        continue
+                    
+                    try:
+                        class_probs = 1 / (1 + np.exp(-class_scores))
+                        class_preds = (class_probs > 0.5).astype(np.float32)
+                        
+                        auroc = roc_auc_score(class_labels, class_probs)
+                        auprc = average_precision_score(class_labels, class_probs)
+                        f1 = f1_score(class_labels, class_preds, zero_division=0)
+                        
+                        metrics[f'{name}/auroc'] = auroc
+                        metrics[f'{name}/auprc'] = auprc
+                        metrics[f'{name}/f1'] = f1
+                        
+                        auroc_values.append(auroc)
+                        auprc_values.append(auprc)
+                        f1_values.append(f1)
+                        
+                    except Exception as e:
+                        logger.warning(f"Error calculating metrics for {name}: {e}")
+        
+        # Calculate macro-average metrics
+        if auroc_values:
+            metrics['pathology/macro_auroc'] = np.mean(auroc_values)
+        if auprc_values:
+            metrics['pathology/macro_auprc'] = np.mean(auprc_values)
+        if f1_values:
+            metrics['pathology/macro_f1'] = np.mean(f1_values)
+        
+        return metrics
 def print_gpu_memory():
     """Print GPU memory usage for debugging."""
     if torch.cuda.is_available():

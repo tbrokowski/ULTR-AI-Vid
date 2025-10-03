@@ -2734,10 +2734,10 @@ if __name__ == "__main__":
 
 
 
-# python3 train_clip_drl_mil_Final.py --config configs/Finalruns/tb_drl_mil_Final_fold1.yaml
-# python3 train_clip_drl_mil_Final.py --config configs/Finalruns/tb_drl_mil_Final_fold2.yaml
-# python3 train_clip_drl_mil_Final.py --config configs/Finalruns/tb_drl_mil_Final_fold3.yaml
-# python3 train_clip_drl_mil_Final.py --config configs/Finalruns/tb_drl_mil_Final_fold4.yaml
+# python3 train_clip_drl_mil_Final.py --config configs/Finalruns/fold1.yaml
+# python3 train_clip_drl_mil_Final.py --config configs/Finalruns/fold2.yaml
+# python3 train_clip_drl_mil_Final.py --config configs/Finalruns/fold3.yaml
+# python3 train_clip_drl_mil_Final.py --config configs/Finalruns/fold4.yaml
 
 
-#python3 train_clip_drl_mil_Final.py --config configs/random/tb_drl_mil_Final_fold0.yaml
+#python3 train_clip_drl_mil_Final.py --config configs/random/fold0.yaml
