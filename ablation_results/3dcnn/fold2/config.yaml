@@ -1,0 +1,88 @@
+accumulation_steps: 32
+active_tasks:
+- TB Label
+backbone: resnet3d
+backbone_T_0: 4
+backbone_T_mult: 2
+backbone_eta_min: 1.0e-06
+backbone_lr: 0.0001
+backbone_weight_decay: 0.0001
+batch_size: 1
+best_model_path: null
+checkpoint_dir: ./ablation_results/3dcnn/fold2/checkpoints
+classification_type: binary
+depth_filter: '15'
+device: cuda
+dropout_rate: 0.3
+early_stopping_patience: 10
+eval_metric: auc
+eval_metric_goal: max
+evaluate_best_valid_model: true
+experiment_dir: ./ablation_results/3dcnn/fold2
+experiment_name: ablation_3d_cnn_tb_classifier_fold2
+file_metadata_csv: ./Data/processed_files_2.csv
+files_per_site: all
+frame_sampling: 16
+freeze_backbone: false
+hidden_dim: 512
+image_folder: images
+in_channels: 3
+labels_csv: ./Data/labels/labels_multidiagnosis.csv
+learning_rate: 0.0001
+local_weights_dir: /gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights
+log_dir: ./ablation_results/3dcnn/fold2/logs
+max_sites: null
+mode: video
+model_name: ablation_3d_cnn_tb_classifier_fold2
+model_type: 3d_cnn
+model_weights: null
+num_classes: 1
+num_epochs: 1
+num_pathologies: 4
+num_sites: 21
+num_workers: 6
+pad_missing_sites: true
+pathology_T_0: 4
+pathology_T_mult: 2
+pathology_classes:
+- A-line
+- Large Consolidations
+- Pleural Effusion
+- Other Pathology
+pathology_eta_min: 1.0e-06
+pathology_lr: 0.001
+pathology_pos_weights:
+- 1.0
+- 4.0
+- 15.0
+- 4.0
+pathology_weight: 0.9
+pathology_weight_decay: 0.0001
+patient_pipeline_T_0: 4
+patient_pipeline_T_mult: 2
+patient_pipeline_eta_min: 1.0e-06
+patient_pipeline_lr: 0.001
+patient_pipeline_weight_decay: 0.0001
+pooling: attention
+pos_weight: 1.4
+pred_save_dir: ./ablation_results/3dcnn/fold2/predictions
+pretrained: true
+reset_optimizers: false
+resume_from_checkpoint: null
+root_dir: ./Data
+save_dir: ./ablation_results/3dcnn/fold2/models
+seed: 42
+site_order: null
+split_csv: ./Data/test_files/Fold_2.csv
+target_height: 224
+target_width: 224
+task: TB Label
+task_pos_weights:
+  TB Label: 1.4
+task_weights:
+  TB Label: 1.0
+train: true
+use_amp: true
+use_pathology_loss: true
+video_folder: /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+weight_decay: 0.0001

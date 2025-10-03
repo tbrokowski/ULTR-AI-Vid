@@ -9,7 +9,8 @@ def main():
 
     parser = argparse.ArgumentParser(description='Training for TB detection using ablation models.')
 
-    # Add the experiment name and fold as optional arguments. Experiment name options are: 3dcnn, attention_pool, cnnlstm, mean_pool, singletask, uniform, vivit
+    # Add the experiment name and fold as optional arguments. 
+    # Experiment name options are: 3dcnn, attention_pool, cnnlstm, mean_pool, singletask, uniform, vivit
     parser.add_argument('--experiment_name', type=str, help='Name of the experiment')
 
     # Parse the arguments
@@ -24,16 +25,20 @@ def main():
     
     # Configuration paths for all folds - UPDATE THESE TO MATCH YOUR ACTUAL CONFIG FILES
     config_paths = [
-        f"configs/{args.experiment_name}/fold0.yaml",
-        f"configs/{args.experiment_name}/fold1.yaml",
-        f"configs/{args.experiment_name}/fold2.yaml",
-        f"configs/{args.experiment_name}/fold3.yaml",
-        f"configs/{args.experiment_name}/fold4.yaml",
+        f"./ablation_results/{args.experiment_name}/fold0/config.yaml",
+        f"./ablation_results/{args.experiment_name}/fold1/config.yaml",
+        f"./ablation_results/{args.experiment_name}/fold2/config.yaml",
+        f"./ablation_results/{args.experiment_name}/fold3/config.yaml",
+        f"./ablation_results/{args.experiment_name}/fold4/config.yaml",
     ]
     
     # Paths to checkpoins
     model_paths = [
-        f""
+        f"./ablation_results/{args.experiment_name}/fold0/checkpoints/checkpoint_best.pth",
+        f"./ablation_results/{args.experiment_name}/fold1/checkpoints/checkpoint_best.pth",
+        f"./ablation_results/{args.experiment_name}/fold2/checkpoints/checkpoint_best.pth",
+        f"./ablation_results/{args.experiment_name}/fold3/checkpoints/checkpoint_best.pth",
+        f"./ablation_results/{args.experiment_name}/fold4/checkpoints/checkpoint_best.pth",
     ]
     
     logger.info(f"Found {len(config_paths)} folds to process")
@@ -61,10 +66,10 @@ def main():
         else:
             logger.warning(f"  Status: Skipping fold {i} (missing files)")
     
-    print(f"\n✓ Found {len(valid_folds)} valid folds: {valid_folds}")
+    logger.info(f"Found {len(valid_folds)} valid folds: {valid_folds}")
     
     if not valid_folds:
-        print("❌ No valid folds found. Please check the file paths.")
+        logger.error("No valid folds found. Please check the file paths.")
         exit()
     
     # Process each valid fold
@@ -81,7 +86,7 @@ def main():
             'model_path': model_paths[i],  # Can be None if specified in config
             'split': 'all',
             'fold': i,
-            'output_dir': '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/ULTR-CLIP/results_Aug26',
+            'output_dir': f'ablation_results/{args.experiment_name}/eval_results',
             'gpu_id': 0,
             'save_complex_data': True,
             'batch_size_override': None,
@@ -104,7 +109,7 @@ def main():
                     if task_metrics:
                         auc = task_metrics.get('auc', 'N/A')
                         acc = task_metrics.get('accuracy', 'N/A')
-                        print(f"   - {task_name}: AUC={auc:.4f if isinstance(auc, (int, float)) else auc}, ACC={acc:.4f if isinstance(acc, (int, float)) else acc}")
+                        logger.info(f"   - {task_name}: AUC={auc:.4f if isinstance(auc, (int, float)) else auc}, ACC={acc:.4f if isinstance(acc, (int, float)) else acc}")
             
             successful_folds.append(i)
             
@@ -127,23 +132,23 @@ def main():
     logger.info(f"Successful folds: {successful_folds} ({len(successful_folds)}/{len(valid_folds)})")
     if failed_folds:
         logger.warning(f"Failed folds: {failed_folds}")
-    
-    logger.info(f"\nResults saved to: /gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/ULTR-CLIP/results_Aug11v1")
-    
+
+    logger.info(f"\nResults saved to: ablation_results/{args.experiment_name}/eval_results")
+
     if successful_folds:
-        print(f"\n🎉 Evaluation completed for {len(successful_folds)} folds!")
-        print("Check the results directory for detailed outputs:")
-        print("  - CSV files: patient and site-level predictions")
-        print("  - HDF5 files: complex model outputs and features")
-        print("  - JSON files: evaluation metrics")
+        logger.info(f"Evaluation completed for {len(successful_folds)} folds!")
+        logger.info("Check the results directory for detailed outputs:")
+        logger.info("  - CSV files: patient and site-level predictions")
+        logger.info("  - HDF5 files: complex model outputs and features")
+        logger.info("  - JSON files: evaluation metrics")
     else:
-        print("❌ No folds completed successfully. Please check the errors above.")
+        logger.error("No folds completed successfully. Please check the errors above.")
 
     # Optional: Create a consolidated summary across all folds
     if len(successful_folds) > 1:
         logger.info(f"\nCreating consolidated summary across {len(successful_folds)} folds...")
         try:
-            create_cross_fold_summary(successful_folds, '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/ULTR-CLIP/results_Aug26')
+            create_cross_fold_summary(successful_folds, f'ablation_results/{args.experiment_name}/eval_results')
         except Exception as e:
             logger.warning(f"Could not create cross-fold summary: {e}")
 

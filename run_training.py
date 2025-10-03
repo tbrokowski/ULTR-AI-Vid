@@ -62,23 +62,23 @@ if __name__ == "__main__":
 
 
 # # 3D CNN ablation
-# python3 run_ablation.py --experiment_name 3dcnn --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 run_training.py --experiment_name 3dcnn --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # CNN-LSTM ablation
-# python3 run_ablation.py --experiment_name cnnlstm --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 run_training.py --experiment_name cnnlstm --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Video Transformer (ViViT) ablation
-# python3 run_ablation.py --experiment_name vivit --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 run_training.py --experiment_name vivit --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Attention pooling ablation
-# python3 run_ablation.py --experiment_name attention_pool --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 run_training.py --experiment_name attention_pool --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Mean pooling ablation
-# python3 run_ablation.py --experiment_name mean_pool --fold 4 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 run_training.py --experiment_name mean_pool --fold 4 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Single task ablation
-# python3 run_ablation.py --experiment_name singletask --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 run_training.py --experiment_name singletask --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Uniform/No-RL ablation
-# python3 run_ablation.py --experiment_name uniform --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 run_training.py --experiment_name uniform --fold 0 --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 

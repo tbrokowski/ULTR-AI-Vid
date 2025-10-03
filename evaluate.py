@@ -36,8 +36,8 @@ from config import load_config, MultiTaskConfig
 try:
     from NetworkArchitecture.monitoring_utils import log_model_component_status
 except ImportError as e:
-    print(e)
     logger = logging.getLogger(__name__)
+    logger.warning(f"Import error: {e}")
     logger.warning("Monitoring utilities not available")
     log_model_component_status = lambda *args: None
         
@@ -344,12 +344,12 @@ def evaluate_model_comprehensive(model, dataloader, device, active_tasks, use_pa
                     except Exception as e:
                         logger.warning(f"Could not calculate metrics for {task_name}: {e}")
     
-    print(f"\nComplex data summary:")
+    logger.info(f"Complex data summary:")
     for key, data_dict in complex_data.items():
         if isinstance(data_dict, dict):
-            print(f"  {key}: {len(data_dict)} items")
+            logger.info(f"  {key}: {len(data_dict)} items")
         else:
-            print(f"  {key}: {type(data_dict)}")
+            logger.info(f"  {key}: {type(data_dict)}")
     
     return patient_df, site_df, complex_data, metrics
 
