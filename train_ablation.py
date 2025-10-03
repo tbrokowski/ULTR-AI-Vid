@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-#from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from torch.nn import BCEWithLogitsLoss
 from sklearn.metrics import roc_curve
 from sklearn.metrics import accuracy_score, roc_auc_score, confusion_matrix, classification_report, auc
@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from dataset import LungUltrasoundDataModule
-#from NetworkArchitecture.OOMHandler import OOMHandler
+from Dataloaders.dataset_multitask import LungUltrasoundDataModule
+from NetworkArchitecture.OOMHandler import OOMHandler
 
 from NetworkArchitecture.ablation_models import create_ablation_model
 
@@ -1182,7 +1182,7 @@ class AblationTrainer:
                 cm = confusion_matrix(tb_targets, tb_predictions)
                 logger.info(f"\nConfusion Matrix for TB ({split_name}):\n{cm}")
                 
-                report = classification_report(tb_targets, tb_predictions, zero_division=0)
+                report = classification_report(tb_targets, tb_predictions)
                 logger.info(f"\nClassification Report for TB ({split_name}):\n{report}")
             except Exception as e:
                 logger.warning(f"Could not compute confusion matrix or classification report: {e}")
@@ -1313,7 +1313,7 @@ class AblationTrainer:
 
     def save_checkpoint(self, epoch, metrics, is_best=False):
         """Save checkpoint with TB-focused metrics."""
-        save_dir = pathlib.Path(self.config.checkpoint_dir)
+        save_dir = pathlib.Path(self.config.experiment_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
         
         checkpoint = {
@@ -1465,7 +1465,7 @@ class AblationTrainer:
                     logger.error(f"Failed to load pretrained weights: {e}")
         else:
             # Training mode - load best checkpoint
-            best_model_path = os.path.join(self.config.checkpoint_dir, "checkpoint_best.pth")
+            best_model_path = os.path.join(self.config.experiment_dir, "checkpoint_best.pth")
             if not os.path.exists(best_model_path):
                 logger.warning(f"Best model checkpoint not found at {best_model_path}. Skipping evaluation.")
                 return
@@ -1646,21 +1646,13 @@ class AblationTrainer:
             # Also create a pivot table view for easier comparison
             pivot_file = output_file.replace('.csv', '_pivot.csv')
             for metric in metrics_to_include:
-                if metric in consolidated_df.columns and not consolidated_df[metric].isna().all():
-                    try:
-                        metric_pivot = consolidated_df.pivot_table(
-                            index='Pathology', 
-                            columns='Split', 
-                            values=metric
-                        )
-                        metric_pivot.to_csv(pivot_file.replace('.csv', f'_{metric}.csv'))
-                        logger.info(f"Pivot table for {metric} saved to {pivot_file.replace('.csv', f'_{metric}.csv')}")
-                    except KeyError as e:
-                        logger.warning(f"Metric '{metric}' not found in consolidated data: {e}")
-                    except Exception as e:
-                        logger.error(f"Error creating pivot table for {metric}: {e}")
-                else:
-                    logger.warning(f"Metric '{metric}' not available or all NaN values, skipping pivot table")
+                metric_pivot = consolidated_df.pivot_table(
+                    index='Pathology', 
+                    columns='Split', 
+                    values=metric
+                )
+                metric_pivot.to_csv(pivot_file.replace('.csv', f'_{metric}.csv'))
+                logger.info(f"Pivot table for {metric} saved to {pivot_file.replace('.csv', f'_{metric}.csv')}")
                 
         except Exception as e:
             logger.error(f"Error creating consolidated pathology summary: {e}")
@@ -1696,11 +1688,10 @@ class AblationTrainer:
         """Plot comparative metrics across different splits."""
         try:
             metrics_to_plot = ['accuracy', 'precision', 'recall', 'specificity', 'f1', 'auc', 'auprc']
-            # Filter to only include metrics that exist in the dataframe and have non-NaN values
-            metrics_to_plot = [m for m in metrics_to_plot if m in metrics_df.columns and not metrics_df[m].isna().all()]
+            metrics_to_plot = [m for m in metrics_to_plot if m in metrics_df.columns]
             
             if not metrics_to_plot:
-                logger.warning("No metrics available for comparison plot - all metrics are NaN or missing")
+                logger.warning("No metrics available for comparison plot")
                 return
             
             plt.figure(figsize=(12, 8))
@@ -1908,86 +1899,16 @@ class AblationTrainer:
         
         if self.use_pathology_loss and all_pathology_targets_np and pathology_dim is not None:
             try:
-                # Check array dimensions first
-                if not all_pathology_targets_np:
-                    logger.warning("No pathology targets available for processing")
-                    return detailed_results, tb_metrics, pathology_metrics
-                
-                # Get dimensions safely
-                array_shapes = [arr.shape for arr in all_pathology_targets_np]
-                logger.info(f"Pathology array shapes: {array_shapes}")
-                
-                # Check if all arrays have at least 2 dimensions
-                if any(len(shape) < 2 for shape in array_shapes):
-                    logger.warning("Found arrays with less than 2 dimensions, skipping pathology processing")
-                    return detailed_results, tb_metrics, pathology_metrics
-                
-                # Handle 3D arrays properly when calculating max_dim
-                max_dim = 0
-                for arr in all_pathology_targets_np:
-                    if len(arr.shape) == 3:
-                        # For 3D arrays, use the last dimension
-                        max_dim = max(max_dim, arr.shape[-1])
-                    elif len(arr.shape) == 2:
-                        # For 2D arrays, use the second dimension
-                        max_dim = max(max_dim, arr.shape[1])
-                
-                logger.info(f"Maximum pathology dimension: {max_dim}")
-                
-                # Pad arrays to have consistent dimensions
-                padded_targets = []
-                padded_logits = []
-                padded_probs = []
-                padded_preds = []
-                
-                for targets, logits, probs, preds in zip(all_pathology_targets_np, all_pathology_logits_np, all_pathology_probs_np, all_pathology_preds_np):
-                    # Handle 3D arrays by taking the mean across the site dimension (middle dimension)
-                    # This gives us patient-level pathology predictions instead of site-level
-                    if len(targets.shape) == 3:
-                        # Shape is (batch=1, sites, pathologies) -> (batch, pathologies)
-                        targets = targets.mean(axis=1)  # Average across sites for patient-level label
-                        logits = logits.mean(axis=1)   # Average across sites
-                        probs = probs.mean(axis=1)     # Average across sites  
-                        preds = (probs > 0.5).astype(float)  # Recalculate predictions from averaged probs
-                    
-                    # Ensure all arrays have the same number of dimensions
-                    if len(targets.shape) != 2 or len(logits.shape) != 2 or len(probs.shape) != 2 or len(preds.shape) != 2:
-                        logger.warning(f"Inconsistent array dimensions after processing: targets={targets.shape}, logits={logits.shape}, probs={probs.shape}, preds={preds.shape}")
-                        continue
-                        
-                    if targets.shape[1] < max_dim:
-                        # Pad with zeros
-                        pad_width = max_dim - targets.shape[1]
-                        targets = np.pad(targets, ((0, 0), (0, pad_width)), mode='constant', constant_values=0)
-                        logits = np.pad(logits, ((0, 0), (0, pad_width)), mode='constant', constant_values=0)
-                        probs = np.pad(probs, ((0, 0), (0, pad_width)), mode='constant', constant_values=0)
-                        preds = np.pad(preds, ((0, 0), (0, pad_width)), mode='constant', constant_values=0)
-                    
-                    padded_targets.append(targets)
-                    padded_logits.append(logits)
-                    padded_probs.append(probs)
-                    padded_preds.append(preds)
-                
-                # Only proceed if we have valid padded arrays
-                if not padded_targets:
-                    logger.warning("No valid pathology arrays after padding, skipping pathology processing")
-                    return detailed_results, tb_metrics, pathology_metrics
-                    
-                pathology_targets = np.vstack(padded_targets)
-                pathology_logits = np.vstack(padded_logits)
-                pathology_probs = np.vstack(padded_probs)
-                pathology_preds = np.vstack(padded_preds)
-                
-                logger.info(f"Final pathology shapes: targets={pathology_targets.shape}, logits={pathology_logits.shape}")
-                
-                # Use the smaller of pathology_dim and actual max dimension
-                effective_dim = min(pathology_dim, max_dim)
+                pathology_targets = np.vstack(all_pathology_targets_np)
+                pathology_logits = np.vstack(all_pathology_logits_np)
+                pathology_probs = np.vstack(all_pathology_probs_np)
+                pathology_preds = np.vstack(all_pathology_preds_np)
                 
                 pathology_class_names = getattr(self.config, 'pathology_classes', [
-                    f"pathology_{i}" for i in range(effective_dim)])
+                    f"pathology_{i}" for i in range(pathology_dim)])
                 
                 for i, class_name in enumerate(pathology_class_names):
-                    if i < pathology_targets.shape[1] and i < effective_dim:
+                    if i < pathology_targets.shape[1]:
                         class_targets = pathology_targets[:, i]
                         class_preds = pathology_preds[:, i]
                         class_probs = pathology_probs[:, i]
@@ -2051,7 +1972,7 @@ class AblationTrainer:
             cm = confusion_matrix(targets, predictions)
             logger.info(f"\nConfusion Matrix ({name}):\n{cm}")
             
-            report = classification_report(targets, predictions, zero_division=0)
+            report = classification_report(targets, predictions)
             logger.info(f"\nClassification Report ({name}):\n{report}")
             
             class_counts = pd.Series(targets).value_counts()
@@ -2151,9 +2072,6 @@ class Config:
         if params:
             for key, value in params.items():
                 setattr(self, key, value)
-        
-        # If no YAML will be loaded, create default directories
-        self._create_default_directories()
     
     def _set_defaults(self):
         """Set default configuration values."""
@@ -2166,16 +2084,6 @@ class Config:
 
         self.video_folder = 'videos'
         self.image_folder = 'images'
-        
-        # Experiment settings
-        self.experiment_name = "ablation_tb_classifier_fold0"
-        self.experiment_dir = "./ablation_results/no_rl/fold0_ablation_tb_classifier"
-        self.evaluate_best_valid_model = True
-        
-        # Model weights and resuming
-        self.model_weights = None
-        self.best_model_path = None
-        self.resume_from_checkpoint = None
         
         # Model config
         self.model_type = 'no_rl'  # Default ablation model
@@ -2215,8 +2123,6 @@ class Config:
         self.active_tasks = ['TB Label']
         self.use_pathology_loss = True
         self.task_weights = {'TB Label': 1.0}
-        self.task_pos_weights = {'TB Label': 2.0}
-        self.pathology_weight = 0.5
         
         # New dataset parameters
         self.files_per_site = 1
@@ -2253,7 +2159,7 @@ class Config:
         self.patient_pipeline_T_mult = 2
         self.patient_pipeline_eta_min = 1e-6
         
-        # Directories - will be set relative to experiment_dir after loading YAML
+        # Directories
         self.log_dir = "logs"
         self.save_dir = "models"
         self.checkpoint_dir = "checkpoints"
@@ -2273,18 +2179,11 @@ class Config:
             'Other Pathology'
         ]
         
-        # Note: Directories will be created after loading YAML config
-    
-    def _create_default_directories(self):
-        """Set up default directory paths (don't create directories yet)."""
-        # Only set up directory paths, don't create them yet
-        # They will be created when needed in load_from_yaml or create_directories
-        if hasattr(self, 'experiment_dir') and self.experiment_dir:
-            # Update directory paths to be within experiment_dir
-            self.log_dir = os.path.join(self.experiment_dir, "logs")
-            self.save_dir = os.path.join(self.experiment_dir, "models")
-            self.checkpoint_dir = os.path.join(self.experiment_dir, "checkpoints")
-            self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
+        # Create required directories
+        os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        os.makedirs(self.pred_save_dir, exist_ok=True)
     
     def load_from_yaml(self, yaml_path):
         """Load configuration from YAML file and override defaults."""
@@ -2306,48 +2205,19 @@ class Config:
                 else:
                     logger.warning(f"  Unknown config key: {key}")
             
-            # Update directory paths to be within experiment_dir
-            self.log_dir = os.path.join(self.experiment_dir, "logs")
-            self.save_dir = os.path.join(self.experiment_dir, "models")
-            self.checkpoint_dir = os.path.join(self.experiment_dir, "checkpoints")
-            self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
+            # Create experiment directory from loaded config
+            if hasattr(self, 'experiment_dir'):
+                os.makedirs(self.experiment_dir, exist_ok=True)
+            else:
+                # Create experiment-specific directories from model_name
+                self.experiment_dir = os.path.join(self.checkpoint_dir, self.model_name)
+                os.makedirs(self.experiment_dir, exist_ok=True)
             
             logger.info(f"Configuration successfully loaded from {yaml_path}")
-            logger.info(f"Experiment directory will be: {self.experiment_dir}")
             
         except Exception as e:
             logger.error(f"Error loading config from {yaml_path}: {e}")
             raise e
-    
-    def create_directories(self):
-        """Create all required directories. Call this after configuration is fully loaded."""
-        if not hasattr(self, 'experiment_dir') or not self.experiment_dir:
-            logger.warning("No experiment_dir set, using default structure")
-            self._create_default_directories()
-        
-        # Ensure all directory paths are set
-        if not hasattr(self, 'log_dir'):
-            self.log_dir = os.path.join(self.experiment_dir, "logs")
-        if not hasattr(self, 'save_dir'):
-            self.save_dir = os.path.join(self.experiment_dir, "models")
-        if not hasattr(self, 'checkpoint_dir'):
-            self.checkpoint_dir = os.path.join(self.experiment_dir, "checkpoints")
-        if not hasattr(self, 'pred_save_dir'):
-            self.pred_save_dir = os.path.join(self.experiment_dir, "predictions")
-        
-        # Create all directories
-        os.makedirs(self.experiment_dir, exist_ok=True)
-        os.makedirs(self.log_dir, exist_ok=True)
-        os.makedirs(self.save_dir, exist_ok=True)
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
-        os.makedirs(self.pred_save_dir, exist_ok=True)
-        
-        # Log the created directories
-        logger.info(f"Created experiment directory: {self.experiment_dir}")
-        logger.info(f"Created log directory: {self.log_dir}")
-        logger.info(f"Created model save directory: {self.save_dir}")
-        logger.info(f"Created checkpoint directory: {self.checkpoint_dir}")
-        logger.info(f"Created prediction save directory: {self.pred_save_dir}")
     
     def to_dict(self):
         """Convert configuration to dictionary."""
@@ -2387,9 +2257,6 @@ def parse_args_and_load_config():
     parser.add_argument('--model_weights', type=str, help='Path to model weights')
     parser.add_argument('--best_model_path', type=str, help='Path to best model for evaluation')
     parser.add_argument('--resume_from_checkpoint', type=str, help='Path to checkpoint to resume from')
-    
-    # Data arguments
-    parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory')
     
     # Mode arguments
     parser.add_argument('--train', action='store_true', default=True, help='Train mode')
@@ -2443,10 +2310,6 @@ def parse_args_and_load_config():
         config.resume_from_checkpoint = args.resume_from_checkpoint
         logger.info(f"Override resume_from_checkpoint: {args.resume_from_checkpoint}")
         
-    if args.video_folder is not None:
-        config.video_folder = args.video_folder
-        logger.info(f"Override video_folder: {args.video_folder}")
-        
     if args.eval_only:
         config.train = False
         logger.info("Override train: False (evaluation only)")
@@ -2463,8 +2326,8 @@ def main():
     for key, value in config.to_dict().items():
         logger.info(f"  {key}: {value}")
     
-    # Create all required directories after configuration is fully loaded
-    config.create_directories()
+    # Create experiment directory and save config
+    os.makedirs(config.experiment_dir, exist_ok=True)
     config_path = os.path.join(config.experiment_dir, "config.yaml")
     config.save(config_path)
     logger.info(f"Configuration saved to {config_path}")
@@ -2513,24 +2376,24 @@ if __name__ == "__main__":
 
 
 # # 3D CNN ablation
-# python3 train_ablation.py --config configs/3dcnn/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_ablation.py --config configs/3dcnn/fold0.yaml
 
 # # CNN-LSTM ablation
-# python3 train_ablation.py --config configs/cnnlstm/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_ablation.py --config configs/cnnlstm/fold0.yaml
 
 # # Video Transformer (ViViT) ablation
-# python3 train_ablation.py --config configs/vivit/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_ablation.py --config configs/vivit/fold0.yaml
 
 
 # # Attention pooling ablation
-# python3 train_ablation.py --config configs/attention_pool/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_ablation.py --config configs/attention_pool/fold0.yaml
 
 # # Mean pooling ablation
-# python3 train_ablation.py --config configs/mean_pool/fold4.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_ablation.py --config configs/mean_pool/fold4.yaml
 
 # # Single task ablation
-# python3 train_ablation.py --config configs/singletask/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_ablation.py --config configs/singletask/fold0.yaml
 
 # # Uniform/No-RL ablation
-# python3 train_ablation.py --config configs/uniform/tb_drl_mil_Final_fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_ablation.py --config configs/uniform/tb_drl_mil_Final_fold0.yaml
 
