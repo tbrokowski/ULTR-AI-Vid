@@ -223,3 +223,6 @@ Data/LusBeninVideos/
 
 # Docker
 *dockerignore*
+
+# Extra python file
+extra.py
