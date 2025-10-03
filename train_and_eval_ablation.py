@@ -34,7 +34,8 @@ from NetworkArchitecture.ablation_models import create_ablation_model
 
 try:
     from NetworkArchitecture.monitoring_utils import log_model_component_status
-except ImportError:
+except ImportError as e:
+    print(e)
     logger = logging.getLogger(__name__)
     logger.warning("Monitoring utilities not available")
     log_model_component_status = lambda *args: None
@@ -961,7 +962,7 @@ class AblationTrainer:
 
             tb_metrics = self._calculate_metrics(tb_targets, tb_predictions, tb_logits.numpy(), None, "TB Label")
 
-            Add TB prefix to metrics
+            # Add TB prefix to metrics
             for key, value in tb_metrics.items():
                 all_metrics[f'TB Label_{key}'] = value
         
@@ -1886,24 +1887,24 @@ if __name__ == "__main__":
 
 
 # # 3D CNN ablation
-# python3 train_ablation.py --config configs/3dcnn/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_and_eval_ablation.py --config configs/3dcnn/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # CNN-LSTM ablation
-# python3 train_ablation.py --config configs/cnnlstm/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_and_eval_ablation.py --config configs/cnnlstm/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Video Transformer (ViViT) ablation
-# python3 train_ablation.py --config configs/vivit/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_and_eval_ablation.py --config configs/vivit/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 
 # # Attention pooling ablation
-# python3 train_ablation.py --config configs/attention_pool/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_and_eval_ablation.py --config configs/attention_pool/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Mean pooling ablation
-# python3 train_ablation.py --config configs/mean_pool/fold4.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_and_eval_ablation.py --config configs/mean_pool/fold4.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Single task ablation
-# python3 train_ablation.py --config configs/singletask/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_and_eval_ablation.py --config configs/singletask/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
 # # Uniform/No-RL ablation
-# python3 train_ablation.py --config configs/uniform/tb_drl_mil_Final_fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+# python3 train_and_eval_ablation.py --config configs/uniform/tb_drl_mil_Final_fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
 
