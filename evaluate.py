@@ -28,10 +28,25 @@ sys.path.insert(0, SRC_PATH)
 sys.path.insert(0, NETWORK_PATH)
 
 # Updated imports to match your new training system
-from Dataloaders.dataset_multitask import LungUltrasoundDataModule
+from dataset import LungUltrasoundDataModule
 #from NetworkArchitecture.CLIP_Multitask_Aug5 import MultiTaskModel
-from NetworkArchitecture.CLIP_DRL_Aug26 import MultiTaskModel
+from NetworkArchitecture.CLIP_DRL_Aug11 import MultiTaskModel   # UPDATE TO AUG26
 from config import load_config, MultiTaskConfig
+
+try:
+    from NetworkArchitecture.monitoring_utils import log_model_component_status
+except ImportError as e:
+    print(e)
+    logger = logging.getLogger(__name__)
+    logger.warning("Monitoring utilities not available")
+    log_model_component_status = lambda *args: None
+        
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True  # Force reconfiguration if logging was already configured
+)
+logger = logging.getLogger(__name__)
 
 
 def evaluate_model_comprehensive(model, dataloader, device, active_tasks, use_pathology_loss=True, save_complex_data=True):
@@ -52,7 +67,7 @@ def evaluate_model_comprehensive(model, dataloader, device, active_tasks, use_pa
         - complex_data: Dictionary with complex tensor data
         - metrics: Evaluation metrics
     """
-    print("=== Starting Comprehensive Multi-Task Model Evaluation ===")
+    logger.info("=== Starting Comprehensive Multi-Task Model Evaluation ===")
     model.eval()
     
     # Storage for structured data
@@ -81,9 +96,9 @@ def evaluate_model_comprehensive(model, dataloader, device, active_tasks, use_pa
     
     pathology_names = ['a_lines', 'b_lines', 'small_consolidations', 'large_consolidations', 'pleural_effusion']
     
-    print(f"Processing {len(dataloader)} batches...")
-    print(f"Active tasks: {active_tasks}")
-    print(f"Use pathology loss: {use_pathology_loss}")
+    logger.info(f"Processing {len(dataloader)} batches...")
+    logger.info(f"Active tasks: {active_tasks}")
+    logger.info(f"Use pathology loss: {use_pathology_loss}")
     
     with torch.no_grad():
         for batch_idx, batch in enumerate(tqdm(dataloader, desc="Evaluating")):
@@ -272,31 +287,31 @@ def evaluate_model_comprehensive(model, dataloader, device, active_tasks, use_pa
                 
             except RuntimeError as e:
                 if 'out of memory' in str(e).lower():
-                    print(f"❌ OOM during evaluation at batch {batch_idx}, skipping")
+                    logger.warning(f"OOM during evaluation at batch {batch_idx}, skipping")
                     stats['failed_batches'] += 1
                     torch.cuda.empty_cache()
                     continue
                 else:
                     raise e
             except Exception as e:
-                print(f"❌ Error at batch {batch_idx}: {e}")
+                logger.error(f"Error at batch {batch_idx}: {e}")
                 stats['failed_batches'] += 1
                 continue
     
-    print("\n=== Evaluation Statistics ===")
+    logger.info("\n=== Evaluation Statistics ===")
     for key, value in stats.items():
-        print(f"{key}: {value}")
+        logger.info(f"{key}: {value}")
     
     # Create DataFrames
-    print(f"\nCreating DataFrames from {len(patient_records)} patient records and {len(site_records)} site records...")
+    logger.info(f"\nCreating DataFrames from {len(patient_records)} patient records and {len(site_records)} site records...")
     
     patient_df = pd.DataFrame(patient_records)
     site_df = pd.DataFrame(site_records)
     
-    print(f"Patient DataFrame shape: {patient_df.shape}")
-    print(f"Site DataFrame shape: {site_df.shape}")
-    print(f"Patient DataFrame columns: {list(patient_df.columns)}")
-    print(f"Site DataFrame columns: {list(site_df.columns)}")
+    logger.info(f"Patient DataFrame shape: {patient_df.shape}")
+    logger.info(f"Site DataFrame shape: {site_df.shape}")
+    logger.info(f"Patient DataFrame columns: {list(patient_df.columns)}")
+    logger.info(f"Site DataFrame columns: {list(site_df.columns)}")
     
     # Calculate metrics for each active task
     metrics = {}
@@ -317,17 +332,17 @@ def evaluate_model_comprehensive(model, dataloader, device, active_tasks, use_pa
                     patient_probs = patient_df.loc[valid_mask, prob_col].values
                     patient_preds = patient_df.loc[valid_mask, pred_col].values
                     
-                    print(f"\n{task_name} targets distribution: {np.bincount(patient_targets.astype(int))}")
-                    print(f"{task_name} predictions distribution: {np.bincount(patient_preds.astype(int))}")
+                    logger.info(f"\n{task_name} targets distribution: {np.bincount(patient_targets.astype(int))}")
+                    logger.info(f"{task_name} predictions distribution: {np.bincount(patient_preds.astype(int))}")
                     
                     try:
                         task_metrics = calculate_metrics(patient_targets, patient_preds, probabilities=patient_probs)
                         # Add task prefix to metrics
                         for key, value in task_metrics.items():
                             metrics[f'{task_name}_{key}'] = value
-                        print(f"{task_name} metrics calculated: {list(task_metrics.keys())}")
+                        logger.info(f"{task_name} metrics calculated: {list(task_metrics.keys())}")
                     except Exception as e:
-                        print(f"Warning: Could not calculate metrics for {task_name}: {e}")
+                        logger.warning(f"Could not calculate metrics for {task_name}: {e}")
     
     print(f"\nComplex data summary:")
     for key, data_dict in complex_data.items():
@@ -363,7 +378,7 @@ def calculate_metrics(targets, predictions, probabilities=None):
             metrics['auprc'] = average_precision_score(targets, probabilities)
         
     except Exception as e:
-        print(f"Error calculating metrics: {e}")
+        logger.error(f"Error calculating metrics: {e}")
         # Provide default values
         metrics['accuracy'] = 0.0
         metrics['auc'] = 0.5
@@ -374,7 +389,7 @@ def calculate_metrics(targets, predictions, probabilities=None):
 def save_comprehensive_results(patient_df, site_df, complex_data, metrics, output_dir, split_name, experiment_name, fold_num):
     """Save comprehensive evaluation results in multiple formats."""
     
-    print(f"=== Saving Comprehensive Results to {output_dir} ===")
+    logger.info(f"=== Saving Comprehensive Results to {output_dir} ===")
     
     # Create filename base
     if fold_num is not None:
@@ -382,7 +397,7 @@ def save_comprehensive_results(patient_df, site_df, complex_data, metrics, outpu
     else:
         filename_base = f'{split_name}_{experiment_name}'
     
-    print(f"Filename base: {filename_base}")
+    logger.info(f"Filename base: {filename_base}")
     
     saved_files = {}
     
@@ -390,13 +405,13 @@ def save_comprehensive_results(patient_df, site_df, complex_data, metrics, outpu
     patient_csv_path = os.path.join(output_dir, f'{filename_base}_patients.csv')
     patient_df.to_csv(patient_csv_path, index=False)
     saved_files['patient_csv'] = patient_csv_path
-    print(f"✓ Patient data saved: {patient_csv_path}")
+    logger.info(f"Patient data saved: {patient_csv_path}")
     
     # 2. Save site-level dataframe
     site_csv_path = os.path.join(output_dir, f'{filename_base}_sites.csv')
     site_df.to_csv(site_csv_path, index=False)
     saved_files['site_csv'] = site_csv_path
-    print(f"✓ Site data saved: {site_csv_path}")
+    logger.info(f"Site data saved: {site_csv_path}")
     
     # 3. Save complex data using HDF5
     hdf5_path = os.path.join(output_dir, f'{filename_base}_complex_data.h5')
@@ -416,14 +431,14 @@ def save_comprehensive_results(patient_df, site_df, complex_data, metrics, outpu
                 patient_grp = f.create_group('patient_features')
                 for patient_id, features in complex_data['patient_features'].items():
                     patient_grp.create_dataset(str(patient_id), data=features)
-                print(f"    Patient features: {len(complex_data['patient_features'])} patients")
+                logger.info(f"    Patient features: {len(complex_data['patient_features'])} patients")
             
             # MIL attention
             if complex_data['mil_attention']:
                 mil_grp = f.create_group('mil_attention')
                 for patient_id, attention in complex_data['mil_attention'].items():
                     mil_grp.create_dataset(str(patient_id), data=attention)
-                print(f"    MIL attention: {len(complex_data['mil_attention'])} patients")
+                logger.info(f"    MIL attention: {len(complex_data['mil_attention'])} patients")
             
             # Site features
             if complex_data['site_features']:
@@ -431,7 +446,7 @@ def save_comprehensive_results(patient_df, site_df, complex_data, metrics, outpu
                 for (patient_id, site_idx), features in complex_data['site_features'].items():
                     dataset_name = f"{patient_id}_site_{site_idx}"
                     site_grp.create_dataset(dataset_name, data=features)
-                print(f"    Site features: {len(complex_data['site_features'])} sites")
+                logger.info(f"    Site features: {len(complex_data['site_features'])} sites")
             
             # Task logits
             if complex_data['task_logits']:
@@ -440,19 +455,19 @@ def save_comprehensive_results(patient_df, site_df, complex_data, metrics, outpu
                     task_subgrp = task_grp.create_group(task_name.replace(' ', '_'))
                     for patient_id, logits in task_data.items():
                         task_subgrp.create_dataset(str(patient_id), data=logits)
-                print(f"    Task logits: {len(complex_data['task_logits'])} tasks")
+                logger.info(f"    Task logits: {len(complex_data['task_logits'])} tasks")
             
             # Pathology scores
             if 'pathology_scores' in complex_data and complex_data['pathology_scores']:
                 pathology_grp = f.create_group('pathology_scores')
                 for patient_id, scores in complex_data['pathology_scores'].items():
                     pathology_grp.create_dataset(str(patient_id), data=scores)
-                print(f"    Pathology scores: {len(complex_data['pathology_scores'])} patients")
+                logger.info(f"    Pathology scores: {len(complex_data['pathology_scores'])} patients")
         
         saved_files['complex_hdf5'] = hdf5_path
-        print(f"✓ Complex data saved: {hdf5_path}")
+        logger.info(f"Complex data saved: {hdf5_path}")
     except Exception as e:
-        print(f"  HDF5: Failed to save ({e})")
+        logger.error(f"HDF5: Failed to save ({e})")
     
     # 4. Save metrics as JSON
     metrics_path = os.path.join(output_dir, f'{filename_base}_metrics.json')
@@ -468,18 +483,18 @@ def save_comprehensive_results(patient_df, site_df, complex_data, metrics, outpu
         with open(metrics_path, 'w') as f:
             json.dump(json_metrics, f, indent=2)
         saved_files['metrics_json'] = metrics_path
-        print(f"✓ Metrics saved: {metrics_path}")
+        logger.info(f"Metrics saved: {metrics_path}")
     except Exception as e:
-        print(f"  Metrics: Failed to save ({e})")
+        logger.error(f"Metrics: Failed to save ({e})")
     
-    print(f"\n🎉 All results saved with base name: {filename_base}")
+    logger.info(f"\nAll results saved with base name: {filename_base}")
     return saved_files
 
 
 def run_comprehensive_evaluation(test_config):
     """Run the comprehensive evaluation pipeline for multi-task model."""
     
-    print("=== Loading Multi-Task Model and Data ===")
+    logger.info("=== Loading Multi-Task Model and Data ===")
 
     # Set device
     device = torch.device(f'cuda:{test_config["gpu_id"]}' if test_config['gpu_id'] >= 0 and torch.cuda.is_available() else 'cpu')
@@ -492,18 +507,18 @@ def run_comprehensive_evaluation(test_config):
     # Load configuration using the actual config system
     config = load_config(config_file=test_config['config_path'])
     
-    print("✓ Config loaded successfully")
-    print(f"  Active tasks: {getattr(config, 'active_tasks', 'Not specified')}")
-    print(f"  Selection strategy: {getattr(config, 'selection_strategy', 'Not specified')}")
-    print(f"  Use pathology loss: {getattr(config, 'use_pathology_loss', 'Not specified')}")
-    print(f"  Experiment dir: {getattr(config, 'experiment_dir', 'Not specified')}")
+    logger.info("Config loaded successfully")
+    logger.info(f"  Active tasks: {getattr(config, 'active_tasks', 'Not specified')}")
+    logger.info(f"  Selection strategy: {getattr(config, 'selection_strategy', 'Not specified')}")
+    logger.info(f"  Use pathology loss: {getattr(config, 'use_pathology_loss', 'Not specified')}")
+    logger.info(f"  Experiment dir: {getattr(config, 'experiment_dir', 'Not specified')}")
     
     # Extract multi-task configuration
     active_tasks = getattr(config, 'active_tasks', ['TB Label'])
     use_pathology_loss = getattr(config, 'use_pathology_loss', True)
     
-    print(f"Active tasks: {active_tasks}")
-    print(f"Use pathology loss: {use_pathology_loss}")
+    logger.info(f"Active tasks: {active_tasks}")
+    logger.info(f"Use pathology loss: {use_pathology_loss}")
     
     # Setup data module
     data_module = LungUltrasoundDataModule(
@@ -529,30 +544,30 @@ def run_comprehensive_evaluation(test_config):
 
     # Use model_path from config if available, otherwise use test_config
     model_path = getattr(config, 'model_path', None) or test_config['model_path']
-    print(f"Loading checkpoint from: {model_path}")
+    logger.info(f"Loading checkpoint from: {model_path}")
     checkpoint = torch.load(model_path, map_location=device, weights_only=False)
 
     # Print checkpoint info
-    print(f"Checkpoint keys: {list(checkpoint.keys())}")
+    logger.info(f"Checkpoint keys: {list(checkpoint.keys())}")
 
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
-        print("✓ Loaded model_state_dict from checkpoint")
+        logger.info("Loaded model_state_dict from checkpoint")
         
         # Print additional checkpoint info if available
         if 'epoch' in checkpoint:
-            print(f"  Checkpoint epoch: {checkpoint['epoch']}")
+            logger.info(f"  Checkpoint epoch: {checkpoint['epoch']}")
         if 'best_metric' in checkpoint:
-            print(f"  Best metric: {checkpoint['best_metric']:.4f}")
+            logger.info(f"  Best metric: {checkpoint['best_metric']:.4f}")
         if 'active_tasks' in checkpoint:
-            print(f"  Checkpoint active tasks: {checkpoint['active_tasks']}")
+            logger.info(f"  Checkpoint active tasks: {checkpoint['active_tasks']}")
     else:
         model.load_state_dict(checkpoint)
-        print("✓ Loaded state dict directly from checkpoint")
+        logger.info("Loaded state dict directly from checkpoint")
         
     model = model.to(device)
     model.eval()
-    print(f"✓ Model moved to {device} and set to eval mode")
+    logger.info(f"Model moved to {device} and set to eval mode")
 
     data_module.setup(stage='patient_level')
 
@@ -562,7 +577,7 @@ def run_comprehensive_evaluation(test_config):
             model, dataloader, device, active_tasks, use_pathology_loss, test_config['save_complex_data']
         )
         
-        print(f"=== Saving {split_name} Results ===")
+        logger.info(f"=== Saving {split_name} Results ===")
         
         # Save results
         saved_files = save_comprehensive_results(
@@ -594,14 +609,14 @@ def run_comprehensive_evaluation(test_config):
 
         
         # Save Test Data
-        print("Running Test Data")
+        logger.info("Running Test Data")
         test_results = run_split_evaluation('test', test_dataloader)
         
         # Save Val Data
-        print("Running Val Data")
+        logger.info("Running Val Data")
         val_results = run_split_evaluation('val', val_dataloader)
 
-        print("Running Train Data")
+        logger.info("Running Train Data")
         train_results = run_split_evaluation('train', train_dataloader)
         
         return test_results  # Return test results as primary
@@ -610,11 +625,11 @@ def run_comprehensive_evaluation(test_config):
 def analyze_saved_results(patient_df, site_df, active_tasks, use_pathology_loss=True):
     """Analyze the saved results and generate insights."""
     
-    print("=== Multi-Task Data Analysis ===")
+    logger.info("=== Multi-Task Data Analysis ===")
     
     # Patient-level analysis for each task
-    print(f"\nPatient-level Analysis:")
-    print(f"  Total patients: {len(patient_df)}")
+    logger.info(f"\nPatient-level Analysis:")
+    logger.info(f"  Total patients: {len(patient_df)}")
     
     for task_name in active_tasks:
         prefix = task_name.lower().replace(' ', '_')
@@ -627,42 +642,42 @@ def analyze_saved_results(patient_df, site_df, active_tasks, use_pathology_loss=
                 positive_count = patient_df.loc[valid_mask, label_col].sum()
                 total_count = valid_mask.sum()
                 avg_prob = patient_df.loc[valid_mask, prob_col].mean() if prob_col in patient_df.columns else 0
-                print(f"  {task_name}: {positive_count}/{total_count} ({positive_count/total_count*100:.1f}%)")
-                print(f"    Average probability: {avg_prob:.3f}")
+                logger.info(f"  {task_name}: {positive_count}/{total_count} ({positive_count/total_count*100:.1f}%)")
+                logger.info(f"    Average probability: {avg_prob:.3f}")
     
     # Site-level analysis
-    print(f"\nSite-level Analysis:")
-    print(f"  Total sites: {len(site_df)}")
-    print(f"  Sites per patient: {len(site_df) / len(patient_df):.1f}")
-    print(f"  Unique anatomical sites: {site_df['site_index'].nunique()}")
-    print(f"  Site index range: {site_df['site_index'].min()}-{site_df['site_index'].max()}")
+    logger.info(f"\nSite-level Analysis:")
+    logger.info(f"  Total sites: {len(site_df)}")
+    logger.info(f"  Sites per patient: {len(site_df) / len(patient_df):.1f}")
+    logger.info(f"  Unique anatomical sites: {site_df['site_index'].nunique()}")
+    logger.info(f"  Site index range: {site_df['site_index'].min()}-{site_df['site_index'].max()}")
     
     # Pathology analysis
     if use_pathology_loss:
         pathology_cols = [col for col in site_df.columns if col.endswith('_finding')]
-        print(f"\nPathology Findings (Ground Truth):")
+        logger.info(f"\nPathology Findings (Ground Truth):")
         for col in pathology_cols:
             pathology_name = col.replace('_finding', '').replace('_', ' ').title()
             positive_sites = site_df[col].sum()
             total_sites = len(site_df)
-            print(f"  {pathology_name}: {positive_sites}/{total_sites} ({positive_sites/total_sites*100:.1f}%)")
+            logger.info(f"  {pathology_name}: {positive_sites}/{total_sites} ({positive_sites/total_sites*100:.1f}%)")
         
         # Prediction analysis
         pathology_pred_cols = [col for col in site_df.columns if col.endswith('_pred')]
         if pathology_pred_cols:
-            print(f"\nPathology Predictions:")
+            logger.info(f"\nPathology Predictions:")
             for col in pathology_pred_cols:
                 pathology_name = col.replace('_pred', '').replace('_', ' ').title()
                 predicted_positive = site_df[col].sum()
                 total_sites = len(site_df)
-                print(f"  {pathology_name}: {predicted_positive}/{total_sites} ({predicted_positive/total_sites*100:.1f}%)")
+                logger.info(f"  {pathology_name}: {predicted_positive}/{total_sites} ({predicted_positive/total_sites*100:.1f}%)")
     
     return patient_df, site_df
 
 
 def create_cross_fold_summary(successful_folds, results_dir):
     """Create a summary across all successful folds."""
-    print("Creating cross-fold summary...")
+    logger.info("Creating cross-fold summary...")
     
     all_metrics = []
     
@@ -681,7 +696,7 @@ def create_cross_fold_summary(successful_folds, results_dir):
                     all_metrics.append(fold_metrics)
                     
                 except Exception as e:
-                    print(f"Warning: Could not load metrics from {metrics_file}: {e}")
+                    logger.warning(f"Could not load metrics from {metrics_file}: {e}")
     
     if all_metrics:
         # Convert to DataFrame and save
@@ -689,165 +704,18 @@ def create_cross_fold_summary(successful_folds, results_dir):
         summary_file = os.path.join(results_dir, 'cross_fold_summary.csv')
         summary_df.to_csv(summary_file, index=False)
         
-        print(f"✓ Cross-fold summary saved to: {summary_file}")
+        logger.info(f"Cross-fold summary saved to: {summary_file}")
         
         # Print average metrics
-        print("\n📊 Average Metrics Across Folds:")
+        logger.info("\nAverage Metrics Across Folds:")
         numeric_cols = summary_df.select_dtypes(include=[np.number]).columns
         avg_metrics = summary_df.groupby('split')[numeric_cols].mean()
         
         for split in ['train', 'val', 'test']:
             if split in avg_metrics.index:
-                print(f"\n{split.upper()} (avg across {len(successful_folds)} folds):")
+                logger.info(f"\n{split.upper()} (avg across {len(successful_folds)} folds):")
                 for col in ['TB Label_auc', 'TB Label_accuracy', 'Pneumonia Label_auc', 'Pneumonia Label_accuracy']:
                     if col in avg_metrics.columns:
-                        print(f"  {col}: {avg_metrics.loc[split, col]:.4f}")
+                        logger.info(f"  {col}: {avg_metrics.loc[split, col]:.4f}")
     else:
-        print("No metrics files found for cross-fold summary")
-
-
-if __name__ == "__main__":
-    print("Starting Multi-Task Model Comprehensive Evaluation")
-    print("=" * 60)
-
-    # Set the experiment name the options are: 3dcnn, attention_pool, cnnlstm, Finalruns, mean_pool, singletask, uniform, vivit
-    experiment_name = "3dcnn"
-    
-    # Configuration paths for all folds - UPDATE THESE TO MATCH YOUR ACTUAL CONFIG FILES
-    config_paths = [
-        f"configs/{experiment_name}/fold0.yaml",
-        f"configs/{experiment_name}/fold1.yaml",
-        f"configs/{experiment_name}/fold2.yaml",
-        f"configs/{experiment_name}/fold3.yaml",
-        f"configs/{experiment_name}/fold4.yaml",
-    ]
-    
-    # Model paths can be None if they're specified in the config files
-    model_paths = [
-        None,  # Will use model_path from config file
-        None,  # Will use model_path from config file
-        None,  # Will use model_path from config file
-        None,  # Will use model_path from config file
-        None,  # Will use model_path from config file
-    ]
-    
-    # Alternative: If you want to override model paths explicitly, use:
-    # model_paths = [
-    #  #   '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/experiments/multitask_tb_pneumonia_attention_fold0/checkpoint_best_metric_0.9245.pth',
-    #   #  '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/experiments/multitask_tb_pneumonia_attention_fold1/checkpoint_best.pth',
-    #    # '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/experiments/multitask_tb_pneumonia_attention_fold2/checkpoint_best.pth',
-    #    # '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/experiments/multitask_tb_pneumonia_attention_fold3/checkpoint_best.pth',
-    #    # '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/experiments/multitask_tb_pneumonia_attention_fold4/checkpoint_best.pth',
-    #     '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/checkpoints/drl_mil_tb_classifier_Aug26_fold0/checkpoint_best_metric_0.9174.pth'
-    # ]
-    
-    print(f"Found {len(config_paths)} folds to process")
-    
-    # First, check which files exist
-    valid_folds = []
-    for i in range(len(config_paths)):
-        config_exists = os.path.exists(config_paths[i])
-        
-        # If model_path is None, we'll check config file for model_path
-        if model_paths[i] is None:
-            model_exists = True  # Will be validated when loading config
-        else:
-            model_exists = os.path.exists(model_paths[i])
-        
-        print(f"\nFold {i}:")
-        print(f"  Config: {'✓' if config_exists else '❌'} {config_paths[i]}")
-        if model_paths[i] is not None:
-            print(f"  Model:  {'✓' if model_exists else '❌'} {model_paths[i]}")
-        else:
-            print(f"  Model:  Will use path from config file")
-        
-        if config_exists and model_exists:
-            valid_folds.append(i)
-        else:
-            print(f"  Status: ❌ Skipping fold {i} (missing files)")
-    
-    print(f"\n✓ Found {len(valid_folds)} valid folds: {valid_folds}")
-    
-    if not valid_folds:
-        print("❌ No valid folds found. Please check the file paths.")
-        exit()
-    
-    # Process each valid fold
-    successful_folds = []
-    failed_folds = []
-    
-    for i in valid_folds:
-        print(f"\n{'='*60}")
-        print(f"🔄 Processing Fold {i}")
-        print(f"{'='*60}")
-        
-        test_config = {
-            'config_path': config_paths[i],
-            'model_path': model_paths[i],  # Can be None if specified in config
-            'split': 'all',
-            'fold': i,
-            'output_dir': '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/ULTR-CLIP/results_Aug26',
-            'gpu_id': 0,
-            'save_complex_data': True,
-            'batch_size_override': None,
-        }
-        
-        try:
-            print(f"Starting evaluation for fold {i}...")
-            patient_df, site_df, complex_data, metrics, saved_files = run_comprehensive_evaluation(test_config)
-            
-            print(f"✅ Fold {i} completed successfully!")
-            print(f"   - Patients evaluated: {len(patient_df)}")
-            print(f"   - Sites evaluated: {len(site_df)}")
-            print(f"   - Files saved: {len(saved_files)}")
-            
-            # Print key metrics if available
-            if metrics:
-                for task_name in ['TB Label', 'Pneumonia Label', 'Covid Label']:
-                    task_metrics = {k.replace(f'{task_name}_', ''): v for k, v in metrics.items() 
-                                  if k.startswith(f'{task_name}_')}
-                    if task_metrics:
-                        auc = task_metrics.get('auc', 'N/A')
-                        acc = task_metrics.get('accuracy', 'N/A')
-                        print(f"   - {task_name}: AUC={auc:.4f if isinstance(auc, (int, float)) else auc}, ACC={acc:.4f if isinstance(acc, (int, float)) else acc}")
-            
-            successful_folds.append(i)
-            
-        except Exception as e:
-            print(f"❌ Error processing fold {i}: {e}")
-            failed_folds.append(i)
-            
-            # Print traceback for debugging
-            import traceback
-            print("Full error traceback:")
-            traceback.print_exc()
-            
-            # Continue with next fold
-            continue
-    
-    # Final summary
-    print(f"\n{'='*60}")
-    print(f"📊 EVALUATION SUMMARY")
-    print(f"{'='*60}")
-    print(f"✅ Successful folds: {successful_folds} ({len(successful_folds)}/{len(valid_folds)})")
-    if failed_folds:
-        print(f"❌ Failed folds: {failed_folds}")
-    
-    print(f"\n📁 Results saved to: /gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/ULTR-CLIP/results_Aug11v1")
-    
-    if successful_folds:
-        print(f"\n🎉 Evaluation completed for {len(successful_folds)} folds!")
-        print("Check the results directory for detailed outputs:")
-        print("  - CSV files: patient and site-level predictions")
-        print("  - HDF5 files: complex model outputs and features")
-        print("  - JSON files: evaluation metrics")
-    else:
-        print("❌ No folds completed successfully. Please check the errors above.")
-
-    # Optional: Create a consolidated summary across all folds
-    if len(successful_folds) > 1:
-        print(f"\n📈 Creating consolidated summary across {len(successful_folds)} folds...")
-        try:
-            create_cross_fold_summary(successful_folds, '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/ULTR-CLIP/results_Aug26')
-        except Exception as e:
-            print(f"⚠️  Warning: Could not create cross-fold summary: {e}")
+        logger.warning("No metrics files found for cross-fold summary")

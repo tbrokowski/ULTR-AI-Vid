@@ -41,8 +41,9 @@ except ImportError as e:
     log_model_component_status = lambda *args: None
         
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True  # Force reconfiguration if logging was already configured
 )
 logger = logging.getLogger(__name__)
 
@@ -1036,6 +1037,13 @@ class AblationTrainer:
             
             
         
+
+        # Checkpoint file naming conventions:
+        # - checkpoint_latest.pth: Always overwritten, contains the most recent model state after every epoch.
+        # - checkpoint_epoch_XXX_metric_YYYY.pth: Saved every 5 epochs (or at epoch 0), includes the epoch number and metric value for traceability.
+        # - checkpoint_best_metric_YYYY.pth: Saved when a new best metric is achieved, includes the best metric value in the filename.
+        # - checkpoint_best.pth: Also saved when a new best metric is achieved, but always overwritten—generic name for easy loading of the best model.
+
         latest_path = save_dir / "checkpoint_latest.pth"
         torch.save(checkpoint, latest_path)
         
@@ -1080,6 +1088,8 @@ class AblationTrainer:
             logger.info(f"Epoch {epoch+1}/{self.config.num_epochs}")
             
             train_loss, train_metrics = self.train_epoch(epoch)
+        
+            val_loss, val_metrics = self.validate(epoch)
           
             # Use TB Label metric as primary
             eval_metric_key = f"TB Label_{self.config.eval_metric}"
@@ -1745,6 +1755,10 @@ def parse_args_and_load_config():
     # Config file argument
     parser.add_argument('--config', type=str, required=False, 
                        help='Path to config YAML file')
+
+    # Add the experiment name and fold as optional arguments. Experiment name options are: 3dcnn, attention_pool, cnnlstm, mean_pool, singletask, uniform, vivit
+    parser.add_argument('--experiment_name', type=str, help='Name of the experiment')
+    parser.add_argument('--fold', type=int, choices=[0, 1, 2, 3, 4], help='Fold number for cross-validation')
     
     # Model arguments
     parser.add_argument('--model_type', type=str, help='Ablation model type', 
@@ -1774,13 +1788,23 @@ def parse_args_and_load_config():
     # Create config with defaults
     config = Config()
     
-    # Load YAML config if provided
-    if args.config:
-        if os.path.exists(args.config):
-            config.load_from_yaml(args.config)
+    # Determine config path
+    config_path = None
+    if args.experiment_name and args.fold is not None:
+        # Construct config path from experiment name and fold
+        config_path = f"configs/{args.experiment_name}/fold{args.fold}.yaml"
+        logger.info(f"Constructed config path: {config_path}")
+    elif args.config:
+        config_path = args.config
+    
+    # Load YAML config if path is determined
+    if config_path:
+        if os.path.exists(config_path):
+            config.load_from_yaml(config_path)
+            logger.info(f"Loaded config from: {config_path}")
         else:
-            logger.error(f"Config file not found: {args.config}")
-            raise FileNotFoundError(f"Config file not found: {args.config}")
+            logger.error(f"Config file not found: {config_path}")
+            raise FileNotFoundError(f"Config file not found: {config_path}")
     else:
         logger.info("No config file provided, using defaults")
     
@@ -1826,85 +1850,3 @@ def parse_args_and_load_config():
         logger.info("Override train: False (evaluation only)")
     
     return config
-
-def main():
-    """Main training function with command line argument support."""
-    
-    # Parse command line arguments and load configuration
-    config = parse_args_and_load_config()
-    
-    logger.info("TB Ablation Classification Configuration:")
-    for key, value in config.to_dict().items():
-        logger.info(f"  {key}: {value}")
-    
-    # Create all required directories after configuration is fully loaded
-    config.create_directories()
-    config_path = os.path.join(config.experiment_dir, "config.yaml")
-    config.save(config_path)
-    logger.info(f"Configuration saved to {config_path}")
-    
-    # GPU/Device information
-    if torch.cuda.is_available():
-        logger.info(f"Using device: {config.device}")
-        logger.info(f"Device name: {torch.cuda.get_device_name(0)}")
-        logger.info(f"Number of GPUs available: {torch.cuda.device_count()}")
-        print_gpu_memory()
-    else:
-        logger.info("Using CPU")
-
-    # Initialize trainer
-    trainer = AblationTrainer(config)
-    
-    # Check for resume checkpoint
-    resume_checkpoint = None
-    if hasattr(config, 'resume_from_checkpoint') and config.resume_from_checkpoint is not None:
-        if not os.path.exists(config.resume_from_checkpoint):
-            logger.error(f"Resume checkpoint not found: {config.resume_from_checkpoint}")
-            return
-        resume_checkpoint = config.resume_from_checkpoint
-        logger.info(f"Will resume training from: {resume_checkpoint}")
-    
-    # Check if we're in evaluation-only mode
-    # if not config.train:
-    #     logger.info("Running in evaluation-only mode")
-    #     trainer._evaluate_best_model()
-    #     return
-    
-    # Start training
-    logger.info(f"Starting TB training with ablation model: {config.model_type}...")
-    best_metric, best_epoch = trainer.train(resume_from_checkpoint=resume_checkpoint)
-    logger.info(f"Training complete! Best metric: {best_metric:.4f} at epoch {best_epoch+1}")
-    return best_metric, best_epoch
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logger.exception(f"Error in training: {e}")
-        raise
-
-
-
-# # 3D CNN ablation
-# python3 train_and_eval_ablation.py --config configs/3dcnn/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-
-# # CNN-LSTM ablation
-# python3 train_and_eval_ablation.py --config configs/cnnlstm/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-
-# # Video Transformer (ViViT) ablation
-# python3 train_and_eval_ablation.py --config configs/vivit/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-
-
-# # Attention pooling ablation
-# python3 train_and_eval_ablation.py --config configs/attention_pool/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-
-# # Mean pooling ablation
-# python3 train_and_eval_ablation.py --config configs/mean_pool/fold4.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-
-# # Single task ablation
-# python3 train_and_eval_ablation.py --config configs/singletask/fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-
-# # Uniform/No-RL ablation
-# python3 train_and_eval_ablation.py --config configs/uniform/tb_drl_mil_Final_fold0.yaml --video_folder /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-

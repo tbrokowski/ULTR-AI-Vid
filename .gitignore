@@ -226,3 +226,6 @@ Data/LusBeninVideos/
 
 # Extra python file
 extra.py
+
+# Model checkpoints
+checkpoints/
