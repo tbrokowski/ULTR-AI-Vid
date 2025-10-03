@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "drl_mil_tb_classifier_Final_fold2"
-experiment_dir: "./ablation_results/finalruns/fold2_drl_mil_tb_classifier_Final"
+experiment_dir: "./ablation_results/finalruns/fold2"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 

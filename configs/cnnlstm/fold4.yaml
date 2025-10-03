@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_cnn_lstm_tb_classifier_fold4"
-experiment_dir: "./ablation_results/cnnlstm/fold4_ablation_cnn_lstm_tb_classifier"
+experiment_dir: "./ablation_results/cnnlstm/fold4"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 

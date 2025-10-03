@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_mean_pool_tb_classifier_fold0"
-experiment_dir: "./ablation_results/mean_pool/fold0_ablation_mean_pool_tb_classifier"
+experiment_dir: "./ablation_results/mean_pool/fold0"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 
