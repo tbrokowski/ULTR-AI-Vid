@@ -34,7 +34,7 @@ def main():
     
     # Paths to checkpoins
     model_paths = [
-        f"./ablation_results/{args.experiment_name}/fold0/checkpoints/checkpoint_best.pth",
+        f"./ablation_results/{args.experiment_name}/fold0/checkpoints/checkpoint_best_metric_0.4613.pth",
         f"./ablation_results/{args.experiment_name}/fold1/checkpoints/checkpoint_best.pth",
         f"./ablation_results/{args.experiment_name}/fold2/checkpoints/checkpoint_best.pth",
         f"./ablation_results/{args.experiment_name}/fold3/checkpoints/checkpoint_best.pth",
