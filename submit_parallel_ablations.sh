@@ -10,17 +10,17 @@ CONFIG_BASE_DIR="configs"
 
 declare -A ABLATIONS=(
   ["3d_cnn"]="3dcnn"
-  ["cnn_lstm"]="cnnlstm"
-  ["video_transformer"]="vivit"
-  ["original"]="original"
+  # ["cnn_lstm"]="cnnlstm"
+  # ["video_transformer"]="vivit"
+  # ["original"]="original"
   ["attention_pool"]="attention_pool"
-  ["mean_pool"]="mean_pool"
-  ["single_task"]="singletask"
-  ["uniform"]="uniform"
-  ["no_rl_full_train"]="no_rl_full_train"
-  ["rl_inception"]="rl_inception"
-  ["r2plus1d"]="r2plus1d"
-  ["inception3d"]="inception3d"
+  # ["mean_pool"]="mean_pool"
+  # ["single_task"]="singletask"
+  # ["uniform"]="uniform"
+  # ["no_rl_full_train"]="no_rl_full_train"
+  # ["rl_inception"]="rl_inception"
+  # ["r2plus1d"]="r2plus1d"
+  # ["inception3d"]="inception3d"
 )
 
 # Which folds to run
@@ -92,7 +92,7 @@ submit_parallel_job() {
   fi
 
   # Build sbatch
-  local cmd="sbatch"
+  local cmd="sbatch --export=ALL,RUN_EVAL_AFTER_TRAIN=1"
   cmd+=" --job-name=${job}"
   cmd+=" --nodes=${NODES_PER_EXPERIMENT}"
   cmd+=" --ntasks-per-node=1"

@@ -1601,10 +1601,14 @@ class AblationTrainer:
         
         save_dir = pathlib.Path(self.config.experiment_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Also ensure a dedicated 'checkpoints' subdirectory exists
+        checkpoints_dir = save_dir / "checkpoints"
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
         # Get model state dict (unwrap DDP if needed)
         model_state_dict = self.model_without_ddp.state_dict()
-        
+
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': model_state_dict,
@@ -1620,40 +1624,41 @@ class AblationTrainer:
             'active_tasks': self.active_tasks,
             'use_pathology_loss': self.use_pathology_loss
         }
-        
+
         if self.use_amp:
             checkpoint.update({
                 'backbone_scaler_state_dict': self.backbone_scaler.state_dict() if hasattr(self, 'backbone_scaler') else None,
                 'patient_pipeline_scaler_state_dict': self.patient_pipeline_scaler.state_dict() if hasattr(self, 'patient_pipeline_scaler') else None,
                 'pathology_scalers_state_dicts': [scaler.state_dict() for scaler in self.pathology_scalers],
             })
-        
+
         # Save latest checkpoint
-        latest_path = save_dir / "checkpoint_latest.pth"
-        print(f"Saving latest checkpoint to {latest_path}...")
-        torch.save(checkpoint, latest_path)
-        print(f"Saved latest checkpoint to {latest_path}")
-        
+        latest_cp_in_dir = checkpoints_dir / "checkpoint_latest.pth"
+        print(f"Saving latest checkpoint to {latest_cp_in_dir}...")
+        torch.save(checkpoint, latest_cp_in_dir)
+
         # Save periodic checkpoints
         eval_metric_key = f"TB Label_{self.config.eval_metric}"
-        
+
         if epoch % 5 == 0 and eval_metric_key in metrics:
             metric_value = metrics.get(eval_metric_key, metrics.get('loss', float('nan')))
-            epoch_path = save_dir / f"checkpoint_epoch_{epoch:03d}_metric_{metric_value:.4f}.pth"
-            torch.save(checkpoint, epoch_path)
-        
+            epoch_filename = f"checkpoint_epoch_{epoch:03d}_metric_{metric_value:.4f}.pth"
+            epoch_cp_in_dir = checkpoints_dir / epoch_filename
+            torch.save(checkpoint, epoch_cp_in_dir)
+
         # Save best checkpoint
         if is_best:
             metric_value = metrics.get(eval_metric_key, metrics.get('loss', float('nan')))
-            best_path = save_dir / f"checkpoint_best_metric_{metric_value:.4f}.pth"
-            torch.save(checkpoint, best_path)
-            
-            best_generic_path = save_dir / "checkpoint_best.pth"
-            torch.save(checkpoint, best_generic_path)
-            
-            logger.info(f"New best model saved to {best_path}")
-        
-        return latest_path
+            best_filename = f"checkpoint_best_metric_{metric_value:.4f}.pth"
+            best_cp_in_dir = checkpoints_dir / best_filename
+            torch.save(checkpoint, best_cp_in_dir)
+
+            best_generic_in_dir = checkpoints_dir / "checkpoint_best.pth"
+            torch.save(checkpoint, best_generic_in_dir)
+
+            logger.info(f"New best model saved to {best_cp_in_dir}")
+
+        return latest_cp_in_dir
     
     def train(self, resume_from_checkpoint=None):
         """Train the model."""
@@ -1870,6 +1875,9 @@ def parse_args_and_load_config():
     # Mode arguments
     parser.add_argument('--train', action='store_true', default=True, help='Train mode')
     parser.add_argument('--eval_only', action='store_true', help='Evaluation only mode')
+
+    # Data arguments
+    parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory')
     
     args = parser.parse_args()
     
@@ -1915,6 +1923,9 @@ def parse_args_and_load_config():
     
     if args.eval_only:
         config.train = False
+    
+    if args.video_folder is not None:
+        config.video_folder = args.video_folder
     
     return config
 

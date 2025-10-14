@@ -105,7 +105,7 @@ local_weights_dir: "./NetworkArchitecture/CLIP_weights"
 # ==========================================
 
 # Training schedule
-num_epochs: 20
+num_epochs: 1 #20
 accumulation_steps: 8
 use_amp: true
 

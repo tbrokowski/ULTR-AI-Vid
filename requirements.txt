@@ -39,6 +39,6 @@ networkx
 pillow
 python-dateutil
 typing_extensions
-
+h5py>=3.11,<3.13
 
 ## END

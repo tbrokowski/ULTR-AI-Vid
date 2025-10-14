@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=tb_ablation
-#SBATCH --output=/users/%u/ULTR-AI-Vid/logs/R-%x.%j.out
-#SBATCH --error=/users/%u/ULTR-AI-Vid/logs/R-%x.%j.err
+#SBATCH --output=/users/mbarbiere/ULTR-AI/ULTR-AI-Vid/logs/R-%x.%j.out
+#SBATCH --error=/users/mbarbiere/ULTR-AI/ULTR-AI-Vid/logs/R-%x.%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=32
 #SBATCH --time=0:59:59
-#SBATCH --environment /users/%u/.edf/ultrai.toml
+#SBATCH --environment /users/mbarbiere/.edf/run_ai.toml
 #SBATCH -A a127
 
 set -euo pipefail
@@ -20,9 +20,11 @@ fi
 
 # Allow optional extra args (e.g., --epochs 1) to be forwarded to Python trainer
 shift || true
-EXTRA_ARGS="$@"
+# Centralize dataset overrides so train and eval stay consistent
+VIDEO_FOLDER_OVERRIDE="/capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos"
+EXTRA_ARGS="--video_folder ${VIDEO_FOLDER_OVERRIDE}"
 
-WORKDIR="/users/$USER/ULTR-AI-Vid"
+WORKDIR="/users/$USER/ULTR-AI/ULTR-AI-Vid"
 mkdir -p "$WORKDIR/logs"
 cd "$WORKDIR"
 
@@ -67,15 +69,15 @@ echo "END TIME: $(date)"
 # Optional: Run evaluation in the same job after training completes
 if [[ "${RUN_EVAL_AFTER_TRAIN:-0}" == "1" ]]; then
   echo "Running evaluation after training (RUN_EVAL_AFTER_TRAIN=1)"
-  # Parse values from config
-  MODEL_TYPE=$(grep -E '^model_type:' "$CONFIG_FILE" | sed -E 's/.*model_type:[[:space:]]*"?([^"#]+)"?.*/\1/' | tr -d '[:space:]')
-  EXP_DIR=$(grep -E '^experiment_dir:' "$CONFIG_FILE" | sed -E 's/.*experiment_dir:[[:space:]]*"?([^"#]+)"?.*/\1/')
+  # Parse values from config (tolerate missing keys)
+  MODEL_TYPE=$(grep -E '^model_type:' "$CONFIG_FILE" | sed -E 's/.*model_type:[[:space:]]*"?([^"#]+)"?.*/\1/' | tr -d '[:space:]' || true)
+  EXP_DIR=$(grep -E '^experiment_dir:' "$CONFIG_FILE" | sed -E 's/.*experiment_dir:[[:space:]]*"?([^"#]+)"?.*/\1/' || true)
   # Derive ablation base dir by removing trailing /foldX if present
   BASE_DIR=$(echo "$EXP_DIR" | sed -E 's|/fold[0-9]+/?$||')
   # Derive fold from EXP_DIR or split_csv
   FOLD_NUM=$(echo "$EXP_DIR" | sed -nE 's/.*fold([0-9]+).*/\1/p')
   if [[ -z "$FOLD_NUM" ]]; then
-    FOLD_NUM=$(grep -E '^split_csv:' "$CONFIG_FILE" | sed -nE 's/.*Fold_([0-9]+)\.csv.*/\1/p')
+    FOLD_NUM=$(grep -E '^split_csv:' "$CONFIG_FILE" | sed -nE 's/.*Fold_([0-9]+)\.csv.*/\1/p' || true)
   fi
   # Resolve checkpoint path (prefer generic best, then directory variants)
   MODEL_CKPT="$EXP_DIR/checkpoint_best.pth"
@@ -93,6 +95,8 @@ if [[ "${RUN_EVAL_AFTER_TRAIN:-0}" == "1" ]]; then
     echo "[WARN] Could not infer evaluation parameters from $CONFIG_FILE; skipping evaluation."
   else
     python3 evaluate_downstream.py --model-type "$MODEL_TYPE" --config "$CONFIG_FILE" \
-      --model "$MODEL_CKPT" --fold "$FOLD_NUM" --output-dir "$OUT_DIR" || echo "[WARN] Evaluation failed."
+      --model "$MODEL_CKPT" --fold "$FOLD_NUM" --output-dir "$OUT_DIR" \
+      --video_folder "$VIDEO_FOLDER_OVERRIDE" \
+      || echo "[WARN] Evaluation failed."
   fi
 fi

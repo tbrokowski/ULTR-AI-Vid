@@ -37,7 +37,7 @@ model_name: ablation_3d_cnn_tb_classifier_fold1
 model_type: 3d_cnn
 model_weights: null
 num_classes: 1
-num_epochs: 25
+num_epochs: 1
 num_pathologies: 4
 num_sites: 21
 num_workers: 6

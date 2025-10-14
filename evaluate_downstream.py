@@ -451,6 +451,25 @@ def verify_compatibility(output_dir, split_name, fold_num):
     return all_passed
 
 
+def _infer_eval_output_dir_from_config(config) -> str:
+    """Derive eval output base from config.experiment_dir by removing trailing /foldX and appending /eval_results."""
+    try:
+        exp_dir = getattr(config, 'experiment_dir', None)
+        if not exp_dir:
+            return 'ULTR-CLIP/results'
+        p = Path(exp_dir)
+        # Remove trailing foldX if present
+        name = p.name
+        if name.startswith('fold') and name[4:].isdigit():
+            base = p.parent
+        else:
+            # Also support .../foldN/ with slash
+            base = p
+        return str(base / 'eval_results')
+    except Exception:
+        return 'ULTR-CLIP/results'
+
+
 def process_all_folds(model_type: str, config_paths: list, model_paths: list, output_base_dir: str, video_folder_override: str | None = None):
     """
     Process all folds to generate data for downstream pipeline.
@@ -561,14 +580,20 @@ def process_all_folds(model_type: str, config_paths: list, model_paths: list, ou
                     model, dataloader, device, active_tasks, use_pathology_loss
                 )
                 
+                # Determine output dir per fold from config if user provided default
+                per_fold_output_dir = output_base_dir
+                if per_fold_output_dir == 'ULTR-CLIP/results' or not per_fold_output_dir:
+                    per_fold_output_dir = _infer_eval_output_dir_from_config(config)
+                    print(f"Inferred per-fold output dir: {per_fold_output_dir}")
+
                 # Save in compatible format
                 saved_files = save_for_downstream_pipeline(
                     patient_df, site_df, complex_data, metrics,
-                    output_base_dir, split_name, fold_idx
+                    per_fold_output_dir, split_name, fold_idx
                 )
                 
                 # Verify compatibility
-                verify_compatibility(output_base_dir, split_name, fold_idx)
+                verify_compatibility(per_fold_output_dir, split_name, fold_idx)
             
             successful_folds.append(fold_idx)
             print(f"\n✅ Fold {fold_idx} completed successfully")
@@ -688,6 +713,12 @@ def main():
         data_module.setup(stage='patient_level')
         
         # Process each split
+        # Determine default output dir if user left default
+        output_dir = args.output_dir
+        if output_dir == 'ULTR-CLIP/results' or not output_dir:
+            output_dir = _infer_eval_output_dir_from_config(config)
+            print(f"Inferred output dir: {output_dir}")
+
         for split_name in ['train', 'val', 'test']:
             print(f"\nProcessing {split_name} split...")
             
@@ -702,10 +733,10 @@ def main():
             
             saved_files = save_for_downstream_pipeline(
                 patient_df, site_df, complex_data, metrics,
-                args.output_dir, split_name, args.fold
+                output_dir, split_name, args.fold
             )
             
-            verify_compatibility(args.output_dir, split_name, args.fold)
+            verify_compatibility(output_dir, split_name, args.fold)
         
         print(f"\n✅ Fold {args.fold} processing complete!")
 
@@ -729,9 +760,9 @@ if __name__ == "__main__":
     main()
     
     
-    #python evaluate_downstream.py --model-type cnn_lstm --config configs/cnnlstmfold0.yaml --model ablation_results/cnnlstm/fold0/checkpoint_best.pth --fold 0 --output-dir Tests/results
+    #python evaluate_downstream.py --model-type cnn_lstm --config configs/cnnlstmfold0.yaml --model ablation_results/cnnlstm/fold0/checkpoints/checkpoint_best.pth --fold 0 --output-dir Tests/results
 
-    #python evaluate_downstream.py --model-type 3d_cnn --config configs/3dcnn/fold0.yaml --model ablation_results/3dcnn/fold0/checkpoint_best.pth --fold 0 --output-dir Tests/results
+    #python evaluate_downstream.py --model-type 3d_cnn --config configs/3dcnn/fold0.yaml --model ablation_results/3dcnn/fold0/checkpoints/checkpoint_best.pth --fold 0 --output-dir Tests/results
 
     
     #     model_map = {
