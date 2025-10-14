@@ -87,6 +87,7 @@ def setup_distributed():
             world_size=world_size,
             rank=rank,
             timeout=timedelta(minutes=30),
+            device_id=torch.device(f'cuda:{local_rank}'),
         )
         
         if rank == 0:
@@ -316,13 +317,13 @@ class Config:
             if not getattr(self, 'experiment_dir', None):
                 self.experiment_dir = os.path.join(self.checkpoint_dir, self.model_name)
 
-            # Create relevant directories (main process only)
+            # Create only experiment directory and its subdirectories (main process only)
+            # The other directories (log_dir, save_dir, etc.) are just for reference in config
+            # All actual outputs go to experiment_dir/checkpoints, experiment_dir/logs, etc.
             if is_main_process():
                 os.makedirs(self.experiment_dir, exist_ok=True)
-                os.makedirs(self.checkpoint_dir, exist_ok=True)
-                os.makedirs(self.log_dir, exist_ok=True)
-                os.makedirs(self.save_dir, exist_ok=True)
-                os.makedirs(self.pred_save_dir, exist_ok=True)
+                os.makedirs(os.path.join(self.experiment_dir, "checkpoints"), exist_ok=True)
+                os.makedirs(os.path.join(self.experiment_dir, "logs"), exist_ok=True)
 
             if is_main_process():
                 logger.info(f"Configuration successfully loaded from {yaml_path}")

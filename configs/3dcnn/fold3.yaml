@@ -105,7 +105,7 @@ pretrained: true
 # ==========================================
 
 # Training schedule
-num_epochs: 1 #25  # May need more epochs for 3D CNN
+num_epochs: 25  # May need more epochs for 3D CNN
 accumulation_steps: 32  # Larger accumulation due to smaller batch size
 use_amp: true
 

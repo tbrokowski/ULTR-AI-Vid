@@ -10,10 +10,10 @@ CONFIG_BASE_DIR="configs"
 
 declare -A ABLATIONS=(
   ["3d_cnn"]="3dcnn"
-  # ["cnn_lstm"]="cnnlstm"
+  ["cnn_lstm"]="cnnlstm"
   # ["video_transformer"]="vivit"
   # ["original"]="original"
-  ["attention_pool"]="attention_pool"
+  # ["attention_pool"]="attention_pool"
   # ["mean_pool"]="mean_pool"
   # ["single_task"]="singletask"
   # ["uniform"]="uniform"
@@ -58,14 +58,18 @@ log_ok()      { echo "[OK]      $*"; }
 log_err()     { echo "[ERROR]   $*" >&2; }
 hdr()         { echo -e "\n==== $* ====\n"; }
 
-get_running_jobs() { squeue -u "$USER" -h -t RUNNING -r | wc -l; }
-get_pending_jobs() { squeue -u "$USER" -h -t PENDING -r | wc -l; }
+get_running_jobs() { squeue -u "$USER" -h -t RUNNING | grep "tb_" | wc -l; }
+get_pending_jobs() { squeue -u "$USER" -h -t PENDING | grep "tb_" | wc -l; }
+get_total_jobs() { squeue -u "$USER" -h -t RUNNING,PENDING | grep "tb_" | wc -l; }
 
 wait_for_slot() {
   local cap="$1"
-  while [ "$(get_running_jobs)" -ge "$cap" ]; do
-    log_info "Waiting for slot… (Running: $(get_running_jobs), Pending: $(get_pending_jobs), Cap: $cap)"
-    sleep 30
+  local submitted="${2:-0}"
+  local total="${3:-0}"
+  local remaining=$((total - submitted))
+  while [ "$(get_total_jobs)" -ge "$cap" ]; do
+    log_info "Waiting for SLURM slot… (Queue: $(get_running_jobs) running | Capacity: $cap | Script progress: ${submitted}/${total}, Remaining: ${remaining})"
+    sleep 100
   done
 }
 
@@ -78,7 +82,7 @@ have_config() {
 # Core submitters
 # =========================
 submit_parallel_job() {
-  local cfg="$1" ablation="$2" fold="$3"
+  local cfg="$1" ablation="$2" fold="$3" submitted="$4" total="$5"
   local job="tb_${ablation}_f${fold}"
 
   if ! have_config "$cfg"; then
@@ -88,7 +92,7 @@ submit_parallel_job() {
 
   # Gate by parallel capacity
   if [[ "$SUBMIT_MODE" == "parallel" ]]; then
-    wait_for_slot "$MAX_PARALLEL_JOBS"
+    wait_for_slot "$MAX_PARALLEL_JOBS" "$submitted" "$total"
   fi
 
   # Build sbatch
@@ -167,6 +171,7 @@ main() {
   [[ "$total" -eq 0 ]] && { log_err "No configs found. Exiting."; exit 1; }
 
   local ok=0 fail=0
+  local submitted=0
 
   case "$mode" in
     parallel|sequential)
@@ -174,10 +179,13 @@ main() {
       [[ "$mode" == "sequential" ]] && MAX_PARALLEL_JOBS=1
       for item in "${todo[@]}"; do
         IFS='|' read -r cfg abl fold <<< "$item"
-        if submit_parallel_job "$cfg" "$abl" "$fold"; then
-          ((ok++))
+        submitted=$((submitted + 1))
+        local remaining=$((total - submitted))
+        log_info "Progress: Submitting ${submitted}/${total} (Remaining: ${remaining})"
+        if submit_parallel_job "$cfg" "$abl" "$fold" "$submitted" "$total"; then
+          ok=$((ok + 1))
         else
-          ((fail++))
+          fail=$((fail + 1))
         fi
         sleep "$WAIT_BETWEEN_JOBS"
       done

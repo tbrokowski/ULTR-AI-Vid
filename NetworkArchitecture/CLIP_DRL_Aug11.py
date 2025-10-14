@@ -792,7 +792,7 @@ class MultiTaskModel(nn.Module):
         # CLIP Vision Encoder
         self.vision_encoder = CLIPVisionModel.from_pretrained(
             "openai/clip-vit-base-patch32",
-            torch_dtype=torch.float32
+            dtype=torch.float32
         )
 
         self.feature_noise_std = 0.05
