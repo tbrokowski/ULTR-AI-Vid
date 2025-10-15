@@ -271,10 +271,14 @@ class Config:
         self.patient_pipeline_weight_decay = 0.00001
         self.patient_pipeline_eta_min = 1e-6
         
-        # Directories
+        # Directories - separate storage and log directories
+        # Checkpoints and eval results go to external storage
+        self.checkpoint_base_dir = "/capstor/store/cscs/swissai/a127/ultr-ai"
+        self.checkpoint_dir = "checkpoints"  # Will be relative to checkpoint_base_dir
+        
+        # Logs stay in local workspace
         self.log_dir = "logs"
         self.save_dir = "models"
-        self.checkpoint_dir = "checkpoints"
         self.pred_save_dir = "predictions"
         
         # Pathology settings
@@ -314,16 +318,41 @@ class Config:
                 setattr(self, key, value)
 
             # Ensure experiment_dir is set after potential overrides
+            # Experiment dir goes to external storage for checkpoints
             if not getattr(self, 'experiment_dir', None):
-                self.experiment_dir = os.path.join(self.checkpoint_dir, self.model_name)
+                self.experiment_dir = os.path.join(self.checkpoint_base_dir, self.checkpoint_dir, self.model_name)
+            
+            # Ensure log_dir is set for local logs (in workspace)
+            if not getattr(self, 'log_dir_full', None):
+                self.log_dir_full = os.path.join("logs", self.model_name)
 
-            # Create only experiment directory and its subdirectories (main process only)
-            # The other directories (log_dir, save_dir, etc.) are just for reference in config
-            # All actual outputs go to experiment_dir/checkpoints, experiment_dir/logs, etc.
+            # Create directories (main process only)
+            # Structure: /capstor/.../ablation_results/{experiment_name}/fold{N}/checkpoints/
+            #            /capstor/.../ablation_results/{experiment_name}/eval_results/ (shared by all folds)
             if is_main_process():
+                # External storage for checkpoints (per fold)
                 os.makedirs(self.experiment_dir, exist_ok=True)
                 os.makedirs(os.path.join(self.experiment_dir, "checkpoints"), exist_ok=True)
-                os.makedirs(os.path.join(self.experiment_dir, "logs"), exist_ok=True)
+                
+                # External storage for eval results (shared across folds at experiment level)
+                # Extract experiment base by removing fold suffix if present
+                exp_path = pathlib.Path(self.experiment_dir)
+                if exp_path.name.startswith('fold') and exp_path.name[4:].isdigit():
+                    # experiment_dir is .../experiment_name/fold0
+                    experiment_base = exp_path.parent
+                else:
+                    # experiment_dir is .../experiment_name (no fold)
+                    experiment_base = exp_path
+                
+                eval_results_dir = experiment_base / "eval_results"
+                os.makedirs(eval_results_dir, exist_ok=True)
+                
+                # Local storage for logs
+                os.makedirs(self.log_dir_full, exist_ok=True)
+            
+            # Synchronize all processes to ensure directories exist before continuing
+            if dist.is_initialized():
+                dist.barrier()
 
             if is_main_process():
                 logger.info(f"Configuration successfully loaded from {yaml_path}")
@@ -1489,7 +1518,7 @@ class AblationTrainer:
                 try:
                     cm = confusion_matrix(tb_targets_np.flatten(), tb_preds_np.flatten())
                     logger.info(f"\nConfusion Matrix for TB ({split_name}):\n{cm}")
-                    report = classification_report(tb_targets_np.flatten(), tb_preds_np.flatten())
+                    report = classification_report(tb_targets_np.flatten(), tb_preds_np.flatten(), zero_division=0)
                     logger.info(f"\nClassification Report for TB ({split_name}):\n{report}")
                 except Exception as e:
                     logger.info(f"Could not compute confusion matrix: {e}")
@@ -1638,10 +1667,10 @@ class AblationTrainer:
         print(f"Saving latest checkpoint to {latest_cp_in_dir}...")
         torch.save(checkpoint, latest_cp_in_dir)
 
-        # Save periodic checkpoints
+        # Save periodic checkpoints every 15 epochs
         eval_metric_key = f"TB Label_{self.config.eval_metric}"
 
-        if epoch % 5 == 0 and eval_metric_key in metrics:
+        if epoch % 15 == 0 and eval_metric_key in metrics:
             metric_value = metrics.get(eval_metric_key, metrics.get('loss', float('nan')))
             epoch_filename = f"checkpoint_epoch_{epoch:03d}_metric_{metric_value:.4f}.pth"
             epoch_cp_in_dir = checkpoints_dir / epoch_filename
@@ -1649,14 +1678,8 @@ class AblationTrainer:
 
         # Save best checkpoint
         if is_best:
-            metric_value = metrics.get(eval_metric_key, metrics.get('loss', float('nan')))
-            best_filename = f"checkpoint_best_metric_{metric_value:.4f}.pth"
-            best_cp_in_dir = checkpoints_dir / best_filename
+            best_cp_in_dir = checkpoints_dir / "checkpoint_best.pth"
             torch.save(checkpoint, best_cp_in_dir)
-
-            best_generic_in_dir = checkpoints_dir / "checkpoint_best.pth"
-            torch.save(checkpoint, best_generic_in_dir)
-
             logger.info(f"New best model saved to {best_cp_in_dir}")
 
         return latest_cp_in_dir

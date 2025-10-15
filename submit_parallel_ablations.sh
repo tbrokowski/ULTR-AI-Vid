@@ -11,12 +11,12 @@ CONFIG_BASE_DIR="configs"
 declare -A ABLATIONS=(
   ["3d_cnn"]="3dcnn"
   ["cnn_lstm"]="cnnlstm"
-  # ["video_transformer"]="vivit"
+  ["video_transformer"]="vivit"
   # ["original"]="original"
-  # ["attention_pool"]="attention_pool"
-  # ["mean_pool"]="mean_pool"
-  # ["single_task"]="singletask"
-  # ["uniform"]="uniform"
+  ["attention_pool"]="attention_pool"
+  ["mean_pool"]="mean_pool"
+  ["single_task"]="singletask"
+  ["uniform"]="uniform"
   # ["no_rl_full_train"]="no_rl_full_train"
   # ["rl_inception"]="rl_inception"
   # ["r2plus1d"]="r2plus1d"
@@ -29,9 +29,9 @@ FOLDS=(0 1 2 3 4)
 # SLURM runner that launches a *single* experiment on 1 node
 SLURM_SCRIPT="run_ablation_single_node.sh"
 
-# Logs
-LOG_DIR="/users/$USER/tb_ablation/logs"
-mkdir -p "$LOG_DIR"
+# Submission tracking CSV (central location for all jobs)
+SUBMISSION_LOG_DIR="./ablation_results"
+mkdir -p "$SUBMISSION_LOG_DIR"
 
 # Cluster capacity model (edit to your cluster)
 TOTAL_NODES=8
@@ -90,6 +90,12 @@ submit_parallel_job() {
     return 1
   fi
 
+  # Create experiment-specific log directory
+  # Use the ABLATIONS value (directory name) not the key
+  local dir="${ABLATIONS[$ablation]}"
+  local exp_log_dir="./ablation_results/${dir}/fold${fold}/logs"
+  mkdir -p "$exp_log_dir"
+
   # Gate by parallel capacity
   if [[ "$SUBMIT_MODE" == "parallel" ]]; then
     wait_for_slot "$MAX_PARALLEL_JOBS" "$submitted" "$total"
@@ -105,15 +111,15 @@ submit_parallel_job() {
   cmd+=" --time=${TIME_LIMIT}"
   cmd+=" -A ${ACCOUNT}"
   [[ -n "$RESERVATION" ]] && cmd+=" ${RESERVATION}"
-  cmd+=" --output=${LOG_DIR}/R-%x.%j.out"
-  cmd+=" --error=${LOG_DIR}/R-%x.%j.err"
+  cmd+=" --output=${exp_log_dir}/R-%x.%j.out"
+  cmd+=" --error=${exp_log_dir}/R-%x.%j.err"
   cmd+=" ${SLURM_SCRIPT} ${cfg}"
 
   log_info "Submitting: ${job}  (cfg: ${cfg})"
   if out=$(eval "$cmd"); then
     local id; id=$(echo "$out" | grep -oE '[0-9]+$' || true)
     log_ok "Job ${id:-?} submitted: ${job}"
-    echo "${id:-?},${job},${ablation},${fold},${cfg}" >> "${LOG_DIR}/submitted_jobs_parallel.csv"
+    echo "${id:-?},${job},${ablation},${fold},${cfg}" >> "${SUBMISSION_LOG_DIR}/submitted_jobs_parallel.csv"
     return 0
   else
     log_err "Submit failed: ${job}"
@@ -146,7 +152,7 @@ main() {
   echo
 
   # CSV header
-  echo "job_id,job_name,ablation_type,fold,config_file" > "${LOG_DIR}/submitted_jobs_parallel.csv"
+  echo "job_id,job_name,ablation_type,fold,config_file" > "${SUBMISSION_LOG_DIR}/submitted_jobs_parallel.csv"
 
   # Build list of (config, ablation, fold)
   declare -a todo=()
@@ -204,11 +210,11 @@ main() {
   echo "Submitted OK: $ok"
   echo "Failed: $fail"
   echo
-  echo "CSV: ${LOG_DIR}/submitted_jobs_parallel.csv"
+  echo "CSV: ${SUBMISSION_LOG_DIR}/submitted_jobs_parallel.csv"
   echo
   echo "Tips:"
   echo "  watch -n 15 'squeue -u $USER'"
-  echo "  tail -f ${LOG_DIR}/R-*.err"
+  echo "  find ./ablation_results -name 'R-*.err' -exec tail -f {} +"
 }
 
 # Help

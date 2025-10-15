@@ -452,22 +452,41 @@ def verify_compatibility(output_dir, split_name, fold_num):
 
 
 def _infer_eval_output_dir_from_config(config) -> str:
-    """Derive eval output base from config.experiment_dir by removing trailing /foldX and appending /eval_results."""
+    """
+    Derive eval output directory from config.experiment_dir.
+    
+    Structure: /capstor/.../ablation_results/{experiment_name}/eval_results/
+    All folds save to the same eval_results directory within their experiment.
+    
+    Example:
+      experiment_dir: /capstor/.../ablation_results/3dcnn/fold0
+      -> eval_results: /capstor/.../ablation_results/3dcnn/eval_results
+    """
     try:
         exp_dir = getattr(config, 'experiment_dir', None)
         if not exp_dir:
-            return 'ULTR-CLIP/results'
+            # Default to external storage location
+            return '/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/default/eval_results'
+        
         p = Path(exp_dir)
-        # Remove trailing foldX if present
+        
+        # Remove trailing foldX if present to get experiment base directory
         name = p.name
         if name.startswith('fold') and name[4:].isdigit():
-            base = p.parent
+            # exp_dir is like: .../ablation_results/3dcnn/fold0
+            # base should be: .../ablation_results/3dcnn
+            experiment_base = p.parent
         else:
-            # Also support .../foldN/ with slash
-            base = p
-        return str(base / 'eval_results')
-    except Exception:
-        return 'ULTR-CLIP/results'
+            # exp_dir is already the experiment base (no fold suffix)
+            experiment_base = p
+        
+        # Eval results go in eval_results/ within the experiment directory
+        # This way all folds for an experiment share the same eval_results folder
+        return str(experiment_base / 'eval_results')
+    except Exception as e:
+        # Fallback to external storage
+        print(f"Warning: Could not infer eval output dir: {e}")
+        return '/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/default/eval_results'
 
 
 def process_all_folds(model_type: str, config_paths: list, model_paths: list, output_base_dir: str, video_folder_override: str | None = None):

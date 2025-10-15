@@ -1204,7 +1204,8 @@ class VideoTransformerMultiTaskModel(nn.Module):
                 
                 self.transformer = nn.TransformerEncoder(
                     encoder_layer,
-                    num_layers=num_layers
+                    num_layers=num_layers,
+                    enable_nested_tensor=False  # Disable nested tensor optimization when using norm_first=True
                 )
                 
                 # Layer norm

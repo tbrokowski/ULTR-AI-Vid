@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_mean_pool_tb_classifier_fold1"
-experiment_dir: "./ablation_results/mean_pool/fold1"
+experiment_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/mean_pool/fold1"
 model_name: "ablation_mean_pool_tb_classifier_fold1"
 device: "cuda"  # "cuda" or "cpu"
 model_name: "ablation_mean_pool_tb_classifier_fold1"
@@ -154,3 +154,8 @@ pred_save_dir: "ablation_results/predictions"
 # TASK SPECIFIC CONFIGURATION
 # ==========================================
 task: "TB Label"
+
+# ==========================================
+# CHECKPOINT CONFIGURATION
+# ==========================================
+checkpoint_base_dir: "/capstor/store/cscs/swissai/a127/ultr-ai"

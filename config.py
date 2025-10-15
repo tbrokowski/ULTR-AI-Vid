@@ -22,6 +22,7 @@ class MultiTaskConfig:
     # Experiment settings
     experiment_name: str = "multitask_experiment"
     experiment_dir: str = "./experiments/multitask"
+    checkpoint_base_dir: str = "/capstor/store/cscs/swissai/a127/ultr-ai"  # External storage for checkpoints
     seed: int = 42
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -270,8 +271,12 @@ class MultiTaskConfig:
                 self.task_pos_weights[task] = 2.0
                 logger.warning(f"No positive weight specified for {task}, using default 2.0")
         
-        # Ensure experiment directory exists
-        os.makedirs(self.experiment_dir, exist_ok=True)
+        # Ensure experiment directory exists (in external storage for checkpoints)
+        # Note: This only creates the local experiment_dir if it's set to a local path
+        # The train_ablation_distributed.py will handle creating directories in checkpoint_base_dir
+        if not self.experiment_dir.startswith('/capstor'):
+            # Only create local experiment dir if it's not already pointing to external storage
+            os.makedirs(self.experiment_dir, exist_ok=True)
         
         # Set device
         if self.device == "cuda" and not torch.cuda.is_available():

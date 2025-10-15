@@ -229,3 +229,14 @@ extra.py
 
 # Model checkpoints
 checkpoints/
+
+# Logs
+logs/
+
+# Evaluation results
+eval_results/
+submitted_jobs_parallel.csv
+
+# CLIP 
+CLIP_weights/
+

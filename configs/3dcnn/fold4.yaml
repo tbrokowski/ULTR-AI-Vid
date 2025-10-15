@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_3d_cnn_tb_classifier_fold4"
-experiment_dir: "./ablation_results/3dcnn/fold4"
+experiment_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/3dcnn/fold4"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 
@@ -152,3 +152,8 @@ pred_save_dir: "ablation_results/predictions"
 # TASK SPECIFIC CONFIGURATION
 # ==========================================
 task: "TB Label"
+
+# ==========================================
+# CHECKPOINT CONFIGURATION
+# ==========================================
+checkpoint_base_dir: "/capstor/store/cscs/swissai/a127/ultr-ai"
