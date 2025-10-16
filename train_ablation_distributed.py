@@ -87,7 +87,6 @@ def setup_distributed():
             world_size=world_size,
             rank=rank,
             timeout=timedelta(minutes=30),
-            device_id=torch.device(f'cuda:{local_rank}'),
         )
         
         if rank == 0:
@@ -271,15 +270,13 @@ class Config:
         self.patient_pipeline_weight_decay = 0.00001
         self.patient_pipeline_eta_min = 1e-6
         
-        # Directories - separate storage and log directories
-        # Checkpoints and eval results go to external storage
-        self.checkpoint_base_dir = "/capstor/store/cscs/swissai/a127/ultr-ai"
-        self.checkpoint_dir = "checkpoints"  # Will be relative to checkpoint_base_dir
-        
-        # Logs stay in local workspace
+        # Directories
         self.log_dir = "logs"
         self.save_dir = "models"
+        self.checkpoint_dir = "checkpoints"
         self.pred_save_dir = "predictions"
+        self.checkpoint_base_dir = "/capstor/store/cscs/swissai/a127/ultr-ai"
+        self.experiment_dir = None  # Will be set based on experiment_name
         
         # Pathology settings
         self.pathology_pos_weights = [1.0, 4.0, 4.0, 4.0]
@@ -318,41 +315,37 @@ class Config:
                 setattr(self, key, value)
 
             # Ensure experiment_dir is set after potential overrides
-            # Experiment dir goes to external storage for checkpoints
             if not getattr(self, 'experiment_dir', None):
-                self.experiment_dir = os.path.join(self.checkpoint_base_dir, self.checkpoint_dir, self.model_name)
-            
-            # Ensure log_dir is set for local logs (in workspace)
-            if not getattr(self, 'log_dir_full', None):
-                self.log_dir_full = os.path.join("logs", self.model_name)
+                self.experiment_dir = os.path.join(self.checkpoint_dir, self.model_name)
 
-            # Create directories (main process only)
-            # Structure: /capstor/.../ablation_results/{experiment_name}/fold{N}/checkpoints/
-            #            /capstor/.../ablation_results/{experiment_name}/eval_results/ (shared by all folds)
+            # Normalize output directories to external /capstor location
+            CAPSTOR_ROOT = os.environ.get(
+                "CAPSTOR_ROOT",
+                "/capstor/store/cscs/swissai/a127/ultr-ai"
+            )
+
+            def _to_capstor_path(p):
+                if not isinstance(p, str) or not p:
+                    return p
+                if p.startswith('/'):
+                    return p
+                if p.startswith('capstor/'):
+                    return os.path.join(CAPSTOR_ROOT, p[len('capstor/'):])
+                if p.startswith('./capstor/'):
+                    return os.path.join(CAPSTOR_ROOT, p[len('./capstor/'):])
+                return p
+
+            for key in ['experiment_dir', 'checkpoint_dir', 'log_dir', 'save_dir', 'pred_save_dir']:
+                if hasattr(self, key):
+                    setattr(self, key, _to_capstor_path(getattr(self, key)))
+
+            # Create relevant directories (main process only)
             if is_main_process():
-                # External storage for checkpoints (per fold)
                 os.makedirs(self.experiment_dir, exist_ok=True)
-                os.makedirs(os.path.join(self.experiment_dir, "checkpoints"), exist_ok=True)
-                
-                # External storage for eval results (shared across folds at experiment level)
-                # Extract experiment base by removing fold suffix if present
-                exp_path = pathlib.Path(self.experiment_dir)
-                if exp_path.name.startswith('fold') and exp_path.name[4:].isdigit():
-                    # experiment_dir is .../experiment_name/fold0
-                    experiment_base = exp_path.parent
-                else:
-                    # experiment_dir is .../experiment_name (no fold)
-                    experiment_base = exp_path
-                
-                eval_results_dir = experiment_base / "eval_results"
-                os.makedirs(eval_results_dir, exist_ok=True)
-                
-                # Local storage for logs
-                os.makedirs(self.log_dir_full, exist_ok=True)
-            
-            # Synchronize all processes to ensure directories exist before continuing
-            if dist.is_initialized():
-                dist.barrier()
+                os.makedirs(self.checkpoint_dir, exist_ok=True)
+                os.makedirs(self.log_dir, exist_ok=True)
+                os.makedirs(self.save_dir, exist_ok=True)
+                os.makedirs(self.pred_save_dir, exist_ok=True)
 
             if is_main_process():
                 logger.info(f"Configuration successfully loaded from {yaml_path}")
@@ -1518,7 +1511,7 @@ class AblationTrainer:
                 try:
                     cm = confusion_matrix(tb_targets_np.flatten(), tb_preds_np.flatten())
                     logger.info(f"\nConfusion Matrix for TB ({split_name}):\n{cm}")
-                    report = classification_report(tb_targets_np.flatten(), tb_preds_np.flatten(), zero_division=0)
+                    report = classification_report(tb_targets_np.flatten(), tb_preds_np.flatten())
                     logger.info(f"\nClassification Report for TB ({split_name}):\n{report}")
                 except Exception as e:
                     logger.info(f"Could not compute confusion matrix: {e}")
@@ -1631,14 +1624,10 @@ class AblationTrainer:
         
         save_dir = pathlib.Path(self.config.experiment_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
-
-        # Also ensure a dedicated 'checkpoints' subdirectory exists
-        checkpoints_dir = save_dir / "checkpoints"
-        checkpoints_dir.mkdir(parents=True, exist_ok=True)
-
+        
         # Get model state dict (unwrap DDP if needed)
         model_state_dict = self.model_without_ddp.state_dict()
-
+        
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': model_state_dict,
@@ -1654,35 +1643,40 @@ class AblationTrainer:
             'active_tasks': self.active_tasks,
             'use_pathology_loss': self.use_pathology_loss
         }
-
+        
         if self.use_amp:
             checkpoint.update({
                 'backbone_scaler_state_dict': self.backbone_scaler.state_dict() if hasattr(self, 'backbone_scaler') else None,
                 'patient_pipeline_scaler_state_dict': self.patient_pipeline_scaler.state_dict() if hasattr(self, 'patient_pipeline_scaler') else None,
                 'pathology_scalers_state_dicts': [scaler.state_dict() for scaler in self.pathology_scalers],
             })
-
+        
         # Save latest checkpoint
-        latest_cp_in_dir = checkpoints_dir / "checkpoint_latest.pth"
-        print(f"Saving latest checkpoint to {latest_cp_in_dir}...")
-        torch.save(checkpoint, latest_cp_in_dir)
-
-        # Save periodic checkpoints every 15 epochs
+        latest_path = save_dir / "checkpoint_latest.pth"
+        print(f"Saving latest checkpoint to {latest_path}...")
+        torch.save(checkpoint, latest_path)
+        print(f"Saved latest checkpoint to {latest_path}")
+        
+        # Save periodic checkpoints
         eval_metric_key = f"TB Label_{self.config.eval_metric}"
-
-        if epoch % 15 == 0 and eval_metric_key in metrics:
+        
+        if epoch % 5 == 0 and eval_metric_key in metrics:
             metric_value = metrics.get(eval_metric_key, metrics.get('loss', float('nan')))
-            epoch_filename = f"checkpoint_epoch_{epoch:03d}_metric_{metric_value:.4f}.pth"
-            epoch_cp_in_dir = checkpoints_dir / epoch_filename
-            torch.save(checkpoint, epoch_cp_in_dir)
-
+            epoch_path = save_dir / f"checkpoint_epoch_{epoch:03d}_metric_{metric_value:.4f}.pth"
+            torch.save(checkpoint, epoch_path)
+        
         # Save best checkpoint
         if is_best:
-            best_cp_in_dir = checkpoints_dir / "checkpoint_best.pth"
-            torch.save(checkpoint, best_cp_in_dir)
-            logger.info(f"New best model saved to {best_cp_in_dir}")
-
-        return latest_cp_in_dir
+            metric_value = metrics.get(eval_metric_key, metrics.get('loss', float('nan')))
+            best_path = save_dir / f"checkpoint_best_metric_{metric_value:.4f}.pth"
+            torch.save(checkpoint, best_path)
+            
+            best_generic_path = save_dir / "checkpoint_best.pth"
+            torch.save(checkpoint, best_generic_path)
+            
+            logger.info(f"New best model saved to {best_path}")
+        
+        return latest_path
     
     def train(self, resume_from_checkpoint=None):
         """Train the model."""
@@ -1891,6 +1885,9 @@ def parse_args_and_load_config():
     parser.add_argument('--epochs', type=int, help='Number of epochs')
     parser.add_argument('--seed', type=int, help='Random seed')
     
+    # Data arguments
+    parser.add_argument('--video_folder', type=str, help='Path to video folder')
+    
     # Model loading arguments
     parser.add_argument('--model_weights', type=str, help='Path to model weights')
     parser.add_argument('--best_model_path', type=str, help='Path to best model for evaluation')
@@ -1899,9 +1896,6 @@ def parse_args_and_load_config():
     # Mode arguments
     parser.add_argument('--train', action='store_true', default=True, help='Train mode')
     parser.add_argument('--eval_only', action='store_true', help='Evaluation only mode')
-
-    # Data arguments
-    parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory')
     
     args = parser.parse_args()
     
@@ -1936,6 +1930,9 @@ def parse_args_and_load_config():
     if args.seed is not None:
         config.seed = args.seed
     
+    if args.video_folder is not None:
+        config.video_folder = args.video_folder
+    
     if args.model_weights is not None:
         config.model_weights = args.model_weights
     
@@ -1947,9 +1944,6 @@ def parse_args_and_load_config():
     
     if args.eval_only:
         config.train = False
-    
-    if args.video_folder is not None:
-        config.video_folder = args.video_folder
     
     return config
 
@@ -2061,30 +2055,51 @@ if __name__ == "__main__":
 
 # # Video Transformer (ViViT) ablation
 # python3 train_ablation_distributed.py --config configs/vivit/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/vivit/fold0.yaml
 
 # # R2Plus1D ablation
 # python3 train_ablation_distributed.py --config configs/r2plus1d/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/r2plus1d/fold0.yaml
 
 # # Inception3D ablation
 # python3 train_ablation_distributed.py --config configs/inception3d/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/inception3d/fold0.yaml
 
 # # Attention pooling ablation
 # python3 train_ablation_distributed.py --config configs/attention_pool/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/attention_pool/fold0.yaml
+
+# # LeVIT Attention pooling ablation
+# python3 train_ablation_distributed.py --config configs/LeVit-Attention/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/LeVit-Attention/fold0.yaml
 
 # # Mean pooling ablation
 # python3 train_ablation_distributed.py --config configs/mean_pool/fold4.yaml
+# sbatch run_ablation_single_node.sh configs/mean_pool/fold0.yaml
 
 # # Single task ablation
 # python3 train_ablation_distributed.py --config configs/singletask/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/singletask/fold0.yaml
 
 # # Uniform/No-RL ablation
-# python3 train_ablation_distributed.py --config configs/uniform/tb_drl_mil_Final_fold0.yaml
+# python3 train_ablation_distributed.py --config configs/uniform/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/uniform/fold0.yaml
 
 # # No-RL full training ablation
-# python3 train_ablation_distributed.py --config configs/no_rl_full_train/fold0
+# python3 train_ablation_distributed.py --config configs/no_rl_full_train/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/no_rl_full_train/fold0.yaml
 
 # # RL with Inception ablation
-# python3 train_ablation_distributed.py --config configs/rl_inception/fold0
+# python3 train_ablation_distributed.py --config configs/rl_inception/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/rl_inception/fold0.yaml
+
+# Original 
+# python3 train_ablation_distributed.py --config configs/original/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/original/fold0.yaml
+
+# Efficientnet-RL 
+# python3 train_ablation_distributed.py --config configs/Efficientnet-RL/fold0.yaml
+# sbatch run_ablation_single_node.sh configs/Efficientnet-RL/fold0.yaml
 
 
 # bash submit_parallel_ablations.sh parallel

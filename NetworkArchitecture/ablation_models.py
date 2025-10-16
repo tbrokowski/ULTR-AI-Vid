@@ -350,9 +350,33 @@ class SingleTaskMultiTaskModel(MultiTaskModel):
         config.use_pathology_loss = False
         super().__init__(config)
         logger.info("Using RL selector without pathology detection (single-task)")
+        
+        
+class NoRLFullTrainMultiTaskModel(MultiTaskModel):
+    """Ablation: No-RL selector with full CLIP training (all parameters unfrozen)."""
+    
+    def __init__(self, config):
+        config.selection_strategy = 'uniform'
+        config.freeze_clip = False  # Unfreeze CLIP for full training
+        super().__init__(config)
+        
+        self.frame_selector = UniformFrameSelector(
+            feature_dim=self.vision_dim,
+            output_dim=self.hidden_dim,
+            k_frames=8
+        )
+        
+        # Explicitly unfreeze all CLIP parameters
+        if hasattr(self, 'clip_model'):
+            for param in self.clip_model.parameters():
+                param.requires_grad = True
+            logger.info("Unfrozen all CLIP parameters for full training")
+        
+        logger.info("Using UniformFrameSelector with full CLIP training (no-RL-full-train ablation)")
 
-class ResNet3DMultiTaskModel(nn.Module):
-    """Memory-efficient ResNet3D backbone from torchvision."""
+
+class R2Plus1DMultiTaskModel(nn.Module):
+    """Ablation: R(2+1)D CNN backbone for efficient video understanding."""
     
     def __init__(self, config):
         super().__init__()
@@ -369,6 +393,948 @@ class ResNet3DMultiTaskModel(nn.Module):
         self.active_tasks = getattr(config, 'active_tasks', ['TB Label'])
         self.use_pathology_loss = getattr(config, 'use_pathology_loss', True)
         self.task_weights = getattr(config, 'task_weights', {'TB Label': 1.0})
+        self.selection_strategy = 'r2plus1d'
+        
+        # Memory optimization settings
+        self.backbone_frozen = getattr(config, 'backbone_frozen', True)
+        self.max_sites_per_forward = getattr(config, 'max_sites_per_forward', 4)
+        self.use_gradient_checkpointing = getattr(config, 'use_gradient_checkpointing', True)
+        
+        logger.info("Using R(2+1)D ResNet18 backbone")
+        
+        # Load R(2+1)D model
+        self.backbone = video_models.r2plus1d_18(weights=video_models.R2Plus1D_18_Weights.DEFAULT)
+        self.backbone.fc = nn.Identity()
+        
+        # Freeze backbone if specified
+        if self.backbone_frozen:
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+            logger.info("R(2+1)D backbone frozen for memory efficiency")
+        
+        # Feature dimension for R(2+1)D ResNet18
+        backbone_dim = 512
+        
+        # Feature projection
+        projection_dim = min(self.hidden_dim, 512)
+        self.feature_projection = nn.Sequential(
+            nn.Linear(backbone_dim, projection_dim),
+            nn.LayerNorm(projection_dim),
+            nn.ReLU(),
+            nn.Dropout(self.dropout_rate)
+        )
+        
+        if projection_dim != self.hidden_dim:
+            self.feature_upscale = nn.Linear(projection_dim, self.hidden_dim)
+        else:
+            self.feature_upscale = nn.Identity()
+        
+        # Pathology modules
+        if self.use_pathology_loss:
+            pathology_hidden = min(self.hidden_dim // 2, 256)
+            self.pathology_modules = nn.ModuleList([
+                PathologyModule(
+                    feature_dim=self.hidden_dim,
+                    hidden_dim=pathology_hidden,
+                    dropout=self.dropout_rate,
+                    name=f'pathology_{i}'
+                ) for i in range(self.num_pathologies)
+            ])
+        else:
+            self.pathology_modules = None
+        
+        # Site integration
+        if self.use_pathology_loss:
+            self.site_integration = SiteIntegrationModule(
+                feature_dim=self.hidden_dim,
+                site_embed_dim=256,
+                hidden_dim=self.hidden_dim,
+                num_sites=self.num_sites,
+                num_pathologies=self.num_pathologies,
+                dropout=self.dropout_rate
+            )
+        else:
+            self.site_integration = nn.Sequential(
+                nn.Linear(self.hidden_dim, self.hidden_dim),
+                nn.LayerNorm(self.hidden_dim),
+                nn.GELU(),
+                nn.Dropout(self.dropout_rate)
+            )
+        
+        # Patient-level MIL
+        mil_hidden = min(self.hidden_dim // 2, 512)
+        self.patient_mil = DeepAttentionMIL(
+            feature_dim=self.hidden_dim,
+            hidden_dim=mil_hidden,
+            dropout=self.dropout_rate,
+            num_heads=4
+        )
+        
+        # Task classifiers
+        classifier_hidden = min(self.hidden_dim // 2, 256)
+        self.task_classifiers = nn.ModuleDict()
+        for task_name in self.active_tasks:
+            task_key = task_name.replace(' ', '_').replace('Label', 'label')
+            self.task_classifiers[task_key] = nn.Sequential(
+                nn.Linear(self.hidden_dim, classifier_hidden),
+                nn.LayerNorm(classifier_hidden),
+                nn.GELU(),
+                nn.Dropout(self.dropout_rate),
+                nn.Linear(classifier_hidden, self.num_classes)
+            )
+        
+        self.tb_classifier = nn.Sequential(
+            nn.Linear(self.hidden_dim, classifier_hidden),
+            nn.LayerNorm(classifier_hidden),
+            nn.GELU(),
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(classifier_hidden, self.num_classes)
+        )
+        
+        # Dummy frame selector for compatibility
+        self.frame_selector = self._create_dummy_selector()
+        
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        logger.info(f"R(2+1)D - Total parameters: {total_params:,}")
+        logger.info(f"R(2+1)D - Trainable parameters: {trainable_params:,}")
+    
+    def _create_dummy_selector(self):
+        """Create dummy frame selector for compatibility."""
+        class DummySelector:
+            def __init__(self):
+                self.saved_actions = []
+                self.temperature = 1.0
+            
+            def get_temperature(self):
+                return self.temperature
+            
+            def clear_history(self):
+                self.saved_actions = []
+            
+            def reset_rewards(self):
+                pass
+            
+            def reset_temperature(self):
+                return self.temperature
+            
+            def update_temperature(self, **kwargs):
+                return self.temperature
+        
+        return DummySelector()
+    
+    def _extract_video_features(self, video, use_amp=True):
+        """Extract features from video using R(2+1)D."""
+        # Reshape for R(2+1)D: [1, C, T, H, W]
+        video_input = video.permute(1, 0, 2, 3).unsqueeze(0)
+        
+        context = torch.amp.autocast('cuda') if use_amp else torch.enable_grad()
+        
+        if self.backbone_frozen:
+            with torch.no_grad(), context:
+                video_features = self.backbone(video_input)
+        else:
+            with context:
+                video_features = self.backbone(video_input)
+        
+        return video_features
+    
+    def forward(self, inputs):
+        """Forward pass - similar to ResNet3D but using R(2+1)D."""
+        site_videos = inputs['site_videos']
+        site_indices = inputs['site_indices']
+        site_masks = inputs['site_masks']
+        
+        batch_size, max_sites = site_videos.shape[0], site_videos.shape[1]
+        
+        all_site_features = []
+        all_pathology_scores = []
+        
+        # Process each sample in batch
+        for b in range(batch_size):
+            valid_sites = site_masks[b].sum().item()
+            
+            if valid_sites == 0:
+                site_features = torch.zeros(max_sites, self.hidden_dim, device=site_videos.device)
+                pathology_scores = torch.zeros(max_sites, self.num_pathologies, device=site_videos.device)
+                all_site_features.append(site_features)
+                all_pathology_scores.append(pathology_scores)
+                continue
+            
+            sample_features = []
+            sample_pathology_scores = []
+            
+            for n in range(valid_sites):
+                video = site_videos[b, n]
+                
+                try:
+                    video_features = self._extract_video_features(video)
+                    projected_features = self.feature_projection(video_features)
+                    final_features = self.feature_upscale(projected_features)
+                    
+                    sample_features.append(final_features)
+                    
+                    if self.use_pathology_loss and self.pathology_modules is not None:
+                        dummy_frames = final_features.unsqueeze(1).repeat(1, 3, 1)
+                        dummy_mask = torch.ones(1, 3, dtype=torch.bool, device=video.device)
+                        
+                        pathology_scores = []
+                        for module in self.pathology_modules:
+                            score, _, _ = module(dummy_frames, dummy_mask)
+                            pathology_scores.append(score)
+                        
+                        sample_pathology_scores.append(torch.cat(pathology_scores, dim=1))
+                    
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        
+                except RuntimeError as e:
+                    if 'out of memory' in str(e).lower():
+                        logger.warning(f"OOM processing site {n}, using zero features")
+                        zero_features = torch.zeros(1, self.hidden_dim, device=site_videos.device)
+                        sample_features.append(zero_features)
+                        
+                        if self.use_pathology_loss:
+                            zero_pathology = torch.zeros(1, self.num_pathologies, device=site_videos.device)
+                            sample_pathology_scores.append(zero_pathology)
+                        
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    else:
+                        raise e
+            
+            # Pad and collect results
+            if sample_features:
+                sample_features_tensor = torch.cat(sample_features, dim=0)
+                padded_features = torch.zeros(max_sites, self.hidden_dim, device=site_videos.device)
+                padded_features[:valid_sites] = sample_features_tensor
+                all_site_features.append(padded_features)
+                
+                if self.use_pathology_loss and sample_pathology_scores:
+                    sample_pathology_tensor = torch.cat(sample_pathology_scores, dim=0)
+                    padded_scores = torch.zeros(max_sites, self.num_pathologies, device=site_videos.device)
+                    padded_scores[:valid_sites] = sample_pathology_tensor
+                    all_pathology_scores.append(padded_scores)
+                else:
+                    all_pathology_scores.append(torch.zeros(max_sites, self.num_pathologies, device=site_videos.device))
+            else:
+                all_site_features.append(torch.zeros(max_sites, self.hidden_dim, device=site_videos.device))
+                all_pathology_scores.append(torch.zeros(max_sites, self.num_pathologies, device=site_videos.device))
+        
+        site_features = torch.stack(all_site_features)
+        pathology_scores = torch.stack(all_pathology_scores) if self.use_pathology_loss else None
+        
+        # Site integration
+        if self.use_pathology_loss:
+            integrated_features = self.site_integration(site_features, site_indices, pathology_scores)
+        else:
+            integrated_features = self.site_integration(site_features)
+        
+        # Patient-level MIL
+        patient_features, mil_attention = self.patient_mil(integrated_features, site_masks)
+        
+        # Classification
+        task_logits = {}
+        for task_name in self.active_tasks:
+            if task_name == 'TB Label':
+                tb_logits = self.tb_classifier(patient_features)
+                if self.num_classes == 1:
+                    tb_logits = tb_logits.squeeze(-1)
+                task_logits['TB Label'] = tb_logits
+        
+        return {
+            'task_logits': task_logits,
+            'pathology_scores': pathology_scores,
+            'patient_features': patient_features,
+            'mil_attention': mil_attention,
+            'site_features': site_features,
+            'site_rl_data': []
+        }
+    
+    def compute_losses(self, outputs, targets, pos_weights=None):
+        """Reuse loss computation from MultiTaskModel."""
+        return MultiTaskModel.compute_losses(self, outputs, targets, pos_weights)
+
+
+class InceptionMultiTaskModel(nn.Module):
+    """Ablation: Inception3D (I3D) backbone for video understanding."""
+    
+    def __init__(self, config):
+        super().__init__()
+        
+        # Store configuration
+        self.config = config
+        self.num_classes = getattr(config, 'num_classes', 1)
+        self.hidden_dim = getattr(config, 'hidden_dim', 512)
+        self.dropout_rate = getattr(config, 'dropout_rate', 0.3)
+        self.num_pathologies = getattr(config, 'num_pathologies', 4)
+        self.num_sites = getattr(config, 'num_sites', 21)
+        self.device = getattr(config, 'device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        
+        self.active_tasks = getattr(config, 'active_tasks', ['TB Label'])
+        self.use_pathology_loss = getattr(config, 'use_pathology_loss', True)
+        self.task_weights = getattr(config, 'task_weights', {'TB Label': 1.0})
+        self.selection_strategy = 'inception'
+        
+        # Memory optimization settings
+        self.backbone_frozen = getattr(config, 'backbone_frozen', True)
+        self.max_sites_per_forward = getattr(config, 'max_sites_per_forward', 4)
+        
+        logger.info("Using Inception3D (S3D-G) backbone")
+        
+        # Try to load S3D or similar Inception-based model
+        try:
+            self.backbone = video_models.s3d(weights=video_models.S3D_Weights.DEFAULT)
+            logger.info("Loaded S3D (Inception-based) model")
+            backbone_dim = 400
+        except:
+            # Fallback to MViT or other available model
+            try:
+                self.backbone = video_models.mvit_v1_b(weights=video_models.MViT_V1_B_Weights.DEFAULT)
+                logger.info("Loaded MViT (fallback from Inception)")
+                backbone_dim = 768
+            except:
+                # Final fallback to MC3
+                self.backbone = video_models.mc3_18(weights=video_models.MC3_18_Weights.DEFAULT)
+                logger.info("Loaded MC3 (fallback from Inception)")
+                backbone_dim = 512
+        
+        # Remove final classification layer
+        if hasattr(self.backbone, 'fc'):
+            self.backbone.fc = nn.Identity()
+        elif hasattr(self.backbone, 'head'):
+            self.backbone.head = nn.Identity()
+        
+        # Freeze backbone if specified
+        if self.backbone_frozen:
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+            logger.info("Inception backbone frozen for memory efficiency")
+        
+        # Feature projection
+        projection_dim = min(self.hidden_dim, 512)
+        self.feature_projection = nn.Sequential(
+            nn.Linear(backbone_dim, projection_dim),
+            nn.LayerNorm(projection_dim),
+            nn.ReLU(),
+            nn.Dropout(self.dropout_rate)
+        )
+        
+        if projection_dim != self.hidden_dim:
+            self.feature_upscale = nn.Linear(projection_dim, self.hidden_dim)
+        else:
+            self.feature_upscale = nn.Identity()
+        
+        # Pathology modules
+        if self.use_pathology_loss:
+            pathology_hidden = min(self.hidden_dim // 2, 256)
+            self.pathology_modules = nn.ModuleList([
+                PathologyModule(
+                    feature_dim=self.hidden_dim,
+                    hidden_dim=pathology_hidden,
+                    dropout=self.dropout_rate,
+                    name=f'pathology_{i}'
+                ) for i in range(self.num_pathologies)
+            ])
+        else:
+            self.pathology_modules = None
+        
+        # Site integration
+        if self.use_pathology_loss:
+            self.site_integration = SiteIntegrationModule(
+                feature_dim=self.hidden_dim,
+                site_embed_dim=256,
+                hidden_dim=self.hidden_dim,
+                num_sites=self.num_sites,
+                num_pathologies=self.num_pathologies,
+                dropout=self.dropout_rate
+            )
+        else:
+            self.site_integration = nn.Sequential(
+                nn.Linear(self.hidden_dim, self.hidden_dim),
+                nn.LayerNorm(self.hidden_dim),
+                nn.GELU(),
+                nn.Dropout(self.dropout_rate)
+            )
+        
+        # Patient-level MIL
+        mil_hidden = min(self.hidden_dim // 2, 512)
+        self.patient_mil = DeepAttentionMIL(
+            feature_dim=self.hidden_dim,
+            hidden_dim=mil_hidden,
+            dropout=self.dropout_rate,
+            num_heads=4
+        )
+        
+        # Task classifiers
+        classifier_hidden = min(self.hidden_dim // 2, 256)
+        self.task_classifiers = nn.ModuleDict()
+        for task_name in self.active_tasks:
+            task_key = task_name.replace(' ', '_').replace('Label', 'label')
+            self.task_classifiers[task_key] = nn.Sequential(
+                nn.Linear(self.hidden_dim, classifier_hidden),
+                nn.LayerNorm(classifier_hidden),
+                nn.GELU(),
+                nn.Dropout(self.dropout_rate),
+                nn.Linear(classifier_hidden, self.num_classes)
+            )
+        
+        self.tb_classifier = nn.Sequential(
+            nn.Linear(self.hidden_dim, classifier_hidden),
+            nn.LayerNorm(classifier_hidden),
+            nn.GELU(),
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(classifier_hidden, self.num_classes)
+        )
+        
+        # Dummy frame selector for compatibility
+        self.frame_selector = self._create_dummy_selector()
+        
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        logger.info(f"Inception - Total parameters: {total_params:,}")
+        logger.info(f"Inception - Trainable parameters: {trainable_params:,}")
+    
+    def _create_dummy_selector(self):
+        """Create dummy frame selector for compatibility."""
+        class DummySelector:
+            def __init__(self):
+                self.saved_actions = []
+                self.temperature = 1.0
+            
+            def get_temperature(self):
+                return self.temperature
+            
+            def clear_history(self):
+                self.saved_actions = []
+            
+            def reset_rewards(self):
+                pass
+            
+            def reset_temperature(self):
+                return self.temperature
+            
+            def update_temperature(self, **kwargs):
+                return self.temperature
+        
+        return DummySelector()
+    
+    def _extract_video_features(self, video, use_amp=True):
+        """Extract features from video using Inception."""
+        # Reshape for Inception: [1, C, T, H, W]
+        video_input = video.permute(1, 0, 2, 3).unsqueeze(0)
+        
+        context = torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16, enabled=use_amp)
+
+        if self.backbone_frozen:
+            with torch.no_grad(), context:
+                video_features = self.backbone(video_input)
+        else:
+            with context:
+                video_features = self.backbone(video_input)
+        proj_dtype = next(self.feature_projection.parameters()).dtype
+        
+        return video_features.to(proj_dtype)
+    
+    def _zeros_like_proj(self, *shape, device):
+        dtype = next(self.feature_projection.parameters()).dtype
+        return torch.zeros(*shape, device=device, dtype=dtype)
+
+    def forward(self, inputs):
+        """Forward pass using Inception backbone."""
+        site_videos = inputs['site_videos']
+        site_indices = inputs['site_indices']
+        site_masks = inputs['site_masks']
+        
+        batch_size, max_sites = site_videos.shape[0], site_videos.shape[1]
+        
+        all_site_features = []
+        all_pathology_scores = []
+        
+        # Process each sample in batch
+        for b in range(batch_size):
+            valid_sites = site_masks[b].sum().item()
+            
+            if valid_sites == 0:
+                site_features = self._zeros_like_proj(max_sites, self.hidden_dim, device=site_videos.device)
+                pathology_scores = self._zeros_like_proj(max_sites, self.num_pathologies, device=site_videos.device)
+                all_site_features.append(site_features)
+                all_pathology_scores.append(pathology_scores)
+                continue
+            
+            sample_features = []
+            sample_pathology_scores = []
+            
+            for n in range(valid_sites):
+                video = site_videos[b, n]
+                
+                try:
+                    video_features = self._extract_video_features(video)
+                    projected_features = self.feature_projection(video_features)
+                    final_features = self.feature_upscale(projected_features)
+                    
+                    sample_features.append(final_features)
+                    
+                    if self.use_pathology_loss and self.pathology_modules is not None:
+                        dummy_frames = final_features.unsqueeze(1).repeat(1, 3, 1)
+                        dummy_mask = torch.ones(1, 3, dtype=torch.bool, device=video.device)
+                        
+                        pathology_scores = []
+                        for module in self.pathology_modules:
+                            score, _, _ = module(dummy_frames, dummy_mask)
+                            pathology_scores.append(score)
+                        
+                        sample_pathology_scores.append(torch.cat(pathology_scores, dim=1))
+                    
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        
+                except RuntimeError as e:
+                    if 'out of memory' in str(e).lower():
+                        logger.warning(f"OOM processing site {n}, using zero features")
+                        zero_features = self._zeros_like_proj(1, self.hidden_dim, device=site_videos.device)
+                        sample_features.append(zero_features)
+                        
+                        if self.use_pathology_loss:
+                            zero_pathology = self._zeros_like_proj(1, self.num_pathologies, device=site_videos.device)
+                            sample_pathology_scores.append(zero_pathology)
+                        
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    else:
+                        raise e
+            
+            # Pad and collect results
+            if sample_features:
+                sample_features_tensor = torch.cat(sample_features, dim=0)
+                padded_features = self._zeros_like_proj(max_sites, self.hidden_dim, device=site_videos.device)
+                padded_features[:valid_sites] = sample_features_tensor
+                all_site_features.append(padded_features)
+                
+                if self.use_pathology_loss and sample_pathology_scores:
+                    sample_pathology_tensor = torch.cat(sample_pathology_scores, dim=0)
+                    padded_scores = self._zeros_like_proj(max_sites, self.num_pathologies, device=site_videos.device)
+                    padded_scores[:valid_sites] = sample_pathology_tensor
+                    all_pathology_scores.append(padded_scores)
+                else:
+                    all_pathology_scores.append(self._zeros_like_proj(max_sites, self.num_pathologies, device=site_videos.device))
+            else:
+                all_site_features.append(self._zeros_like_proj(max_sites, self.hidden_dim, device=site_videos.device))
+                all_pathology_scores.append(self._zeros_like_proj(max_sites, self.num_pathologies, device=site_videos.device))
+
+        site_features = torch.stack(all_site_features)
+        pathology_scores = torch.stack(all_pathology_scores) if self.use_pathology_loss else None
+        
+        # Site integration
+        if self.use_pathology_loss:
+            integrated_features = self.site_integration(site_features, site_indices, pathology_scores)
+        else:
+            integrated_features = self.site_integration(site_features)
+        
+        # Patient-level MIL
+        patient_features, mil_attention = self.patient_mil(integrated_features, site_masks)
+        
+        # Classification
+        task_logits = {}
+        for task_name in self.active_tasks:
+            if task_name == 'TB Label':
+                tb_logits = self.tb_classifier(patient_features)
+                if self.num_classes == 1:
+                    tb_logits = tb_logits.squeeze(-1)
+                task_logits['TB Label'] = tb_logits
+        
+        return {
+            'task_logits': task_logits,
+            'pathology_scores': pathology_scores,
+            'patient_features': patient_features,
+            'mil_attention': mil_attention,
+            'site_features': site_features,
+            'site_rl_data': []
+        }
+    
+    def compute_losses(self, outputs, targets, pos_weights=None):
+        """Reuse loss computation from MultiTaskModel."""
+        return MultiTaskModel.compute_losses(self, outputs, targets, pos_weights)
+
+
+class RLInceptionMultiTaskModel(nn.Module):
+    """Ablation: RL frame selection with Inception backbone instead of CLIP."""
+    
+    def __init__(self, config):
+        super().__init__()
+        
+        # Store configuration
+        self.config = config
+        self.num_classes = getattr(config, 'num_classes', 1)
+        self.hidden_dim = getattr(config, 'hidden_dim', 512)
+        self.dropout_rate = getattr(config, 'dropout_rate', 0.3)
+        self.num_pathologies = getattr(config, 'num_pathologies', 4)
+        self.num_sites = getattr(config, 'num_sites', 21)
+        self.device = getattr(config, 'device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        
+        self.active_tasks = getattr(config, 'active_tasks', ['TB Label'])
+        self.use_pathology_loss = getattr(config, 'use_pathology_loss', True)
+        self.task_weights = getattr(config, 'task_weights', {'TB Label': 1.0})
+        self.selection_strategy = 'rl_inception'
+        
+        # RL settings
+        self.use_rl = True
+        self.rl_loss_weight = getattr(config, 'rl_loss_weight', 0.1)
+        
+        # Memory optimization settings
+        self.backbone_frozen = getattr(config, 'backbone_frozen', True)
+        self.max_sites_per_forward = getattr(config, 'max_sites_per_forward', 4)
+        
+        logger.info("Using RL frame selection with Inception backbone")
+        
+        # Load Inception-based backbone
+        try:
+            self.backbone = video_models.s3d(weights=video_models.S3D_Weights.DEFAULT)
+            logger.info("Loaded S3D (Inception-based) model for RL")
+            backbone_dim = 400
+        except:
+            try:
+                self.backbone = video_models.mvit_v1_b(weights=video_models.MViT_V1_B_Weights.DEFAULT)
+                logger.info("Loaded MViT (fallback) for RL")
+                backbone_dim = 768
+            except:
+                self.backbone = video_models.mc3_18(weights=video_models.MC3_18_Weights.DEFAULT)
+                logger.info("Loaded MC3 (fallback) for RL")
+                backbone_dim = 512
+        
+        # Remove final classification layer
+        if hasattr(self.backbone, 'fc'):
+            self.backbone.fc = nn.Identity()
+        elif hasattr(self.backbone, 'head'):
+            self.backbone.head = nn.Identity()
+        
+        # Freeze backbone
+        if self.backbone_frozen:
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+            logger.info("Inception backbone frozen, training RL selector only")
+        
+        # Feature projection
+        self.feature_projection = nn.Sequential(
+            nn.Linear(backbone_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(self.dropout_rate)
+        )
+        
+        # Import RL frame selector from original model
+        # Assuming there's an ActorCriticFrameSelector in CLIP_DRL_Aug11
+        try:
+            from .CLIP_DRL_Aug11 import ActorCriticFrameSelector
+            self.frame_selector = ActorCriticFrameSelector(
+                feature_dim=self.hidden_dim,
+                hidden_dim=self.hidden_dim,
+                output_dim=self.hidden_dim,
+                num_heads=8,
+                dropout=self.dropout_rate
+            )
+            logger.info("Using ActorCriticFrameSelector for RL frame selection")
+        except ImportError:
+            logger.warning("Could not import ActorCriticFrameSelector, using AttentionPoolSelector")
+            self.frame_selector = AttentionPoolSelector(
+                feature_dim=self.hidden_dim,
+                hidden_dim=self.hidden_dim,
+                output_dim=self.hidden_dim,
+                num_heads=8
+            )
+        
+        # Pathology modules
+        if self.use_pathology_loss:
+            pathology_hidden = min(self.hidden_dim // 2, 256)
+            self.pathology_modules = nn.ModuleList([
+                PathologyModule(
+                    feature_dim=self.hidden_dim,
+                    hidden_dim=pathology_hidden,
+                    dropout=self.dropout_rate,
+                    name=f'pathology_{i}'
+                ) for i in range(self.num_pathologies)
+            ])
+        else:
+            self.pathology_modules = None
+        
+        # Site integration
+        if self.use_pathology_loss:
+            self.site_integration = SiteIntegrationModule(
+                feature_dim=self.hidden_dim,
+                site_embed_dim=256,
+                hidden_dim=self.hidden_dim,
+                num_sites=self.num_sites,
+                num_pathologies=self.num_pathologies,
+                dropout=self.dropout_rate
+            )
+        else:
+            self.site_integration = nn.Sequential(
+                nn.Linear(self.hidden_dim, self.hidden_dim),
+                nn.LayerNorm(self.hidden_dim),
+                nn.GELU(),
+                nn.Dropout(self.dropout_rate)
+            )
+        
+        # Patient-level MIL
+        mil_hidden = min(self.hidden_dim // 2, 512)
+        self.patient_mil = DeepAttentionMIL(
+            feature_dim=self.hidden_dim,
+            hidden_dim=mil_hidden,
+            dropout=self.dropout_rate,
+            num_heads=4
+        )
+        
+        # Task classifiers
+        classifier_hidden = min(self.hidden_dim // 2, 256)
+        self.task_classifiers = nn.ModuleDict()
+        for task_name in self.active_tasks:
+            task_key = task_name.replace(' ', '_').replace('Label', 'label')
+            self.task_classifiers[task_key] = nn.Sequential(
+                nn.Linear(self.hidden_dim, classifier_hidden),
+                nn.LayerNorm(classifier_hidden),
+                nn.GELU(),
+                nn.Dropout(self.dropout_rate),
+                nn.Linear(classifier_hidden, self.num_classes)
+            )
+        
+        self.tb_classifier = nn.Sequential(
+            nn.Linear(self.hidden_dim, classifier_hidden),
+            nn.LayerNorm(classifier_hidden),
+            nn.GELU(),
+            nn.Dropout(self.dropout_rate),
+            nn.Linear(classifier_hidden, self.num_classes)
+        )
+        
+        total_params = sum(p.numel() for p in self.parameters())
+        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        logger.info(f"RL-Inception - Total parameters: {total_params:,}")
+        logger.info(f"RL-Inception - Trainable parameters: {trainable_params:,}")
+    
+    def _extract_video_features(self, video, use_amp=True):
+        """Extract features from video using Inception."""
+        # Reshape for Inception: [1, C, T, H, W]
+        video_input = video.permute(1, 0, 2, 3).unsqueeze(0)
+        
+        context = torch.amp.autocast('cuda') if use_amp else torch.enable_grad()
+        
+        if self.backbone_frozen:
+            with torch.no_grad(), context:
+                video_features = self.backbone(video_input)
+        else:
+            with context:
+                video_features = self.backbone(video_input)
+        
+        return video_features
+    
+    def process_site(self, video, site_idx, mask=None, batch_idx=None, site_pos=None):
+        """Process site with RL frame selection."""
+        # Extract Inception features
+        video_features = self._extract_video_features(video)
+        
+        # Project to hidden dimension
+        projected_features = self.feature_projection(video_features)
+        
+        # For video-level features, we need to extract frame-level features
+        # Assuming projected_features is [1, hidden_dim], we'll treat it as a single "frame"
+        # In a real implementation, you might extract multiple temporal features
+        frame_features = projected_features.unsqueeze(1).repeat(1, 3, 1)  # [1, 3, hidden_dim]
+        frame_mask = torch.ones(1, 3, dtype=torch.bool, device=video.device)
+        
+        # RL frame selection
+        action_logits, state_values, encoded_features = self.frame_selector(
+            frame_features, frame_mask, batch_idx, site_pos
+        )
+        
+        # Select frames
+        actions, log_probs = self.frame_selector.select_action(
+            action_logits, state_values, encoded_features, batch_idx, site_pos
+        )
+        
+        # Get selected features
+        selected_features = encoded_features[0, actions]
+        selected_mask = torch.ones(len(actions), dtype=torch.bool, device=video.device)
+        
+        # Process pathologies
+        pathology_scores = None
+        if self.use_pathology_loss and self.pathology_modules is not None:
+            pathology_scores = []
+            for module in self.pathology_modules:
+                score, _, _ = module(selected_features.unsqueeze(0), selected_mask.unsqueeze(0))
+                pathology_scores.append(score)
+            pathology_scores = torch.cat(pathology_scores, dim=1)
+        
+        return {
+            'selected_features': selected_features.unsqueeze(0),
+            'selected_indices': actions.unsqueeze(0),
+            'pathology_scores': pathology_scores,
+            'action_logits': action_logits,
+            'state_values': state_values,
+            'batch_idx': batch_idx,
+            'site_idx': site_pos
+        }
+    
+    def forward(self, inputs):
+        """Forward pass using RL with Inception backbone."""
+        site_videos = inputs['site_videos']
+        site_indices = inputs['site_indices']
+        site_masks = inputs['site_masks']
+        
+        batch_size, max_sites = site_videos.shape[0], site_videos.shape[1]
+        
+        all_site_features = []
+        all_pathology_scores = []
+        site_rl_data = []
+        
+        # Process each sample
+        for b in range(batch_size):
+            valid_sites = site_masks[b].sum().item()
+            
+            if valid_sites == 0:
+                site_features = torch.zeros(max_sites, self.hidden_dim, device=site_videos.device)
+                pathology_scores = torch.zeros(max_sites, self.num_pathologies, device=site_videos.device)
+                all_site_features.append(site_features)
+                all_pathology_scores.append(pathology_scores)
+                continue
+            
+            sample_features = []
+            sample_pathology_scores = []
+            
+            for n in range(valid_sites):
+                video = site_videos[b, n]
+                
+                try:
+                    # Process with RL frame selection
+                    site_output = self.process_site(
+                        video, 
+                        site_idx=site_indices[b, n].item() if site_indices is not None else n,
+                        batch_idx=b,
+                        site_pos=n
+                    )
+                    
+                    # Aggregate selected features
+                    selected = site_output['selected_features'].mean(dim=1)  # [1, hidden_dim]
+                    sample_features.append(selected)
+                    
+                    if self.use_pathology_loss and site_output['pathology_scores'] is not None:
+                        sample_pathology_scores.append(site_output['pathology_scores'])
+                    
+                    # Store RL data for loss computation
+                    if self.training:
+                        site_rl_data.append({
+                            'action_logits': site_output['action_logits'],
+                            'state_values': site_output['state_values'],
+                            'batch_idx': b,
+                            'site_idx': n
+                        })
+                    
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        
+                except RuntimeError as e:
+                    if 'out of memory' in str(e).lower():
+                        logger.warning(f"OOM processing site {n}, using zero features")
+                        zero_features = torch.zeros(1, self.hidden_dim, device=site_videos.device)
+                        sample_features.append(zero_features)
+                        
+                        if self.use_pathology_loss:
+                            zero_pathology = torch.zeros(1, self.num_pathologies, device=site_videos.device)
+                            sample_pathology_scores.append(zero_pathology)
+                        
+                        gc.collect()
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    else:
+                        raise e
+            
+            # Pad and collect results
+            if sample_features:
+                sample_features_tensor = torch.cat(sample_features, dim=0)
+                padded_features = torch.zeros(max_sites, self.hidden_dim, device=site_videos.device)
+                padded_features[:valid_sites] = sample_features_tensor
+                all_site_features.append(padded_features)
+                
+                if self.use_pathology_loss and sample_pathology_scores:
+                    sample_pathology_tensor = torch.cat(sample_pathology_scores, dim=0)
+                    padded_scores = torch.zeros(max_sites, self.num_pathologies, device=site_videos.device)
+                    padded_scores[:valid_sites] = sample_pathology_tensor
+                    all_pathology_scores.append(padded_scores)
+                else:
+                    all_pathology_scores.append(torch.zeros(max_sites, self.num_pathologies, device=site_videos.device))
+            else:
+                all_site_features.append(torch.zeros(max_sites, self.hidden_dim, device=site_videos.device))
+                all_pathology_scores.append(torch.zeros(max_sites, self.num_pathologies, device=site_videos.device))
+        
+        site_features = torch.stack(all_site_features)
+        pathology_scores = torch.stack(all_pathology_scores) if self.use_pathology_loss else None
+        
+        # Site integration
+        if self.use_pathology_loss:
+            integrated_features = self.site_integration(site_features, site_indices, pathology_scores)
+        else:
+            integrated_features = self.site_integration(site_features)
+        
+        # Patient-level MIL
+        patient_features, mil_attention = self.patient_mil(integrated_features, site_masks)
+        
+        # Classification
+        task_logits = {}
+        for task_name in self.active_tasks:
+            if task_name == 'TB Label':
+                tb_logits = self.tb_classifier(patient_features)
+                if self.num_classes == 1:
+                    tb_logits = tb_logits.squeeze(-1)
+                task_logits['TB Label'] = tb_logits
+        
+        return {
+            'task_logits': task_logits,
+            'pathology_scores': pathology_scores,
+            'patient_features': patient_features,
+            'mil_attention': mil_attention,
+            'site_features': site_features,
+            'site_rl_data': site_rl_data
+        }
+    
+    def compute_losses(self, outputs, targets, pos_weights=None):
+        """Compute losses including RL loss."""
+        # Base losses from MultiTaskModel
+        losses = MultiTaskModel.compute_losses(self, outputs, targets, pos_weights)
+        
+        # Add RL loss if training
+        if self.training and self.use_rl and len(outputs.get('site_rl_data', [])) > 0:
+            # Placeholder for RL loss computation
+            # In practice, this would compute policy gradient loss
+            rl_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+            
+            for site_data in outputs['site_rl_data']:
+                if 'state_values' in site_data and site_data['state_values'] is not None:
+                    # Simple baseline: encourage diversity
+                    rl_loss = rl_loss + site_data['state_values'].mean() * 0.01
+            
+            losses['rl_loss'] = rl_loss * self.rl_loss_weight
+            losses['total'] = losses['total'] + losses['rl_loss']
+        
+        return losses
+
+class ResNet3DMultiTaskModel(nn.Module):
+    """Memory-efficient ResNet3D backbone from torchvision."""
+    
+    def __init__(self, config):
+        super().__init__()
+        
+        # Store configuration
+        self.config = config
+        self.num_classes = getattr(config, 'num_classes', 1)
+        self.hidden_dim = getattr(config, 'hidden_dim', 512)
+        self.dropout_rate = getattr(config, 'dropout_rate', 0.3)
+        self.num_pathologies = getattr(config, 'num_pathologies', 4)
+        self.num_sites = getattr(config, 'num_sites', 21)
+        self.device = getattr(config, 'device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        
+        self.active_tasks = getattr(config, 'active_tasks', ['TB Label'])
+        self.use_pathology_loss = getattr(config, 'use_pathology_loss', True)
+        self.task_weights = getattr(config, 'task_weights', {'TB Label': 1.0})
         self.selection_strategy = '3d_resnet'
         
         # Memory optimization settings
@@ -379,19 +1345,23 @@ class ResNet3DMultiTaskModel(nn.Module):
         logger.info("Using Memory-Efficient ResNet3D backbone")
         
         # Use smaller ResNet3D model for better memory efficiency
-        try:
-            # Use R(2+1)D ResNet18 - more memory efficient than 3D ResNet
-            self.backbone = video_models.r2plus1d_18(weights=video_models.R2Plus1D_18_Weights.DEFAULT)
-            logger.info("Loaded R(2+1)D ResNet18")
-        except:
-            try:
-                # Fallback to MC3 ResNet18
-                self.backbone = video_models.mc3_18(weights=video_models.MC3_18_Weights.DEFAULT) 
-                logger.info("Loaded MC3 ResNet18")
-            except:
-                # Final fallback
-                self.backbone = video_models.r3d_18(weights=video_models.R3D_18_Weights.DEFAULT)
-                logger.info("Loaded R3D ResNet18")
+        # try:
+        #     # Use R(2+1)D ResNet18 - more memory efficient than 3D ResNet
+        #     self.backbone = video_models.r2plus1d_18(weights=video_models.R2Plus1D_18_Weights.DEFAULT)
+        #     logger.info("Loaded R(2+1)D ResNet18")
+        # except:
+        #     try:
+        #         # Fallback to MC3 ResNet18
+        #         self.backbone = video_models.mc3_18(weights=video_models.MC3_18_Weights.DEFAULT) 
+        #         logger.info("Loaded MC3 ResNet18")
+        #     except:
+        #         # Final fallback
+        #         self.backbone = video_models.r3d_18(weights=video_models.R3D_18_Weights.DEFAULT)
+        #         logger.info("Loaded R3D ResNet18")
+        
+        self.backbone = video_models.r3d_18(weights=video_models.R3D_18_Weights.DEFAULT)
+        logger.info("Loaded R3D ResNet18")
+        
         
         # Remove the final classification layer
         self.backbone.fc = nn.Identity()
@@ -402,16 +1372,15 @@ class ResNet3DMultiTaskModel(nn.Module):
             logger.info("Enabled gradient checkpointing on backbone")
         
         # Freeze backbone by default for memory efficiency
-        if self.backbone_frozen:
-            for param in self.backbone.parameters():
-                param.requires_grad = False
-            logger.info("Backbone frozen for memory efficiency")
+        # if self.backbone_frozen:
+        #     for param in self.backbone.parameters():
+        #         param.requires_grad = False
+        #     logger.info("Backbone frozen for memory efficiency")
         
         # Get feature dimension
         backbone_dim = 512
         
-        # Smaller projection layer to reduce memory
-        projection_dim = min(self.hidden_dim, 256)  # NEW: Cap projection size
+        projection_dim = min(self.hidden_dim, 512)  
         self.feature_projection = nn.Sequential(
             nn.Linear(backbone_dim, projection_dim),
             nn.LayerNorm(projection_dim),
@@ -419,15 +1388,14 @@ class ResNet3DMultiTaskModel(nn.Module):
             nn.Dropout(self.dropout_rate)
         )
         
-        # Additional projection if needed
         if projection_dim != self.hidden_dim:
             self.feature_upscale = nn.Linear(projection_dim, self.hidden_dim)
         else:
             self.feature_upscale = nn.Identity()
         
-        # Pathology modules (if enabled) - use smaller hidden dim
+        # Pathology modules 
         if self.use_pathology_loss:
-            pathology_hidden = min(self.hidden_dim // 2, 128)  # NEW: Smaller pathology modules
+            pathology_hidden = min(self.hidden_dim // 2, 256)  
             self.pathology_modules = nn.ModuleList([
                 PathologyModule(
                     feature_dim=self.hidden_dim,
@@ -443,7 +1411,7 @@ class ResNet3DMultiTaskModel(nn.Module):
         if self.use_pathology_loss:
             self.site_integration = SiteIntegrationModule(
                 feature_dim=self.hidden_dim,
-                site_embed_dim=32,  # NEW: Reduced from 64
+                site_embed_dim=256, 
                 hidden_dim=self.hidden_dim,
                 num_sites=self.num_sites,
                 num_pathologies=self.num_pathologies,
@@ -458,16 +1426,16 @@ class ResNet3DMultiTaskModel(nn.Module):
             )
         
         # Patient-level MIL - smaller hidden dim
-        mil_hidden = min(self.hidden_dim // 2, 128)  # NEW: Smaller MIL
+        mil_hidden = min(self.hidden_dim // 2, 512)  
         self.patient_mil = DeepAttentionMIL(
             feature_dim=self.hidden_dim,
             hidden_dim=mil_hidden,
             dropout=self.dropout_rate,
-            num_heads=4  # NEW: Reduced from 8
+            num_heads=8  
         )
         
         # Task classifiers - smaller hidden layers
-        classifier_hidden = min(self.hidden_dim // 2, 128)  # NEW: Smaller classifiers
+        classifier_hidden = min(self.hidden_dim // 2, 512)  
         self.task_classifiers = nn.ModuleDict()
         for task_name in self.active_tasks:
             task_key = task_name.replace(' ', '_').replace('Label', 'label')
@@ -658,10 +1626,6 @@ class ResNet3DMultiTaskModel(nn.Module):
         
         batch_size, max_sites = site_videos.shape[0], site_videos.shape[1]
         
-        # Check for overly large batches
-        total_sites = site_masks.sum().item()
-        if total_sites > 50:  # Configurable threshold
-            logger.warning(f"Large batch detected ({total_sites} sites), consider reducing batch size")
         
         # Use chunked processing for memory efficiency
         try:
@@ -742,6 +1706,7 @@ class ResNet3DMultiTaskModel(nn.Module):
         return {
             'task_logits': task_logits,
             'pathology_scores': pathology_scores,
+            'patient_features': patient_features,
             'mil_attention': mil_attention,
             'site_features': site_features,
             'site_rl_data': []
@@ -756,21 +1721,15 @@ class ResNet3DMultiTaskModel(nn.Module):
         if not self.backbone_frozen:
             return
             
-        # Unfreeze strategy: start from top layers and work backwards
-        unfreeze_schedule = {
-            total_epochs // 4: ['layer4', 'avgpool', 'fc'],           # 25% through
-            total_epochs // 2: ['layer3', 'layer4', 'avgpool', 'fc'], # 50% through  
-            3 * total_epochs // 4: ['layer2', 'layer3', 'layer4', 'avgpool', 'fc'], # 75% through
-        }
+            
+        layers_to_unfreeze = [ 'layer1','layer2', 'layer3', 'layer4', 'avgpool', 'fc'], # 75% through
         
-        for target_epoch, layers_to_unfreeze in unfreeze_schedule.items():
-            if epoch == target_epoch:
-                logger.info(f"Unfreezing backbone layers at epoch {epoch}: {layers_to_unfreeze}")
-                for name, param in self.backbone.named_parameters():
-                    if any(layer in name for layer in layers_to_unfreeze):
-                        param.requires_grad = True
-                        logger.debug(f"Unfroze: {name}")
-                break
+
+        for name, param in self.backbone.named_parameters():
+            if any(layer in name for layer in layers_to_unfreeze):
+                param.requires_grad = True
+                logger.debug(f"Unfroze: {name}")
+
     
     def get_memory_usage(self):
         """Get current memory usage statistics."""
@@ -823,7 +1782,7 @@ class CNNLSTMMultiTaskModel(nn.Module):
         
         # CNN feature dimension (ResNet18 conv features = 512)
         cnn_dim = 512
-        lstm_hidden = 256
+        lstm_hidden = 512
         
         # Project CNN features
         self.cnn_projection = nn.Sequential(
@@ -873,7 +1832,7 @@ class CNNLSTMMultiTaskModel(nn.Module):
         if self.use_pathology_loss:
             self.site_integration = SiteIntegrationModule(
                 feature_dim=self.hidden_dim,
-                site_embed_dim=64,
+                site_embed_dim=256,
                 hidden_dim=self.hidden_dim,
                 num_sites=self.num_sites,
                 num_pathologies=self.num_pathologies,
@@ -1030,6 +1989,7 @@ class CNNLSTMMultiTaskModel(nn.Module):
         return {
             'task_logits': task_logits,
             'pathology_scores': pathology_scores,
+            'patient_features': patient_features,
             'mil_attention': mil_attention,
             'site_features': site_features,
             'site_rl_data': []
@@ -1105,7 +2065,7 @@ class VideoTransformerMultiTaskModel(nn.Module):
         if self.use_pathology_loss:
             self.site_integration = SiteIntegrationModule(
                 feature_dim=self.hidden_dim,
-                site_embed_dim=64,
+                site_embed_dim=256,
                 hidden_dim=self.hidden_dim,
                 num_sites=self.num_sites,
                 num_pathologies=self.num_pathologies,
@@ -1204,8 +2164,7 @@ class VideoTransformerMultiTaskModel(nn.Module):
                 
                 self.transformer = nn.TransformerEncoder(
                     encoder_layer,
-                    num_layers=num_layers,
-                    enable_nested_tensor=False  # Disable nested tensor optimization when using norm_first=True
+                    num_layers=num_layers
                 )
                 
                 # Layer norm
@@ -1444,6 +2403,7 @@ class VideoTransformerMultiTaskModel(nn.Module):
         return {
             'task_logits': task_logits,
             'pathology_scores': pathology_scores,
+            'patient_features': patient_features,
             'mil_attention': mil_attention,
             'site_features': site_features,
             'site_rl_data': []
@@ -1464,11 +2424,15 @@ def create_ablation_model(model_type, config):
     model_map = {
         'original': MultiTaskModel,
         'no_rl': NoRLMultiTaskModel,
+        'no_rl_full_train': NoRLFullTrainMultiTaskModel,
         'mean_pool': MeanPoolMultiTaskModel,
         'attention_pool': AttentionPoolMultiTaskModel,
         'single_task': SingleTaskMultiTaskModel,
         '3d_cnn': ResNet3DMultiTaskModel,  # Using ResNet3D
         'cnn_lstm': CNNLSTMMultiTaskModel,
+        'R2+1d': R2Plus1DMultiTaskModel,
+        'Inception': InceptionMultiTaskModel,
+        'InceptionRLBackbone': RLInceptionMultiTaskModel,
         'video_transformer': VideoTransformerMultiTaskModel,  # Using ViViT
     }
     

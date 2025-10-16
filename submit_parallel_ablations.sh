@@ -9,9 +9,9 @@ set -euo pipefail
 CONFIG_BASE_DIR="configs"
 
 declare -A ABLATIONS=(
-  ["3d_cnn"]="3dcnn"
-  ["cnn_lstm"]="cnnlstm"
-  ["video_transformer"]="vivit"
+  # ["3d_cnn"]="3dcnn"
+  # ["cnn_lstm"]="cnnlstm"
+  # ["video_transformer"]="vivit"
   # ["original"]="original"
   ["attention_pool"]="attention_pool"
   ["mean_pool"]="mean_pool"
