@@ -1,83 +1,157 @@
-experiment_name: ablation_inception_tb_classifier_fold1
-experiment_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/inception3d/fold1
+# ==========================================
+# FOLD 1 - Inception3D Configuration
+# ==========================================
+# ablation_inception_fold1.yaml
+# Inception3D (S3D/I3D) backbone for video understanding
+
+# ==========================================
+# EXPERIMENT CONFIGURATION
+# ==========================================
+experiment_name: "ablation_inception_tb_classifier_fold1"
+experiment_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/inception/fold1"
 seed: 42
-device: cuda
+device: "cuda"  # "cuda" or "cpu"
+
+# Training control
 train: true
 evaluate_best_valid_model: true
-model_weights: null
-best_model_path: null
+
+# Model weights and resuming
+model_weights: null  # Path to pretrained weights, null if none
+best_model_path: null  # Path to best model for evaluation only
 resume_from_checkpoint: null
-reset_optimizers: false
-model_type: Inception
+reset_optimizers: false  # Whether to reset optimizer states when loading
+
+# ==========================================
+# ABLATION MODEL CONFIGURATION
+# ==========================================
+
+# Ablation model type - Inception3D
+model_type: "Inception"
+
+# Active tasks - choose from: ['TB Label', 'Pneumonia Label', 'Covid Label']
 active_tasks:
-- TB Label
+  - "TB Label"
+
+# Task-specific weights for loss balancing
 task_weights:
-  TB Label: 1.0
+  "TB Label": 1.0
+
+# Positive class weights for handling class imbalance
 task_pos_weights:
-  TB Label: 1.4
+  "TB Label": 1.4
+
+# Pathology prediction configuration
 use_pathology_loss: true
 pathology_weight: 1.0
-pathology_pos_weights:
-- 1.0
-- 4.0
-- 15.0
-- 4.0
+pathology_pos_weights: [1.0, 4.0, 15.0, 4.0]
 num_pathologies: 4
 pathology_classes:
-- A-line
-- Large Consolidations
-- Pleural Effusion
-- Other Pathology
-root_dir: ./Data
-labels_csv: ./Data/labels/labels_multidiagnosis.csv
-file_metadata_csv: ./Data/processed_files_2.csv
-split_csv: ./Data/test_files/Fold_1.csv
-image_folder: images
-video_folder: /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-batch_size: 1
+  - "A-line"
+  - "Large Consolidations"
+  - "Pleural Effusion"
+  - "Other Pathology"
+
+# ==========================================
+# DATA CONFIGURATION
+# ==========================================
+
+# Dataset paths - UPDATE THESE FOR YOUR DATA
+root_dir: "./Data"
+labels_csv: "./Data/labels/labels_multidiagnosis.csv"
+file_metadata_csv: "./Data/processed_files_2.csv"
+split_csv: "./Data/test_files/Fold_1.csv"  # FOLD 1
+image_folder: "images"
+video_folder: '/capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos'
+
+# Data loading parameters
+batch_size: 1  # Reduced for 3D CNN memory requirements
 num_workers: 6
-frame_sampling: 32
-depth_filter: '15'
+frame_sampling: 32  # Inception works well with 16 frames
+depth_filter: "15"  # Options: 'all', '5', '15'
+
+# Image processing
 target_height: 224
 target_width: 224
 in_channels: 3
-files_per_site: all
-site_order: null
+
+# Site selection and ordering
+files_per_site: "all"  # Can be integer or "all"
+site_order: null  # Optional list of site names, null for default order
 pad_missing_sites: true
-max_sites: null
+max_sites: null  # Optional maximum number of sites
 num_sites: 21
-mode: video
-pooling: attention
-model_name: ablation_inception_tb_classifier_fold1
+mode: "video"  # 'video', 'image', or 'both'
+pooling: "attention"  # 'max', 'avg', or 'attention'
+
+# ==========================================
+# MODEL ARCHITECTURE
+# ==========================================
+
+# Model configuration
+model_name: "ablation_inception_tb_classifier_fold1"
+
+# Model dimensions
 hidden_dim: 512
 dropout_rate: 0.3
-num_classes: 1
-classification_type: binary
-backbone: inception
-backbone_frozen: true
+num_classes: 1  # Binary classification for each task
+classification_type: "binary"
+
+# Inception3D backbone configuration
+backbone: "inception"  # Using S3D/I3D from torchvision
+backbone_frozen: true  # Freeze for memory efficiency
 pretrained: true
-max_sites_per_forward: 4
+max_sites_per_forward: 4  # Process sites in chunks
+
+# ==========================================
+# TRAINING CONFIGURATION
+# ==========================================
+
+# Training schedule
 num_epochs: 100
-accumulation_steps: 32
+accumulation_steps: 32  # Larger accumulation due to smaller batch size
 use_amp: true
-learning_rate: 0.0001
+
+# Learning rates and weight decay
+learning_rate: 0.0001  # Higher LR for 3D CNN
 weight_decay: 0.0001
-backbone_lr: 5.0e-05
+
+# Backbone parameters - Inception specific
+backbone_lr: 0.00005  # Lower if frozen
 backbone_weight_decay: 0.0001
-backbone_eta_min: 1.0e-06
-pathology_lr: 0.001
+backbone_eta_min: 0.000001
+
+# Pathology module parameters
+pathology_lr: 0.001  # Higher for simpler pathology modules
 pathology_weight_decay: 0.0001
-pathology_eta_min: 1.0e-06
-patient_pipeline_lr: 0.001
+pathology_eta_min: 0.000001
+
+# Patient pipeline parameters
+patient_pipeline_lr: 0.001  # Higher for patient pipeline
 patient_pipeline_weight_decay: 0.0001
-patient_pipeline_eta_min: 1.0e-06
-pos_weight: 1.4
-eval_metric: auc
-eval_metric_goal: max
+patient_pipeline_eta_min: 0.000001
+
+# Loss configuration
+pos_weight: 1.4  # Default positive weight for binary classification
+
+# ==========================================
+# EVALUATION CONFIGURATION
+# ==========================================
+
+# Evaluation metrics and early stopping
+eval_metric: "auc"  # Primary metric for model selection
+eval_metric_goal: "max"  # 'max' or 'min'
 early_stopping_patience: 20
-log_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/logs
-save_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/models
-checkpoint_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/checkpoints
-pred_save_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/predictions
-task: TB Label
-checkpoint_base_dir: /capstor/store/cscs/swissai/a127/ultr-ai
+
+# ==========================================
+# DIRECTORIES
+# ==========================================
+log_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/logs"
+save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/models"
+checkpoint_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/checkpoints"
+pred_save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/predictions"
+
+# ==========================================
+# TASK SPECIFIC CONFIGURATION
+# ==========================================
+task: "TB Label"
