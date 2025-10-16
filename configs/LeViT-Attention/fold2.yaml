@@ -1,5 +1,5 @@
-experiment_name: ablation_inception_tb_classifier_fold4
-experiment_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/inception3d/fold4
+experiment_name: ablation_LeVit_attention_pool_tb_classifier_fold2
+experiment_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/LeVit-Attention/fold2
 seed: 42
 device: cuda
 train: true
@@ -8,7 +8,7 @@ model_weights: null
 best_model_path: null
 resume_from_checkpoint: null
 reset_optimizers: false
-model_type: Inception
+model_type: attention_pool
 active_tasks:
 - TB Label
 task_weights:
@@ -16,7 +16,7 @@ task_weights:
 task_pos_weights:
   TB Label: 1.4
 use_pathology_loss: true
-pathology_weight: 1.0
+pathology_weight: 0.9
 pathology_pos_weights:
 - 1.0
 - 4.0
@@ -31,10 +31,10 @@ pathology_classes:
 root_dir: ./Data
 labels_csv: ./Data/labels/labels_multidiagnosis.csv
 file_metadata_csv: ./Data/processed_files_2.csv
-split_csv: ./Data/test_files/Fold_4.csv
+split_csv: ./Data/test_files/Fold_2.csv
 image_folder: images
 video_folder: /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
-batch_size: 1
+batch_size: 2
 num_workers: 6
 frame_sampling: 32
 depth_filter: '15'
@@ -48,28 +48,27 @@ max_sites: null
 num_sites: 21
 mode: video
 pooling: attention
-model_name: ablation_inception_tb_classifier_fold4
+model_name: ablation_LeVit_attention_pool_tb_classifier_fold2
 hidden_dim: 512
 dropout_rate: 0.3
 num_classes: 1
 classification_type: binary
-backbone: inception
-backbone_frozen: true
+backbone: levit_256
+freeze_backbone: false
 pretrained: true
-max_sites_per_forward: 4
-num_epochs: 100
-accumulation_steps: 32
+num_epochs: 20
+accumulation_steps: 8
 use_amp: true
-learning_rate: 0.0001
-weight_decay: 0.0001
-backbone_lr: 5.0e-05
-backbone_weight_decay: 0.0001
+learning_rate: 1.0e-05
+weight_decay: 1.0e-05
+backbone_lr: 1.0e-05
+backbone_weight_decay: 1.0e-05
 backbone_eta_min: 1.0e-06
-pathology_lr: 0.001
-pathology_weight_decay: 0.0001
+pathology_lr: 0.0001
+pathology_weight_decay: 1.0e-05
 pathology_eta_min: 1.0e-06
-patient_pipeline_lr: 0.001
-patient_pipeline_weight_decay: 0.0001
+patient_pipeline_lr: 0.0001
+patient_pipeline_weight_decay: 1.0e-05
 patient_pipeline_eta_min: 1.0e-06
 pos_weight: 1.4
 eval_metric: auc

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=tb_ablation
-#SBATCH --output=/users/mbarbiere/ULTR-AI/ULTR-AI-Vid/logs/R-%x.%j.out
-#SBATCH --error=/users/mbarbiere/ULTR-AI/ULTR-AI-Vid/logs/R-%x.%j.err
+#SBATCH --output=./ablation_results/logs/R-%x.%j.out
+#SBATCH --error=./ablation_results/logs/R-%x.%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:4
@@ -33,6 +33,10 @@ echo "python: $(command -v python3)"; python3 -V
 python3 - <<'PY' || true
 import torch; print("torch", torch.__version__, "cuda", torch.cuda.is_available(), "gpus", torch.cuda.device_count())
 PY
+
+# Quick fix: Install timm if not present (for LeViT and other vision backbones)
+echo "Installing timm..."
+pip install --quiet timm || echo "Warning: timm installation failed, but continuing..."
 
 # Runtime env
 export GPUS_PER_NODE=4

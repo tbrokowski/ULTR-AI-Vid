@@ -142,10 +142,10 @@ early_stopping_patience: 12  # Longer patience for Video Transformer
 # ==========================================
 # DIRECTORIES
 # ==========================================
-log_dir: "ablation_results/logs"
-save_dir: "ablation_results/models"
-checkpoint_dir: "ablation_results/checkpoints"
-pred_save_dir: "ablation_results/predictions"
+log_dir: "./ablation_results/logs"
+save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/saves"
+checkpoint_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/checkpoints"
+pred_save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/predictions"
 
 # ==========================================
 # TASK SPECIFIC CONFIGURATION

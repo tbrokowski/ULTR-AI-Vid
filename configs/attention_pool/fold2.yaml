@@ -107,7 +107,7 @@ local_weights_dir: "./NetworkArchitecture/CLIP_weights"
 # Training schedule
 num_epochs: 20
 accumulation_steps: 16
-use_amp: true
+use_amp: false
 
 # Learning rates and weight decay
 learning_rate: 0.00001
@@ -143,10 +143,10 @@ early_stopping_patience: 8
 # ==========================================
 # DIRECTORIES
 # ==========================================
-log_dir: "ablation_results/logs"
-save_dir: "ablation_results/models"
-checkpoint_dir: "ablation_results/checkpoints"
-pred_save_dir: "ablation_results/predictions"
+log_dir: "./ablation_results/logs"
+save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/saves"
+checkpoint_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/checkpoints"
+pred_save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/predictions"
 
 # ==========================================
 # TASK SPECIFIC CONFIGURATION

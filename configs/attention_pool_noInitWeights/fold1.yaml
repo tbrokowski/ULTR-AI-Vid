@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_attention_pool_NoInitWeights_tb_classifier_fold1"
-experiment_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/attention_pool_noInitWeights/fold1"
+experiment_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_noInitWeights/fold1"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 
@@ -143,10 +143,10 @@ early_stopping_patience: 20
 # ==========================================
 # DIRECTORIES
 # ==========================================
-log_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/logs"
-save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/models"
-checkpoint_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/checkpoints"
-pred_save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/predictions"
+log_dir: "./ablation_results/logs"
+save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/saves"
+checkpoint_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/checkpoints"
+pred_save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/predictions"
 
 # ==========================================
 # TASK SPECIFIC CONFIGURATION
