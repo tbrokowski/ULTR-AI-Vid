@@ -1769,8 +1769,15 @@ class AblationTrainer:
             logger.info(f"Training completed. Best model from epoch {self.best_epoch+1} with {eval_metric_key}: {self.best_metric:.4f}")
         
         # Evaluate the best model if requested
-        if self.config.evaluate_best_valid_model and is_main_process():
+        # IMPORTANT: Run evaluation on ALL ranks to avoid hanging collectives
+        if self.config.evaluate_best_valid_model:
+            if self.is_distributed:
+                # Ensure all ranks finished training and checkpoints are visible
+                dist.barrier()
             self._evaluate_best_model()
+            if self.is_distributed:
+                # Ensure all ranks complete evaluation before teardown
+                dist.barrier()
         
         return self.best_metric, self.best_epoch
     
@@ -2015,7 +2022,12 @@ def main():
         if not config.train:
             if is_main_process():
                 logger.info("Running in evaluation-only mode")
-                trainer._evaluate_best_model()
+            # Run evaluation on ALL ranks to keep collectives symmetric
+            if trainer.is_distributed:
+                dist.barrier()
+            trainer._evaluate_best_model()
+            if trainer.is_distributed:
+                dist.barrier()
             cleanup_distributed()
             return
         

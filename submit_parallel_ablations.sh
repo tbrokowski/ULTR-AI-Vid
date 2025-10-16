@@ -9,20 +9,20 @@ set -euo pipefail
 CONFIG_BASE_DIR="configs"
 
 declare -A ABLATIONS=(
-  # ["3d_cnn"]="3dcnn"
-  # ["cnn_lstm"]="cnnlstm"
-  # ["video_transformer"]="vivit"
-  # ["original"]="original"
-  # ["original_noInitWeights"]="original_noInitWeights"
-  # ["attention_pool"]="attention_pool"
-  # ["attention_pool_noInitWeights"]="attention_pool_noInitWeights"
-  # ["mean_pool"]="mean_pool"
-  # ["single_task"]="singletask"
-  # ["uniform"]="uniform"
-  # ["no_rl_full_train"]="no_rl_full_train"
-  # ["r2plus1d"]="r2plus1d"
-  # ["inception3d"]="inception3d"
-  # ["Efficientnet_RL"]="Efficientnet-RL"
+  ["3d_cnn"]="3dcnn"
+  ["cnn_lstm"]="cnnlstm"
+  ["video_transformer"]="vivit"
+  ["original"]="original"
+  ["original_noInitWeights"]="original_noInitWeights"
+  ["attention_pool"]="attention_pool"
+  ["attention_pool_noInitWeights"]="attention_pool_noInitWeights"
+  ["mean_pool"]="mean_pool"
+  ["single_task"]="singletask"
+  ["uniform"]="uniform"
+  ["no_rl_full_train"]="no_rl_full_train"
+  ["r2plus1d"]="r2plus1d"
+  ["inception3d"]="inception3d"
+  ["Efficientnet_RL"]="Efficientnet-RL"
   ["LeViT_Attention"]="LeViT-Attention"
   ["LeViT_RL"]="LeViT-RL"
 )
@@ -72,7 +72,7 @@ wait_for_slot() {
   local total="${3:-0}"
   local remaining=$((total - submitted))
   while [ "$(get_total_jobs)" -ge "$cap" ]; do
-    log_info "Waiting for SLURM slot… (Queue: $(get_running_jobs) running | Capacity: $cap | Remaining: ${remaining + 1})"
+    log_info "Waiting for SLURM slot… (Queue: $(get_running_jobs) running | Capacity: $cap | Remaining: $((remaining + 1)))"
     sleep 100
   done
 }
