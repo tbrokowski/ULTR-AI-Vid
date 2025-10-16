@@ -108,7 +108,7 @@ local_weights_dir: "./NetworkArchitecture/CLIP_weights"
 
 # Training schedule
 num_epochs: 20
-accumulation_steps: 8
+accumulation_steps: 16
 use_amp: true
 
 # Learning rates and weight decay
@@ -121,12 +121,12 @@ backbone_weight_decay: 0.00001
 backbone_eta_min: 0.000001
 
 # Pathology module parameters
-pathology_lr: 0.0001
+pathology_lr: 0.000005
 pathology_weight_decay: 0.00001
 pathology_eta_min: 0.000001
 
 # Patient pipeline parameters
-patient_pipeline_lr: 0.0001
+patient_pipeline_lr: 0.000005
 patient_pipeline_weight_decay: 0.00001
 patient_pipeline_eta_min: 0.000001
 
