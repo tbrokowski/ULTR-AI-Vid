@@ -1,0 +1,20 @@
+{
+  "analysis_date": "2025-10-18T20:16:35.564908",
+  "results_directory": "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results",
+  "models_analyzed": [
+    "inception3d",
+    "LeVit-Attention",
+    "cnnlstm",
+    "mean_pool"
+  ],
+  "number_of_folds": 5,
+  "split_analyzed": "test",
+  "top_models": [
+    "mean_pool",
+    "inception3d",
+    "LeVit-Attention",
+    "cnnlstm"
+  ],
+  "statistical_tests_performed": 6,
+  "bonferroni_alpha": 0.008333333333333333
+}

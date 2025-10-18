@@ -9,22 +9,22 @@ set -euo pipefail
 CONFIG_BASE_DIR="configs"
 
 declare -A ABLATIONS=(
-  ["3d_cnn"]="3dcnn"
-  ["cnn_lstm"]="cnnlstm"
-  ["video_transformer"]="vivit"
-  ["original"]="original"
-  ["original_noInitWeights"]="original_noInitWeights"
-  ["attention_pool"]="attention_pool"
-  ["attention_pool_noInitWeights"]="attention_pool_noInitWeights"
-  ["mean_pool"]="mean_pool"
-  ["single_task"]="singletask"
-  ["uniform"]="uniform"
-  ["no_rl_full_train"]="no_rl_full_train"
-  ["r2plus1d"]="r2plus1d"
-  ["inception3d"]="inception3d"
-  ["Efficientnet_RL"]="Efficientnet-RL"
-  ["LeViT_Attention"]="LeViT-Attention"
-  ["LeViT_RL"]="LeViT-RL"
+ # ["3d_cnn"]="3dcnn"
+ ## ["cnn_lstm"]="cnnlstm"
+ # ["video_transformer"]="vivit"
+ # ["original"]="original"
+ # ["original_noInitWeights"]="original_noInitWeights"
+ # ["attention_pool"]="attention_pool"
+ # ["attention_pool_noInitWeights"]="attention_pool_noInitWeights"
+ # ["mean_pool"]="mean_pool"
+ # ["single_task"]="singletask"
+ # ["uniform"]="uniform"
+ # ["no_rl_full_train"]="no_rl_full_train"
+ # ["r2plus1d"]="r2plus1d"
+ ## ["inception3d"]="inception3d"
+ # ["Efficientnet_RL"]="Efficientnet-RL"
+ ## ["LeViT_Attention"]="LeViT-Attention"
+ # ["LeViT_RL"]="LeViT-RL"
 )
 
 # Which folds to run
@@ -42,11 +42,13 @@ TOTAL_NODES=8
 GPUS_PER_NODE=4
 NODES_PER_EXPERIMENT=1
 GPUS_PER_EXPERIMENT=$GPUS_PER_NODE             # typically = GPUS_PER_NODE for 1 node/exp
-MAX_PARALLEL_JOBS=$(( TOTAL_NODES / NODES_PER_EXPERIMENT ))
+# Default capacity based on cluster model; allow override via env var MAX_PARALLEL_JOBS
+MAX_PARALLEL_JOBS_DEFAULT=$(( TOTAL_NODES / NODES_PER_EXPERIMENT ))
+MAX_PARALLEL_JOBS="${MAX_PARALLEL_JOBS:-$MAX_PARALLEL_JOBS_DEFAULT}"
 
 # SLURM defaults
 CPUS_PER_TASK=32                               # 288 is overkill; tune if needed
-TIME_LIMIT="2:00:00"
+TIME_LIMIT="7:00:00"
 ACCOUNT="a127"
 RESERVATION=""                                  # e.g. "--reservation=sai-a127"
 
@@ -147,6 +149,10 @@ submit_batch_job() {
 # =========================
 main() {
   local mode="${1:-$SUBMIT_MODE}"
+  # Optional second arg: override parallel capacity (cap)
+  if [[ -n "${2:-}" ]]; then
+    MAX_PARALLEL_JOBS="${2}"
+  fi
 
   hdr "TB Ablation Scheduler"
   echo "Mode: $mode"

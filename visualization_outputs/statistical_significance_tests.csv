@@ -1,0 +1,7 @@
+Comparison,Mean Difference,p-value,Significance,Bonferroni Significant,Cohen's d,Effect Size
+inception3d vs LeVit-Attention,0.0339,0.1834,,No,0.719,Medium
+inception3d vs cnnlstm,0.0452,0.2268,,No,0.638,Medium
+inception3d vs mean_pool,-0.2618,0.0028,**,Yes,-2.944,Large
+LeVit-Attention vs cnnlstm,0.0113,0.3625,,No,0.459,Small
+LeVit-Attention vs mean_pool,-0.2957,0.0001,***,Yes,-6.622,Large
+cnnlstm vs mean_pool,-0.3070,0.0000,***,Yes,-10.261,Large

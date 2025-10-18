@@ -232,6 +232,7 @@ checkpoints/
 
 # Logs
 logs/
+logs_*/
 
 # Evaluation results
 eval_results/
