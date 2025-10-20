@@ -1,289 +1,15 @@
 {
-  "attention_pool": {
+  "original": {
     "a_lines": {
       "Random Forest": {
-        "mean_auc": 0.6858183421485713,
-        "std_auc": 0.06203546149618532,
+        "mean_auc": 0.7044572468268383,
+        "std_auc": 0.035981587465615875,
         "fold_scores": [
-          0.6124297597977577,
-          0.656658110818241,
-          0.6591082114651309,
-          0.7437387759784444,
-          0.7571568526832823
-        ],
-        "feature_names": [
-          "a_lines_prob",
-          "a_lines_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          22028,
-          19604
-        ]
-      },
-      "Logistic Regression": {
-        "mean_auc": 0.7415871110625017,
-        "std_auc": 0.05460905317476519,
-        "fold_scores": [
-          0.6698795769623437,
-          0.7319208473582255,
-          0.7140250542037553,
-          0.7961273570215461,
-          0.7959827197666385
-        ],
-        "feature_names": [
-          "a_lines_prob",
-          "a_lines_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          22028,
-          19604
-        ]
-      },
-      "XGBoost": {
-        "mean_auc": 0.7293932415899029,
-        "std_auc": 0.058636293092793994,
-        "fold_scores": [
-          0.6518575894106563,
-          0.7083526209787279,
-          0.7102670666233551,
-          0.7865665615305004,
-          0.7899223694062751
-        ],
-        "feature_names": [
-          "a_lines_prob",
-          "a_lines_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          22028,
-          19604
-        ]
-      }
-    },
-    "large_consolidation": {
-      "Random Forest": {
-        "mean_auc": 0.778010233460764,
-        "std_auc": 0.08787217383535345,
-        "fold_scores": [
-          0.6451600681038824,
-          0.7672830051203093,
-          0.7634665697352019,
-          0.8427672080657471,
-          0.8713743162786796
-        ],
-        "feature_names": [
-          "large_consolidation_prob",
-          "large_consolidation_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          36992,
-          4640
-        ]
-      },
-      "Logistic Regression": {
-        "mean_auc": 0.8748638014571359,
-        "std_auc": 0.04390636797608044,
-        "fold_scores": [
-          0.8108403018769677,
-          0.8704951316508511,
-          0.8609643460786011,
-          0.9186394625030596,
-          0.9133797651762005
-        ],
-        "feature_names": [
-          "large_consolidation_prob",
-          "large_consolidation_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          36992,
-          4640
-        ]
-      },
-      "XGBoost": {
-        "mean_auc": 0.8209737282537919,
-        "std_auc": 0.07975136798414523,
-        "fold_scores": [
-          0.6915061303771407,
-          0.831527197737544,
-          0.8099495878749162,
-          0.8874226677753658,
-          0.8844630575039933
-        ],
-        "feature_names": [
-          "large_consolidation_prob",
-          "large_consolidation_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          36992,
-          4640
-        ]
-      }
-    },
-    "pleural_effusion": {
-      "Random Forest": {
-        "mean_auc": 0.6666655469444314,
-        "std_auc": 0.031732895756983466,
-        "fold_scores": [
-          0.6708430946006247,
-          0.6949104164270102,
-          0.6967828157590389,
-          0.6486249536736313,
-          0.6221664542618511
-        ],
-        "feature_names": [
-          "pleural_effusion_prob",
-          "pleural_effusion_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          41184,
-          448
-        ]
-      },
-      "Logistic Regression": {
-        "mean_auc": 0.744326586205615,
-        "std_auc": 0.02125549012062201,
-        "fold_scores": [
-          0.7522740534788728,
-          0.7394124582997815,
-          0.745175675607428,
-          0.7131311843211642,
-          0.7716395593208285
-        ],
-        "feature_names": [
-          "pleural_effusion_prob",
-          "pleural_effusion_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          41184,
-          448
-        ]
-      },
-      "XGBoost": {
-        "mean_auc": 0.8341826667328263,
-        "std_auc": 0.026921221108771373,
-        "fold_scores": [
-          0.7946041645213332,
-          0.8666786494880939,
-          0.8371970435388648,
-          0.8248325276862319,
-          0.8476009484296079
-        ],
-        "feature_names": [
-          "pleural_effusion_prob",
-          "pleural_effusion_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          41184,
-          448
-        ]
-      }
-    },
-    "other_pathology": {
-      "Random Forest": {
-        "mean_auc": 0.5888879991531756,
-        "std_auc": 0.05059092683298903,
-        "fold_scores": [
-          0.5135792643705173,
-          0.6146635347269536,
-          0.6119599689811678,
-          0.5632626643591084,
-          0.6409745633281307
-        ],
-        "feature_names": [
-          "other_pathology_prob",
-          "other_pathology_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          24804,
-          16828
-        ]
-      },
-      "Logistic Regression": {
-        "mean_auc": 0.62965032309821,
-        "std_auc": 0.012332827668945091,
-        "fold_scores": [
-          0.6198779392453878,
-          0.6266256363980921,
-          0.6222627504915559,
-          0.6286642829153605,
-          0.6508210064406541
-        ],
-        "feature_names": [
-          "other_pathology_prob",
-          "other_pathology_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          24804,
-          16828
-        ]
-      },
-      "XGBoost": {
-        "mean_auc": 0.622457719181742,
-        "std_auc": 0.04857283058179753,
-        "fold_scores": [
-          0.5410823640182014,
-          0.6401727504390311,
-          0.652194595541383,
-          0.6165959160571229,
-          0.6622429698529713
-        ],
-        "feature_names": [
-          "other_pathology_prob",
-          "other_pathology_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 41632,
-        "class_distribution": [
-          24804,
-          16828
-        ]
-      }
-    }
-  },
-  "original_noInitWeights": {
-    "a_lines": {
-      "Random Forest": {
-        "mean_auc": 0.7016320751528039,
-        "std_auc": 0.07396069560458744,
-        "fold_scores": [
-          0.6127739344893418,
-          0.7668864702884828,
-          0.7817134201306568,
-          0.7027100905454086,
-          0.6440764603101298
+          0.6445343182663287,
+          0.7171108268885772,
+          0.6993328471208912,
+          0.7344630704379396,
+          0.7268451714204547
         ],
         "feature_names": [
           "a_lines_prob",
@@ -298,14 +24,14 @@
         ]
       },
       "Logistic Regression": {
-        "mean_auc": 0.7527889203579792,
-        "std_auc": 0.05189534587843631,
+        "mean_auc": 0.7606245684109336,
+        "std_auc": 0.028295716279070206,
         "fold_scores": [
-          0.6716146147448253,
-          0.8001630633021304,
-          0.7962774986551663,
-          0.7473359256777459,
-          0.7485534994100278
+          0.7290847192165736,
+          0.7761560527574536,
+          0.7346608747650977,
+          0.7672638051427128,
+          0.7959573901728303
         ],
         "feature_names": [
           "a_lines_prob",
@@ -320,14 +46,14 @@
         ]
       },
       "XGBoost": {
-        "mean_auc": 0.7365653472890984,
-        "std_auc": 0.06921968834086238,
+        "mean_auc": 0.7449727444265178,
+        "std_auc": 0.03482060858267386,
         "fold_scores": [
-          0.6457910538756773,
-          0.7996256399565207,
-          0.8012667807634841,
-          0.7503096331618522,
-          0.6858336286879578
+          0.6869222552022358,
+          0.7572927355616672,
+          0.7397546667762516,
+          0.7717021474745231,
+          0.7691919171179117
         ],
         "feature_names": [
           "a_lines_prob",
@@ -344,14 +70,14 @@
     },
     "large_consolidation": {
       "Random Forest": {
-        "mean_auc": 0.7467740760291017,
-        "std_auc": 0.08978224102415974,
+        "mean_auc": 0.8122231072303787,
+        "std_auc": 0.04228421979649729,
         "fold_scores": [
-          0.6168853778772007,
-          0.7844662898565755,
-          0.8627827121512575,
-          0.72461828352616,
-          0.7451177167343146
+          0.7469262470581384,
+          0.8195789672425187,
+          0.8045339997648802,
+          0.8274135410014178,
+          0.8626627810849384
         ],
         "feature_names": [
           "large_consolidation_prob",
@@ -366,14 +92,14 @@
         ]
       },
       "Logistic Regression": {
-        "mean_auc": 0.8670948884819367,
-        "std_auc": 0.033313493928483345,
+        "mean_auc": 0.8991605187248259,
+        "std_auc": 0.018193159120488592,
         "fold_scores": [
-          0.8204415789960501,
-          0.8976250593336284,
-          0.9012654879623099,
-          0.8579168818005671,
-          0.8582254343171279
+          0.9096565687016757,
+          0.9006632070341428,
+          0.8697346196160892,
+          0.8980302555692726,
+          0.9177179427029494
         ],
         "feature_names": [
           "large_consolidation_prob",
@@ -388,288 +114,14 @@
         ]
       },
       "XGBoost": {
-        "mean_auc": 0.8059282540576206,
-        "std_auc": 0.06133687063859601,
+        "mean_auc": 0.8684955485773396,
+        "std_auc": 0.010188275551743401,
         "fold_scores": [
-          0.7323061111929485,
-          0.8291124353978113,
-          0.8961184992702413,
-          0.7769219902587632,
-          0.7951822341683384
-        ],
-        "feature_names": [
-          "large_consolidation_prob",
-          "large_consolidation_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          38894,
-          4795
-        ]
-      }
-    },
-    "pleural_effusion": {
-      "Random Forest": {
-        "mean_auc": 0.613171909154143,
-        "std_auc": 0.049141872068479975,
-        "fold_scores": [
-          0.5360094223046031,
-          0.6694308639134936,
-          0.6307895680455742,
-          0.6254166052302637,
-          0.6042130862767806
-        ],
-        "feature_names": [
-          "pleural_effusion_prob",
-          "pleural_effusion_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          43222,
-          467
-        ]
-      },
-      "Logistic Regression": {
-        "mean_auc": 0.8426371124486497,
-        "std_auc": 0.04860264541254402,
-        "fold_scores": [
-          0.8489717416675249,
-          0.8689505924306914,
-          0.8978470458115116,
-          0.8287803977359522,
-          0.7686357845975681
-        ],
-        "feature_names": [
-          "pleural_effusion_prob",
-          "pleural_effusion_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          43222,
-          467
-        ]
-      },
-      "XGBoost": {
-        "mean_auc": 0.7851849250013025,
-        "std_auc": 0.04599284619904423,
-        "fold_scores": [
-          0.7835733961486973,
-          0.8086779592775797,
-          0.8470767447615488,
-          0.7601396632089594,
-          0.7264568616097278
-        ],
-        "feature_names": [
-          "pleural_effusion_prob",
-          "pleural_effusion_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          43222,
-          467
-        ]
-      }
-    },
-    "other_pathology": {
-      "Random Forest": {
-        "mean_auc": 0.6006349969733172,
-        "std_auc": 0.031973601685766684,
-        "fold_scores": [
-          0.5875053196436473,
-          0.6265903604799081,
-          0.641794194263228,
-          0.5804216464211075,
-          0.566863464058695
-        ],
-        "feature_names": [
-          "other_pathology_prob",
-          "other_pathology_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          26012,
-          17677
-        ]
-      },
-      "Logistic Regression": {
-        "mean_auc": 0.6527070835976319,
-        "std_auc": 0.035291772324066245,
-        "fold_scores": [
-          0.6216895990370768,
-          0.6831562946823795,
-          0.6942815558231425,
-          0.6483843281957506,
-          0.6160236402498098
-        ],
-        "feature_names": [
-          "other_pathology_prob",
-          "other_pathology_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          26012,
-          17677
-        ]
-      },
-      "XGBoost": {
-        "mean_auc": 0.6400300831039744,
-        "std_auc": 0.029186708468827087,
-        "fold_scores": [
-          0.6154514699993778,
-          0.6664272171913973,
-          0.6750826173818718,
-          0.6315474791013584,
-          0.6116416318458657
-        ],
-        "feature_names": [
-          "other_pathology_prob",
-          "other_pathology_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          26012,
-          17677
-        ]
-      }
-    }
-  },
-  "attention_pool_noInitWeights": {
-    "a_lines": {
-      "Random Forest": {
-        "mean_auc": 0.7150694098948585,
-        "std_auc": 0.034892554881079126,
-        "fold_scores": [
-          0.679033777578058,
-          0.7305242186667317,
-          0.7622641457476517,
-          0.7211409260425456,
-          0.6823839814393047
-        ],
-        "feature_names": [
-          "a_lines_prob",
-          "a_lines_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          23058,
-          20631
-        ]
-      },
-      "Logistic Regression": {
-        "mean_auc": 0.7725633721721562,
-        "std_auc": 0.02713694571241851,
-        "fold_scores": [
-          0.7675068817857035,
-          0.7844958691359437,
-          0.8119275057672415,
-          0.7583621701840193,
-          0.7405244339878729
-        ],
-        "feature_names": [
-          "a_lines_prob",
-          "a_lines_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          23058,
-          20631
-        ]
-      },
-      "XGBoost": {
-        "mean_auc": 0.7600382936610616,
-        "std_auc": 0.033176628821810085,
-        "fold_scores": [
-          0.7334970245720811,
-          0.7824990964369767,
-          0.8033550988599603,
-          0.7569691032879708,
-          0.7238711451483186
-        ],
-        "feature_names": [
-          "a_lines_prob",
-          "a_lines_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          23058,
-          20631
-        ]
-      }
-    },
-    "large_consolidation": {
-      "Random Forest": {
-        "mean_auc": 0.8382003280622878,
-        "std_auc": 0.036522207031667565,
-        "fold_scores": [
-          0.829790652502338,
-          0.8322314230896567,
-          0.8665402620476716,
-          0.8777412828788961,
-          0.784698019792877
-        ],
-        "feature_names": [
-          "large_consolidation_prob",
-          "large_consolidation_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          38894,
-          4795
-        ]
-      },
-      "Logistic Regression": {
-        "mean_auc": 0.8950492397538052,
-        "std_auc": 0.013930888749808539,
-        "fold_scores": [
-          0.8973673121918968,
-          0.8905417210142759,
-          0.9002612380610158,
-          0.9124965320480577,
-          0.87457939545378
-        ],
-        "feature_names": [
-          "large_consolidation_prob",
-          "large_consolidation_logit",
-          "site_index",
-          "mil_attention"
-        ],
-        "n_samples": 43689,
-        "class_distribution": [
-          38894,
-          4795
-        ]
-      },
-      "XGBoost": {
-        "mean_auc": 0.8798764211391141,
-        "std_auc": 0.03771245197175803,
-        "fold_scores": [
-          0.898113919844334,
-          0.8730354751942221,
-          0.903710747747508,
-          0.9076527685919795,
-          0.8168691943175272
+          0.8752356743757428,
+          0.8648392573889481,
+          0.8531576339628333,
+          0.8794222349592817,
+          0.8698229421998922
         ],
         "feature_names": [
           "large_consolidation_prob",
@@ -686,14 +138,14 @@
     },
     "pleural_effusion": {
       "Random Forest": {
-        "mean_auc": 0.6329511733881306,
-        "std_auc": 0.08081428791348196,
+        "mean_auc": 0.6630218631018459,
+        "std_auc": 0.05365561049577154,
         "fold_scores": [
-          0.5818037105687709,
-          0.6619018175543541,
-          0.6611792764902251,
-          0.734469209403157,
-          0.5254018529241459
+          0.5753435751553221,
+          0.6859139537558956,
+          0.6511076628604039,
+          0.7118778816993907,
+          0.6908662420382166
         ],
         "feature_names": [
           "pleural_effusion_prob",
@@ -708,14 +160,14 @@
         ]
       },
       "Logistic Regression": {
-        "mean_auc": 0.8292415144615258,
-        "std_auc": 0.04947151821309456,
+        "mean_auc": 0.8464098499273932,
+        "std_auc": 0.023646718140131,
         "fold_scores": [
-          0.7898570778841864,
-          0.865830265731048,
-          0.8924217325650103,
-          0.8223405343439455,
-          0.7757579617834395
+          0.8363185648577215,
+          0.8799350051765787,
+          0.8449802279717384,
+          0.8158276114456351,
+          0.8549878401852924
         ],
         "feature_names": [
           "pleural_effusion_prob",
@@ -730,14 +182,14 @@
         ]
       },
       "XGBoost": {
-        "mean_auc": 0.794599370946637,
-        "std_auc": 0.06179703170940557,
+        "mean_auc": 0.8338843300469863,
+        "std_auc": 0.039703482829543085,
         "fold_scores": [
-          0.7603898499982837,
-          0.8277745024732543,
-          0.8482831415050984,
-          0.8343681216135258,
-          0.7021812391430227
+          0.8246710131122782,
+          0.8702282008512596,
+          0.7828492174519083,
+          0.8775336704697461,
+          0.8141395483497393
         ],
         "feature_names": [
           "pleural_effusion_prob",
@@ -754,14 +206,14 @@
     },
     "other_pathology": {
       "Random Forest": {
-        "mean_auc": 0.6095558065954194,
-        "std_auc": 0.017383992569888727,
+        "mean_auc": 0.6169068613305702,
+        "std_auc": 0.010564114453196882,
         "fold_scores": [
-          0.6171952724925807,
-          0.6282928421974748,
-          0.6197558320540516,
-          0.5949016294409614,
-          0.5876334567920288
+          0.6119759243172157,
+          0.6296646324400585,
+          0.6030665831566776,
+          0.6149289500609543,
+          0.6248982166779444
         ],
         "feature_names": [
           "other_pathology_prob",
@@ -776,14 +228,14 @@
         ]
       },
       "Logistic Regression": {
-        "mean_auc": 0.684142106476221,
-        "std_auc": 0.03511441602886782,
+        "mean_auc": 0.6472202070652656,
+        "std_auc": 0.01769039906447209,
         "fold_scores": [
-          0.6748222973446116,
-          0.6968963998683608,
-          0.7385843586244074,
-          0.6598803226227794,
-          0.6505271539209458
+          0.6235969744750328,
+          0.6727494666475647,
+          0.6448891908632726,
+          0.6431620624346918,
+          0.6517033409057662
         ],
         "feature_names": [
           "other_pathology_prob",
@@ -798,14 +250,14 @@
         ]
       },
       "XGBoost": {
-        "mean_auc": 0.6581034572961366,
-        "std_auc": 0.03632740731323165,
+        "mean_auc": 0.646481827466465,
+        "std_auc": 0.009637386294767035,
         "fold_scores": [
-          0.6501245983574198,
-          0.6784034184255466,
-          0.7091261807108169,
-          0.6362660005224662,
-          0.6165970884644337
+          0.6459220798760618,
+          0.6569694896260709,
+          0.6352263154359734,
+          0.6553201192964124,
+          0.6389711330978061
         ],
         "feature_names": [
           "other_pathology_prob",
