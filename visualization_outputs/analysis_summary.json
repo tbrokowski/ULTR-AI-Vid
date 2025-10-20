@@ -1,14 +1,31 @@
 {
-  "analysis_date": "2025-10-20T12:59:51.572141",
+  "analysis_date": "2025-10-20T20:48:50.603109",
   "results_directory": "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results",
   "models_analyzed": [
-    "singletask"
+    "inception3d",
+    "LeViT-RL",
+    "LeVit-Attention",
+    "3dcnn",
+    "cnnlstm",
+    "attention_pool",
+    "mean_pool",
+    "singletask",
+    "uniform",
+    "no_rl_full_train",
+    "original",
+    "attention_pool_noInitWeights",
+    "original_noInitWeights"
   ],
   "number_of_folds": 5,
   "split_analyzed": "test",
   "top_models": [
+    "attention_pool",
+    "original",
+    "original_noInitWeights",
+    "attention_pool_noInitWeights",
+    "no_rl_full_train",
     "singletask"
   ],
-  "statistical_tests_performed": 0,
-  "bonferroni_alpha": null
+  "statistical_tests_performed": 66,
+  "bonferroni_alpha": 0.0007575757575757576
 }

@@ -1,4 +1,16 @@
 Neural Network Model,Pathology,ML Algorithm,AUC Mean,AUC 95% CI,Samples,Positive Rate,Cross-Val Folds
+Attention Pool,A Lines,Random Forest,0.687,[0.604-0.769],43689,0.472,5
+Attention Pool,A Lines,Logistic Regression,0.742,[0.673-0.810],43689,0.472,5
+Attention Pool,A Lines,XGBoost,0.727,[0.656-0.799],43689,0.472,5
+Attention Pool,Large Consolidation,Random Forest,0.784,[0.668-0.901],43689,0.110,5
+Attention Pool,Large Consolidation,Logistic Regression,0.875,[0.817-0.934],43689,0.110,5
+Attention Pool,Large Consolidation,XGBoost,0.828,[0.725-0.931],43689,0.110,5
+Attention Pool,Pleural Effusion,Random Forest,0.675,[0.651-0.698],43689,0.011,5
+Attention Pool,Pleural Effusion,Logistic Regression,0.739,[0.715-0.763],43689,0.011,5
+Attention Pool,Pleural Effusion,XGBoost,0.821,[0.790-0.853],43689,0.011,5
+Attention Pool,Other Pathology,Random Forest,0.590,[0.534-0.647],43689,0.405,5
+Attention Pool,Other Pathology,Logistic Regression,0.630,[0.617-0.643],43689,0.405,5
+Attention Pool,Other Pathology,XGBoost,0.627,[0.570-0.683],43689,0.405,5
 Original,A Lines,Random Forest,0.704,[0.660-0.749],43689,0.472,5
 Original,A Lines,Logistic Regression,0.761,[0.725-0.796],43689,0.472,5
 Original,A Lines,XGBoost,0.745,[0.702-0.788],43689,0.472,5
@@ -11,3 +23,15 @@ Original,Pleural Effusion,XGBoost,0.834,[0.785-0.883],43689,0.011,5
 Original,Other Pathology,Random Forest,0.617,[0.604-0.630],43689,0.405,5
 Original,Other Pathology,Logistic Regression,0.647,[0.625-0.669],43689,0.405,5
 Original,Other Pathology,XGBoost,0.646,[0.635-0.658],43689,0.405,5
+Original Noinitweights,A Lines,Random Forest,0.702,[0.610-0.793],43689,0.472,5
+Original Noinitweights,A Lines,Logistic Regression,0.753,[0.688-0.817],43689,0.472,5
+Original Noinitweights,A Lines,XGBoost,0.737,[0.651-0.823],43689,0.472,5
+Original Noinitweights,Large Consolidation,Random Forest,0.747,[0.635-0.858],43689,0.110,5
+Original Noinitweights,Large Consolidation,Logistic Regression,0.867,[0.826-0.908],43689,0.110,5
+Original Noinitweights,Large Consolidation,XGBoost,0.806,[0.730-0.882],43689,0.110,5
+Original Noinitweights,Pleural Effusion,Random Forest,0.613,[0.552-0.674],43689,0.011,5
+Original Noinitweights,Pleural Effusion,Logistic Regression,0.843,[0.782-0.903],43689,0.011,5
+Original Noinitweights,Pleural Effusion,XGBoost,0.785,[0.728-0.842],43689,0.011,5
+Original Noinitweights,Other Pathology,Random Forest,0.601,[0.561-0.640],43689,0.405,5
+Original Noinitweights,Other Pathology,Logistic Regression,0.653,[0.609-0.697],43689,0.405,5
+Original Noinitweights,Other Pathology,XGBoost,0.640,[0.604-0.676],43689,0.405,5

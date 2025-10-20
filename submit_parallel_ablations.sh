@@ -9,26 +9,26 @@ set -euo pipefail
 CONFIG_BASE_DIR="configs"
 
 declare -A ABLATIONS=(
- # ["3d_cnn"]="3dcnn"
+ ## ["3d_cnn"]="3dcnn"
  ## ["cnn_lstm"]="cnnlstm"
- # ["video_transformer"]="vivit"
- # ["original"]="original"
- # ["original_noInitWeights"]="original_noInitWeights"
- # ["attention_pool"]="attention_pool"
- # ["attention_pool_noInitWeights"]="attention_pool_noInitWeights"
- # ["mean_pool"]="mean_pool"
- # ["single_task"]="singletask"
- # ["uniform"]="uniform"
- # ["no_rl_full_train"]="no_rl_full_train"
+ ## ["video_transformer"]="vivit"
+ ## ["original"]="original"
+ ## ["original_noInitWeights"]="original_noInitWeights"
+ ## ["attention_pool"]="attention_pool"
+ ## ["attention_pool_noInitWeights"]="attention_pool_noInitWeights"
+ ## ["mean_pool"]="mean_pool"
+ ## ["single_task"]="singletask"
+ ## ["uniform"]="uniform"
+ ## ["no_rl_full_train"]="no_rl_full_train"
  # ["r2plus1d"]="r2plus1d"
  ## ["inception3d"]="inception3d"
  # ["Efficientnet_RL"]="Efficientnet-RL"
  ## ["LeViT_Attention"]="LeViT-Attention"
- # ["LeViT_RL"]="LeViT-RL"
+  ["LeViT_RL"]="LeViT-RL"
 )
 
 # Which folds to run
-FOLDS=(0 1 2 3 4)
+FOLDS=(3 4)
 
 # SLURM runner that launches a *single* experiment on 1 node
 SLURM_SCRIPT="run_ablation_single_node.sh"
