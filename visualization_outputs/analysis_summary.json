@@ -1,13 +1,13 @@
 {
-  "analysis_date": "2025-10-20T12:05:15.434951",
+  "analysis_date": "2025-10-20T12:59:51.572141",
   "results_directory": "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results",
   "models_analyzed": [
-    "original"
+    "singletask"
   ],
   "number_of_folds": 5,
   "split_analyzed": "test",
   "top_models": [
-    "original"
+    "singletask"
   ],
   "statistical_tests_performed": 0,
   "bonferroni_alpha": null
