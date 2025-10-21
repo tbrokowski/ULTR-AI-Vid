@@ -27,6 +27,7 @@ MODEL_TYPES=(
     "original"
     "attention_pool_noInitWeights"
     "original_noInitWeights"
+    "vivit"
 )
 
 echo "==============================================="
