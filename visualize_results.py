@@ -1751,16 +1751,13 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
     latex_commands.append("% Convenience macros for architecture comparison table")
     latex_commands.append("")
     
-    # For each model in the table
+    # For each model in the table (use only one variant per model to avoid duplicates)
     table_models = [
         ('original', 'CLIPRLOurs'),
         ('attention_pool', 'CLIPAttention'),
         ('3dcnn', 'ThreeDResNet'),
-        ('3d_cnn', 'ThreeDResNet'),
         ('cnnlstm', 'CNNLSTM'),
-        ('cnn_lstm', 'CNNLSTM'),
         ('vivit', 'VideoTransformer'),
-        ('video_transformer', 'VideoTransformer'),
         ('r2plus1d', 'RTwoPlusOneD')
     ]
     
