@@ -1654,6 +1654,26 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
     print(f"CREATING LATEX MACROS FILE")
     print(f"{'='*70}")
     
+    def sanitize_metric_name(metric: str) -> str:
+        """Convert metric name to LaTeX-safe format (letters only, proper capitalization)."""
+        # Special cases for metrics with numbers
+        replacements = {
+            'f1': 'Fone',
+            'sens_at_90_spec': 'Sensatninety',
+            'sens_at_70_spec': 'Sensatseventy',
+            '3dcnn': 'ThreeDcnn',
+            '3d_cnn': 'ThreeDcnn',
+            'r2plus1d': 'RtwoplusoneD'
+        }
+        
+        # Check if we have a special replacement
+        if metric in replacements:
+            return replacements[metric]
+        
+        # Otherwise, just remove underscores and capitalize
+        clean = metric.replace('_', '')
+        return clean.capitalize()
+    
     # Mapping from internal model names to LaTeX-friendly names
     model_name_mapping = {
         'original': 'CLIPRLOurs',
@@ -1672,8 +1692,15 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
         'single_task': 'SingleTask',
         'no_rl_full_train': 'NoRLFullTrain',
         'Efficientnet_RL': 'EfficientNetRL',
+        'Efficientnet-RL': 'EfficientNetRL',
         'LeViT_Attention': 'LeViTAttention',
-        'LeViT_RL': 'LeViTRL'
+        'LeViT-Attention': 'LeViTAttention',
+        'LeViT_RL': 'LeViTRL',
+        'LeViT-RL': 'LeViTRL',
+        'attention_pool_noInitWeights': 'Attentionpoolnoinitweights',
+        'attention_pool_noinitweights': 'Attentionpoolnoinitweights',
+        'original_noInitWeights': 'Originalnoinitweights',
+        'original_noinitweights': 'Originalnoinitweights'
     }
     
     # Metrics to extract
@@ -1691,8 +1718,8 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
     models = metrics_df['model'].unique()
     
     for model in models:
-        # Get LaTeX-friendly name
-        latex_model_name = model_name_mapping.get(model, model.replace('_', '').title())
+        # Get LaTeX-friendly name (remove hyphens, underscores, and title case)
+        latex_model_name = model_name_mapping.get(model, model.replace('_', '').replace('-', '').title())
         
         latex_commands.append(f"% Metrics for {model}")
         
@@ -1707,42 +1734,42 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
                 ci_lower = metric_data['ci_lower'].iloc[0]
                 ci_upper = metric_data['ci_upper'].iloc[0]
                 
-                # Create macro names
-                metric_name = metric.replace('_', '')
+                # Create macro names (sanitize to remove numbers and special chars)
+                metric_name = sanitize_metric_name(metric)
                 
                 # Mean value
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}Mean}}{{{mean_val:.3f}}}"
+                    f"\\newcommand{{\\{latex_model_name}{metric_name}Mean}}{{{mean_val:.3f}}}"
                 )
                 
                 # Standard deviation
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}Std}}{{{std_val:.3f}}}"
+                    f"\\newcommand{{\\{latex_model_name}{metric_name}Std}}{{{std_val:.3f}}}"
                 )
                 
                 # 95% CI lower bound
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}CILower}}{{{ci_lower:.3f}}}"
+                    f"\\newcommand{{\\{latex_model_name}{metric_name}CILower}}{{{ci_lower:.3f}}}"
                 )
                 
                 # 95% CI upper bound
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}CIUpper}}{{{ci_upper:.3f}}}"
+                    f"\\newcommand{{\\{latex_model_name}{metric_name}CIUpper}}{{{ci_upper:.3f}}}"
                 )
             else:
                 # If metric not found, use TBU
-                metric_name = metric.replace('_', '')
+                metric_name = sanitize_metric_name(metric)
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}Mean}}{{TBU}}"
+                    f"\\newcommand{{\\{latex_model_name}{metric_name}Mean}}{{TBU}}"
                 )
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}Std}}{{TBU}}"
+                    f"\\newcommand{{\\{latex_model_name}{metric_name}Std}}{{TBU}}"
                 )
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}CILower}}{{TBU}}"
+                    f"\\newcommand{{\\{latex_model_name}{metric_name}CILower}}{{TBU}}"
                 )
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}CIUpper}}{{TBU}}"
+                    f"\\newcommand{{\\{latex_model_name}{metric_name}CIUpper}}{{TBU}}"
                 )
         
         latex_commands.append("")
