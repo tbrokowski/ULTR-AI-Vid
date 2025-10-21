@@ -1,5 +1,5 @@
 {
-  "analysis_date": "2025-10-21T08:05:03.282965",
+  "analysis_date": "2025-10-21T14:29:37.546988",
   "results_directory": "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results",
   "models_analyzed": [
     "inception3d",
@@ -27,6 +27,6 @@
     "no_rl_full_train",
     "singletask"
   ],
-  "statistical_tests_performed": 78,
-  "bonferroni_alpha": 0.000641025641025641
+  "statistical_tests_performed": 91,
+  "bonferroni_alpha": 0.0005494505494505495
 }

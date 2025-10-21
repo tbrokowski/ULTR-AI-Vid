@@ -1640,6 +1640,186 @@ def create_statistical_significance_table(statistical_results: Dict, output_dir:
     print(f"✓ Statistical significance table saved to {csv_path} and {table_path}")
 
 # =============================================================================
+# Data for report
+# =============================================================================
+
+def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 'test') -> None:
+    """
+    Create LaTeX macros file with all relevant numbers for the report.
+    
+    Generates a .tex file with \newcommand macros containing model performance metrics
+    that can be directly imported into a LaTeX report.
+    """
+    print(f"\n{'='*70}")
+    print(f"CREATING LATEX MACROS FILE")
+    print(f"{'='*70}")
+    
+    # Mapping from internal model names to LaTeX-friendly names
+    model_name_mapping = {
+        'original': 'CLIPRLOurs',
+        'attention_pool': 'CLIPAttention',
+        '3dcnn': 'ThreeDResNet',
+        '3d_cnn': 'ThreeDResNet',
+        'cnnlstm': 'CNNLSTM',
+        'cnn_lstm': 'CNNLSTM',
+        'vivit': 'VideoTransformer',
+        'video_transformer': 'VideoTransformer',
+        'r2plus1d': 'RTwoPlusOneD',
+        'inception3d': 'InceptionThreeD',
+        'mean_pool': 'CLIPMeanPool',
+        'uniform': 'Uniform',
+        'singletask': 'SingleTask',
+        'single_task': 'SingleTask',
+        'no_rl_full_train': 'NoRLFullTrain',
+        'Efficientnet_RL': 'EfficientNetRL',
+        'LeViT_Attention': 'LeViTAttention',
+        'LeViT_RL': 'LeViTRL'
+    }
+    
+    # Metrics to extract
+    metrics_to_extract = ['auc', 'sensitivity', 'specificity', 'accuracy', 'f1', 
+                         'ppv', 'npv', 'balanced_accuracy', 'precision',
+                         'sens_at_90_spec', 'sens_at_70_spec', 'auprc']
+    
+    latex_commands = []
+    latex_commands.append("% LaTeX macros for model performance metrics")
+    latex_commands.append(f"% Generated on: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    latex_commands.append(f"% Split: {split}")
+    latex_commands.append("")
+    
+    # Get unique models
+    models = metrics_df['model'].unique()
+    
+    for model in models:
+        # Get LaTeX-friendly name
+        latex_model_name = model_name_mapping.get(model, model.replace('_', '').title())
+        
+        latex_commands.append(f"% Metrics for {model}")
+        
+        for metric in metrics_to_extract:
+            # Filter data for this model and metric
+            metric_data = metrics_df[(metrics_df['model'] == model) & 
+                                    (metrics_df['metric'] == metric)]
+            
+            if len(metric_data) > 0:
+                mean_val = metric_data['mean'].iloc[0]
+                std_val = metric_data['std'].iloc[0]
+                ci_lower = metric_data['ci_lower'].iloc[0]
+                ci_upper = metric_data['ci_upper'].iloc[0]
+                
+                # Create macro names
+                metric_name = metric.replace('_', '')
+                
+                # Mean value
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}Mean}}{{{mean_val:.3f}}}"
+                )
+                
+                # Standard deviation
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}Std}}{{{std_val:.3f}}}"
+                )
+                
+                # 95% CI lower bound
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}CILower}}{{{ci_lower:.3f}}}"
+                )
+                
+                # 95% CI upper bound
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}CIUpper}}{{{ci_upper:.3f}}}"
+                )
+            else:
+                # If metric not found, use TBU
+                metric_name = metric.replace('_', '')
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}Mean}}{{TBU}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}Std}}{{TBU}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}CILower}}{{TBU}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_model_name}{metric_name.capitalize()}CIUpper}}{{TBU}}"
+                )
+        
+        latex_commands.append("")
+    
+    # Add convenience macros for the specific table in the user's request
+    latex_commands.append("% Convenience macros for architecture comparison table")
+    latex_commands.append("")
+    
+    # For each model in the table
+    table_models = [
+        ('original', 'CLIPRLOurs'),
+        ('attention_pool', 'CLIPAttention'),
+        ('3dcnn', 'ThreeDResNet'),
+        ('3d_cnn', 'ThreeDResNet'),
+        ('cnnlstm', 'CNNLSTM'),
+        ('cnn_lstm', 'CNNLSTM'),
+        ('vivit', 'VideoTransformer'),
+        ('video_transformer', 'VideoTransformer'),
+        ('r2plus1d', 'RTwoPlusOneD')
+    ]
+    
+    for internal_name, latex_name in table_models:
+        # Check if this model exists in the data
+        model_data = metrics_df[metrics_df['model'] == internal_name]
+        
+        if len(model_data) > 0:
+            # Get AUC
+            auc_data = model_data[model_data['metric'] == 'auc']
+            if len(auc_data) > 0:
+                auc_mean = auc_data['mean'].iloc[0]
+                auc_std = auc_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}AUC}}{{{auc_mean:.3f} \\pm {auc_std:.3f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU \\pm TBU}}")
+            
+            # Get Sensitivity
+            sens_data = model_data[model_data['metric'] == 'sensitivity']
+            if len(sens_data) > 0:
+                sens_mean = sens_data['mean'].iloc[0]
+                sens_std = sens_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}Sensitivity}}{{{sens_mean:.3f} \\pm {sens_std:.3f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU \\pm TBU}}")
+            
+            # Get Specificity
+            spec_data = model_data[model_data['metric'] == 'specificity']
+            if len(spec_data) > 0:
+                spec_mean = spec_data['mean'].iloc[0]
+                spec_std = spec_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}Specificity}}{{{spec_mean:.3f} \\pm {spec_std:.3f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU \\pm TBU}}")
+        else:
+            # Model not found, use TBU
+            latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU \\pm TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU \\pm TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU \\pm TBU}}")
+        
+        latex_commands.append("")
+    
+    # Write to file
+    output_path = os.path.join(output_dir, f'model_metrics_macros_{split}.tex')
+    with open(output_path, 'w') as f:
+        f.write('\n'.join(latex_commands))
+    
+    print(f"✓ LaTeX macros saved to {output_path}")
+    print(f"  Generated {len([c for c in latex_commands if c.startswith('\\newcommand')])} macro commands")
+
+
+
+# =============================================================================
 # MAIN ANALYSIS PIPELINE
 # =============================================================================
 
@@ -1757,6 +1937,12 @@ def main():
         # Create pathology ensemble summary table
         create_pathology_ensemble_summary_table(ensemble_results, args.output_dir, args.split)
     
+    # Generate LaTeX macros for report
+    print(f"\n{'='*70}")
+    print("GENERATING LATEX MACROS FOR REPORT")
+    print(f"{'='*70}")
+    create_latex_macros(metrics_df, args.output_dir, args.split)
+    
     # Save summary report
     summary_data = {
         'analysis_date': pd.Timestamp.now().isoformat(),
@@ -1786,6 +1972,8 @@ def main():
     print(f"   • Site-level pathology analysis (top 3 models)")
     print(f"   • Pathology ensemble modeling (ML models trained on NN predictions)")
     print(f"   • Neural vs ML pathology prediction comparisons")
+    print(f"📄 LaTeX report file:")
+    print(f"   • model_metrics_macros_{args.split}.tex (macro definitions)")
     print(f"🏆 Best performing model: {top_models[0]} (AUC: {auc_metrics.iloc[0]['mean']:.4f})")
     if ensemble_results:
         print(f"🔬 Pathology ensemble models trained for {len(ensemble_results)} neural network models")

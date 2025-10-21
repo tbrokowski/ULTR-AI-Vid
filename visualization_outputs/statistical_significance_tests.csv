@@ -1,4 +1,5 @@
 Comparison,Mean Difference,p-value,Significance,Bonferroni Significant,Cohen's d,Effect Size
+inception3d vs LeViT-RL,0.0701,0.0385,*,No,1.359,Large
 inception3d vs LeVit-Attention,0.0319,0.2028,,No,0.680,Medium
 inception3d vs 3dcnn,0.0195,0.4579,,No,0.367,Small
 inception3d vs cnnlstm,0.0452,0.2268,,No,0.638,Medium
@@ -11,6 +12,18 @@ inception3d vs original,-0.2962,0.0001,***,Yes,-6.909,Large
 inception3d vs attention_pool_noInitWeights,-0.2862,0.0001,***,Yes,-7.752,Large
 inception3d vs original_noInitWeights,-0.2906,0.0007,***,No,-4.285,Large
 inception3d vs vivit,0.0484,0.2288,,No,0.635,Medium
+LeViT-RL vs LeVit-Attention,-0.0382,0.0271,*,No,-1.524,Large
+LeViT-RL vs 3dcnn,-0.0506,0.0170,*,No,-1.760,Large
+LeViT-RL vs cnnlstm,-0.0250,0.2361,,No,-0.623,Medium
+LeViT-RL vs attention_pool,-0.3711,0.0000,***,Yes,-11.052,Large
+LeViT-RL vs mean_pool,-0.3319,0.0002,***,Yes,-6.265,Large
+LeViT-RL vs singletask,-0.3463,0.0000,***,Yes,-8.873,Large
+LeViT-RL vs uniform,-0.3360,0.0000,***,Yes,-17.101,Large
+LeViT-RL vs no_rl_full_train,-0.3544,0.0000,***,Yes,-10.963,Large
+LeViT-RL vs original,-0.3663,0.0000,***,Yes,-15.559,Large
+LeViT-RL vs attention_pool_noInitWeights,-0.3563,0.0000,***,Yes,-14.868,Large
+LeViT-RL vs original_noInitWeights,-0.3607,0.0000,***,Yes,-11.860,Large
+LeViT-RL vs vivit,-0.0217,0.4599,,No,-0.365,Small
 LeVit-Attention vs 3dcnn,-0.0124,0.0662,,No,-1.122,Large
 LeVit-Attention vs cnnlstm,0.0132,0.3144,,No,0.514,Medium
 LeVit-Attention vs attention_pool,-0.3329,0.0000,***,Yes,-11.397,Large
@@ -55,7 +68,7 @@ mean_pool vs no_rl_full_train,-0.0225,0.4216,,No,-0.400,Small
 mean_pool vs original,-0.0344,0.2110,,No,-0.665,Medium
 mean_pool vs attention_pool_noInitWeights,-0.0244,0.3612,,No,-0.461,Small
 mean_pool vs original_noInitWeights,-0.0288,0.1689,,No,-0.750,Medium
-mean_pool vs vivit,0.3102,0.0006,***,Yes,4.343,Large
+mean_pool vs vivit,0.3102,0.0006,***,No,4.343,Large
 singletask vs uniform,0.0103,0.3669,,No,0.455,Small
 singletask vs no_rl_full_train,-0.0081,0.7354,,No,-0.162,Negligible
 singletask vs original,-0.0200,0.3616,,No,-0.460,Small
