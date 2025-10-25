@@ -24,11 +24,14 @@ declare -A ABLATIONS=(
  ## ["inception3d"]="inception3d"
  # ["Efficientnet_RL"]="Efficientnet-RL"
  ## ["LeViT_Attention"]="LeViT-Attention"
-  ["LeViT_RL"]="LeViT-RL"
+  # ["LeViT_RL"]="LeViT-RL"
+  # ["original_test"]="original_test"
+  # ["attention_pool_extra"]="attention_pool_extra"
+  ["attention_pool_extra1"]="attention_pool_extra1"
 )
 
 # Which folds to run
-FOLDS=(3 4)
+FOLDS=(0 1 2 3 4)
 
 # SLURM runner that launches a *single* experiment on 1 node
 SLURM_SCRIPT="run_ablation_single_node.sh"

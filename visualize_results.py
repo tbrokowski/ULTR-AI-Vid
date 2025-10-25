@@ -1167,6 +1167,208 @@ def compare_neural_vs_ml_pathology_predictions(ensemble_results: Dict, output_di
     
     print(f"  ✓ Pathology ML comparison saved to {output_path}")
 
+def create_nn_vs_best_ml_pathology_comparison(all_results: Dict, ensemble_results: Dict,
+                                              model_type: str, output_dir: str,
+                                              split: str = 'test') -> None:
+    """
+    Create a single comparison plot showing NN direct predictions vs. best ML model
+    for all 4 pathologies with color-coordinated bars (light = NN, dark = ML).
+    
+    Args:
+        all_results: Dict containing neural network evaluation results
+        ensemble_results: Dict containing ML model ensemble results
+        model_type: Which neural network model to analyze (e.g., 'original')
+        output_dir: Directory to save the plot
+        split: Dataset split to analyze ('train', 'val', or 'test')
+    """
+    print(f"\nCreating NN vs Best ML pathology comparison for {model_type} ({split})...")
+    
+    pathology_names = ['a_lines', 'large_consolidation', 'pleural_effusion', 'other_pathology']
+    
+    # Color scheme: each pathology gets a color family with light (NN) and dark (ML) shades
+    pathology_colors = {
+        'a_lines': {'light': '#FF9999', 'dark': '#CC0000'},  # Light red, Dark red
+        'large_consolidation': {'light': '#99CCFF', 'dark': '#0066CC'},  # Light blue, Dark blue
+        'pleural_effusion': {'light': '#99FF99', 'dark': '#009900'},  # Light green, Dark green
+        'other_pathology': {'light': '#FFCC99', 'dark': '#FF6600'}  # Light orange, Dark orange
+    }
+    
+    # Step 1: Extract NN direct performance from site-level data
+    nn_performance = {}
+    
+    if model_type in all_results:
+        # Collect site-level data across all folds
+        all_site_data = []
+        
+        for fold in all_results[model_type].keys():
+            if split not in all_results[model_type][fold]:
+                continue
+                
+            fold_data = all_results[model_type][fold][split]
+            
+            if 'sites' in fold_data:
+                sites_df = fold_data['sites'].copy()
+                sites_df['fold'] = fold
+                all_site_data.append(sites_df)
+        
+        if all_site_data:
+            combined_sites = pd.concat(all_site_data, ignore_index=True)
+            
+            # Calculate NN AUC for each pathology
+            for pathology in pathology_names:
+                finding_col = f'{pathology}_finding'
+                prob_col = f'{pathology}_prob'
+                
+                if finding_col in combined_sites.columns and prob_col in combined_sites.columns:
+                    valid_mask = (combined_sites[finding_col] >= 0) & (~combined_sites[prob_col].isna())
+                    
+                    if valid_mask.sum() > 10:
+                        y_true = combined_sites.loc[valid_mask, finding_col].values
+                        y_prob = combined_sites.loc[valid_mask, prob_col].values
+                        
+                        try:
+                            nn_auc = roc_auc_score(y_true, y_prob)
+                            nn_performance[pathology] = {
+                                'auc': nn_auc,
+                                'std': 0.0  # We don't have per-fold std here, could compute if needed
+                            }
+                            print(f"    {pathology}: NN direct AUC = {nn_auc:.3f}")
+                        except Exception as e:
+                            print(f"    Warning: Could not calculate AUC for {pathology}: {e}")
+    
+    # Step 2: Extract best ML performance from ensemble results
+    ml_performance = {}
+    
+    if model_type in ensemble_results:
+        for pathology in pathology_names:
+            if pathology in ensemble_results[model_type]:
+                pathology_results = ensemble_results[model_type][pathology]
+                
+                # Find the best ML algorithm for this pathology
+                best_ml_name = None
+                best_ml_auc = 0
+                best_ml_std = 0
+                
+                for ml_name, ml_results in pathology_results.items():
+                    if ml_results['mean_auc'] > best_ml_auc:
+                        best_ml_auc = ml_results['mean_auc']
+                        best_ml_std = ml_results['std_auc']
+                        best_ml_name = ml_name
+                
+                if best_ml_name:
+                    ml_performance[pathology] = {
+                        'auc': best_ml_auc,
+                        'std': best_ml_std,
+                        'algorithm': best_ml_name
+                    }
+                    print(f"    {pathology}: Best ML ({best_ml_name}) AUC = {best_ml_auc:.3f}")
+    
+    # Step 3: Create the visualization
+    if not nn_performance and not ml_performance:
+        print("  No data available for visualization")
+        return
+    
+    setup_publication_style()
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    # Prepare data for plotting
+    pathology_labels = []
+    nn_aucs = []
+    nn_stds = []
+    ml_aucs = []
+    ml_stds = []
+    colors_light = []
+    colors_dark = []
+    
+    for pathology in pathology_names:
+        if pathology in nn_performance or pathology in ml_performance:
+            pathology_labels.append(pathology.replace('_', ' ').title())
+            
+            # NN performance
+            if pathology in nn_performance:
+                nn_aucs.append(nn_performance[pathology]['auc'])
+                nn_stds.append(nn_performance[pathology]['std'])
+            else:
+                nn_aucs.append(0)
+                nn_stds.append(0)
+            
+            # ML performance
+            if pathology in ml_performance:
+                ml_aucs.append(ml_performance[pathology]['auc'])
+                ml_stds.append(ml_performance[pathology]['std'])
+            else:
+                ml_aucs.append(0)
+                ml_stds.append(0)
+            
+            # Colors
+            colors_light.append(pathology_colors[pathology]['light'])
+            colors_dark.append(pathology_colors[pathology]['dark'])
+    
+    if not pathology_labels:
+        print("  No valid pathology data found")
+        return
+    
+    # Create grouped bar chart
+    x = np.arange(len(pathology_labels))
+    width = 0.35
+    
+    # Plot NN bars (light colors)
+    bars1 = ax.bar(x - width/2, nn_aucs, width, yerr=nn_stds,
+                   label='Neural Network Direct', capsize=5,
+                   color=colors_light, alpha=0.9, edgecolor='black', linewidth=1.5)
+    
+    # Plot ML bars (dark colors)
+    bars2 = ax.bar(x + width/2, ml_aucs, width, yerr=ml_stds,
+                   label='Best ML Model', capsize=5,
+                   color=colors_dark, alpha=0.9, edgecolor='black', linewidth=1.5)
+    
+    # Customize plot
+    ax.set_xlabel('Pathology Type', fontsize=16, fontweight='bold')
+    ax.set_ylabel('AUC Score', fontsize=16, fontweight='bold')
+    ax.set_title(f'Neural Network vs. ML Ensemble Pathology Prediction\n{model_type.replace("_", " ").title()} Model ({split.title()} Set)', 
+                fontsize=18, fontweight='bold', pad=20)
+    ax.set_xticks(x)
+    ax.set_xticklabels(pathology_labels, fontsize=14)
+    ax.set_ylim([0, 1.05])
+    
+    # Add horizontal line at 0.5 (random performance)
+    ax.axhline(y=0.5, color='gray', linestyle='--', linewidth=2, alpha=0.5, label='Random (0.5)')
+    
+    # Add value labels on bars
+    for bar, auc_val in zip(bars1, nn_aucs):
+        if auc_val > 0:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                   f'{auc_val:.3f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
+    
+    for bar, auc_val, ml_data in zip(bars2, ml_aucs, 
+                                      [ml_performance.get(p, {}) for p in pathology_names if p in nn_performance or p in ml_performance]):
+        if auc_val > 0:
+            height = bar.get_height()
+            ml_name = ml_data.get('algorithm', 'ML')
+            # Abbreviate algorithm names
+            ml_abbrev = {'Random Forest': 'RF', 'Logistic Regression': 'LR', 'XGBoost': 'XGB'}.get(ml_name, ml_name)
+            ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                   f'{auc_val:.3f}\n({ml_abbrev})', ha='center', va='bottom', 
+                   fontsize=10, fontweight='bold')
+    
+    # Legend
+    ax.legend(loc='lower right', fontsize=13, frameon=True, fancybox=True, shadow=True)
+    
+    # Grid
+    ax.grid(True, alpha=0.3, axis='y')
+    ax.set_axisbelow(True)
+    
+    plt.tight_layout()
+    
+    # Save
+    output_path = os.path.join(output_dir, f'nn_vs_ml_pathology_{model_type}_{split}.pdf')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path.replace('.pdf', '.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"  ✓ NN vs ML comparison saved to {output_path}")
+
 def create_pathology_ensemble_summary_table(ensemble_results: Dict, output_dir: str,
                                            split: str = 'test') -> None:
     """
@@ -1799,10 +2001,10 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
                 auc_mean = auc_data['mean'].iloc[0]
                 auc_std = auc_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}AUC}}{{{auc_mean:.3f} \\pm {auc_std:.3f}}}"
+                    f"\\newcommand{{\\{latex_name}AUC}}{{{auc_mean:.3f} $\\pm$ {auc_std:.3f}}}"
                 )
             else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU \\pm TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
             
             # Get Sensitivity
             sens_data = model_data[model_data['metric'] == 'sensitivity']
@@ -1810,10 +2012,10 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
                 sens_mean = sens_data['mean'].iloc[0]
                 sens_std = sens_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}Sensitivity}}{{{sens_mean:.3f} \\pm {sens_std:.3f}}}"
+                    f"\\newcommand{{\\{latex_name}Sensitivity}}{{{sens_mean:.3f} $\\pm$ {sens_std:.3f}}}"
                 )
             else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU \\pm TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU $\\pm$ TBU}}")
             
             # Get Specificity
             spec_data = model_data[model_data['metric'] == 'specificity']
@@ -1821,15 +2023,15 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
                 spec_mean = spec_data['mean'].iloc[0]
                 spec_std = spec_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}Specificity}}{{{spec_mean:.3f} \\pm {spec_std:.3f}}}"
+                    f"\\newcommand{{\\{latex_name}Specificity}}{{{spec_mean:.3f} $\\pm$ {spec_std:.3f}}}"
                 )
             else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU \\pm TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU $\\pm$ TBU}}")
         else:
             # Model not found, use TBU
-            latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU \\pm TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU \\pm TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU \\pm TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU $\\pm$ TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU $\\pm$ TBU}}")
         
         latex_commands.append("")
     
@@ -1960,6 +2162,12 @@ def main():
         
         # Create pathology ensemble summary table
         create_pathology_ensemble_summary_table(ensemble_results, args.output_dir, args.split)
+        
+        # Create NN vs Best ML comparison for each top model
+        for model_type in top_models[:3]:
+            if model_type in ensemble_results:
+                create_nn_vs_best_ml_pathology_comparison(all_results, ensemble_results, 
+                                                         model_type, args.output_dir, args.split)
     
     # Generate LaTeX macros for report
     print(f"\n{'='*70}")
