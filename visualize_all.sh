@@ -20,6 +20,7 @@ MODEL_TYPES=(
     "attention_pool_noInitWeights"
     "attention_pool"
     "attention_pool_extra"
+    "attention_pool_extra1"
     # "mean_pool"
     # "singletask"
     # "uniform"
