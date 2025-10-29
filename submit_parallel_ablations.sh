@@ -27,7 +27,7 @@ declare -A ABLATIONS=(
   # ["LeViT_RL"]="LeViT-RL"
   # ["original_test"]="original_test"
   # ["attention_pool_extra"]="attention_pool_extra"
-  ["attention_pool_extra1"]="attention_pool_extra1"
+  ["attention_pool_extra2"]="attention_pool_extra2"
 )
 
 # Which folds to run
