@@ -1002,33 +1002,48 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                     # Calculate metrics
                     try:
                         fold_auc = roc_auc_score(y_test, y_pred_proba)
+                        
+                        # Choose a threshold of 0.5
+                        y_pred = (y_pred_proba > 0.5).astype(int)
+                        fold_f1 = f1_score(y_test, y_pred, zero_division=0)
+                        
                         fold_scores.append(fold_auc)
                         
                         fold_predictions.append({
                             'fold': test_fold,
                             'y_true': y_test,
                             'y_pred_proba': y_pred_proba,
-                            'auc': fold_auc
+                            'y_pred': y_pred,
+                            'auc': fold_auc,
+                            'f1': fold_f1
                         })
                     except ValueError as e:
-                        print(f"          Error calculating AUC for fold {test_fold}: {e}")
+                        print(f"          Error calculating metrics for fold {test_fold}: {e}")
                         continue
                 
                 if fold_scores:
                     mean_auc = np.mean(fold_scores)
                     std_auc = np.std(fold_scores, ddof=1) if len(fold_scores) > 1 else 0
                     
+                    # Calculate F1 statistics
+                    f1_scores = [pred['f1'] for pred in fold_predictions]
+                    mean_f1 = np.mean(f1_scores)
+                    std_f1 = np.std(f1_scores, ddof=1) if len(f1_scores) > 1 else 0
+                    
                     fold_results[ml_name] = {
                         'mean_auc': mean_auc,
                         'std_auc': std_auc,
+                        'mean_f1': mean_f1,
+                        'std_f1': std_f1,
                         'fold_scores': fold_scores,
+                        'f1_scores': f1_scores,
                         'fold_predictions': fold_predictions,
                         'feature_names': feature_cols,
                         'n_samples': len(X),
                         'class_distribution': np.bincount(y).tolist()
                     }
                     
-                    print(f"          {ml_name}: AUC = {mean_auc:.3f} ± {std_auc:.3f}")
+                    print(f"          {ml_name}: AUC = {mean_auc:.3f} ± {std_auc:.3f}, F1 = {mean_f1:.3f} ± {std_f1:.3f}")
             
             if fold_results:
                 model_ensemble_results[pathology] = fold_results
@@ -1384,6 +1399,8 @@ def create_pathology_ensemble_summary_table(ensemble_results: Dict, output_dir: 
             for ml_name, ml_results in pathology_results.items():
                 mean_auc = ml_results['mean_auc']
                 std_auc = ml_results['std_auc']
+                mean_f1 = ml_results['mean_f1']
+                std_f1 = ml_results['std_f1']
                 n_samples = ml_results['n_samples']
                 class_dist = ml_results['class_distribution']
                 
@@ -1402,7 +1419,10 @@ def create_pathology_ensemble_summary_table(ensemble_results: Dict, output_dir: 
                     'Pathology': pathology.replace('_', ' ').title(),
                     'ML Algorithm': ml_name,
                     'AUC Mean': f"{mean_auc:.3f}",
+                    'AUC Std': f"{std_auc:.3f}",
                     'AUC 95% CI': f"[{ci_lower:.3f}-{ci_upper:.3f}]",
+                    'F1 Mean': f"{mean_f1:.3f}",
+                    'F1 Std': f"{std_f1:.3f}",
                     'Samples': n_samples,
                     'Positive Rate': f"{class_dist[1]/(class_dist[0]+class_dist[1]):.3f}" if len(class_dist) > 1 else "N/A",
                     'Cross-Val Folds': n_folds
@@ -1845,7 +1865,7 @@ def create_statistical_significance_table(statistical_results: Dict, output_dir:
 # Data for report
 # =============================================================================
 
-def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 'test') -> None:
+def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: pd.DataFrame, output_dir: str, split: str = 'test') -> None:
     """
     Create LaTeX macros file with all relevant numbers for the report.
     
@@ -1856,68 +1876,11 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
     print(f"CREATING LATEX MACROS FILE")
     print(f"{'='*70}")
     
-    def sanitize_metric_name(metric: str) -> str:
-        """Convert metric name to LaTeX-safe format (letters only, proper capitalization)."""
-        # Special cases for metrics with numbers
-        replacements = {
-            'f1': 'Fone',
-            'sens_at_90_spec': 'Sensatninety',
-            'sens_at_70_spec': 'Sensatseventy',
-            '3dcnn': 'ThreeDcnn',
-            '3d_cnn': 'ThreeDcnn',
-            'r2plus1d': 'RtwoplusoneD'
-        }
-        
-        # Check if we have a special replacement
-        if metric in replacements:
-            return replacements[metric]
-        
-        # Otherwise, just remove underscores and capitalize
-        clean = metric.replace('_', '')
-        return clean.capitalize()
-    
-    # Mapping from internal model names to LaTeX-friendly names
-    model_name_mapping = {
-        'original': 'CLIPRLOurs',
-        'attention_pool': 'CLIPAttention',
-        '3dcnn': 'ThreeDResNet',
-        '3d_cnn': 'ThreeDResNet',
-        'cnnlstm': 'CNNLSTM',
-        'cnn_lstm': 'CNNLSTM',
-        'vivit': 'VideoTransformer',
-        'video_transformer': 'VideoTransformer',
-        'r2plus1d': 'RTwoPlusOneD',
-        'inception3d': 'InceptionThreeD',
-        'mean_pool': 'CLIPMeanPool',
-        'uniform': 'Uniform',
-        'singletask': 'SingleTask',
-        'single_task': 'SingleTask',
-        'no_rl_full_train': 'NoRLFullTrain',
-        'Efficientnet_RL': 'EfficientNetRL',
-        'Efficientnet-RL': 'EfficientNetRL',
-        'LeViT_Attention': 'LeViTAttention',
-        'LeViT-Attention': 'LeViTAttention',
-        'LeViT_RL': 'LeViTRL',
-        'LeViT-RL': 'LeViTRL',
-        'attention_pool_noInitWeights': 'Attentionpoolnoinitweights',
-        'attention_pool_noinitweights': 'Attentionpoolnoinitweights',
-        'original_noInitWeights': 'Originalnoinitweights',
-        'original_noinitweights': 'Originalnoinitweights'
-    }
-    
-    # Metrics to extract
-    metrics_to_extract = ['auc', 'sensitivity', 'specificity', 'accuracy', 'f1', 
-                         'ppv', 'npv', 'balanced_accuracy', 'precision',
-                         'sens_at_90_spec', 'sens_at_70_spec', 'auprc']
-    
     latex_commands = []
     latex_commands.append("% LaTeX macros for model performance metrics")
     latex_commands.append(f"% Generated on: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
     latex_commands.append(f"% Split: {split}")
     latex_commands.append("")
-    
-    # Get unique models
-    models = metrics_df['model'].unique()
     
     # Add convenience macros for the specific table in the user's request
     latex_commands.append("% Convenience macros for architecture comparison table")
@@ -1977,6 +1940,104 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
         
         latex_commands.append("")
     
+    # Add macros for pathology ensemble results (only for best model)
+    latex_commands.append("% Macros for pathology-specific metrics (best model: attention_pool_extra3)")
+    latex_commands.append("% Usage in LaTeX table:")
+    latex_commands.append("% A-lines (Normal) & \\AlinesAUC & \\AlinesFone \\\\")
+    latex_commands.append("% Other Pathology (B-lines & Small Consolidations) & \\OtherPathologyAUC & \\OtherPathologyFone \\\\")
+    latex_commands.append("% Large Consolidations & \\LargeConsolidationsAUC & \\LargeConsolidationsFone \\\\")
+    latex_commands.append("% Pleural Effusion & \\PleuralEffusionAUC & \\PleuralEffusionFone \\\\")
+    latex_commands.append("")
+    
+    # Filter for only the best model (attention_pool_extra3)
+    best_model = 'Attentionpoolextra3'  # This is how it appears in the ensemble results
+    best_model_results = ensemble_results[ensemble_results['Neural Network Model'].str.replace(' ', '') == best_model]
+    
+    # Pathology name mapping: data name -> (LaTeX macro name, display name)
+    pathology_mapping = {
+        'ALines': ('Alines', 'A-lines (Normal)'),
+        'LargeConsolidation': ('LargeConsolidations', 'Large Consolidations'),
+        'PleuralEffusion': ('PleuralEffusion', 'Pleural Effusion'),
+        'OtherPathology': ('OtherPathology', 'Other Pathology (B-lines & Small Consolidations)')
+    }
+    
+    # Track which pathologies we've added
+    added_pathologies = set()
+    
+    if len(best_model_results) > 0:
+        for _, row in best_model_results.iterrows():
+            pathology = row['Pathology'].replace(' ', '')
+            
+            # Get mapping
+            if pathology in pathology_mapping:
+                macro_name, display_name = pathology_mapping[pathology]
+                
+                # Get AUC mean and std
+                auc_mean = float(row['AUC Mean'])
+                auc_std = float(row['AUC Std'])
+                
+                latex_commands.append(
+                    f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.3f} $\\pm$ {auc_std:.3f}}}"
+                )
+                
+                # Get F1 mean and std
+                f1_mean = float(row['F1 Mean'])
+                f1_std = float(row['F1 Std'])
+                latex_commands.append(
+                    f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.3f} $\\pm$ {f1_std:.3f}}}"
+                )
+                latex_commands.append("")
+                
+                added_pathologies.add(macro_name)
+    
+    # Add placeholders for any missing pathologies
+    all_required = ['Alines', 'OtherPathology', 'LargeConsolidations', 'PleuralEffusion']
+    for pathology_name in all_required:
+        if pathology_name not in added_pathologies:
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
+            latex_commands.append("")
+
+    # Add macros for ablation study table
+    latex_commands.append("% Macros for ablation study table")
+    latex_commands.append("% Usage in LaTeX table:")
+    latex_commands.append("% Full Model & \\FullModelAUC \\\\")
+    latex_commands.append("% w/o Keyframe Selection & \\NoKeyframeAUC \\\\")
+    latex_commands.append("% w/o Pathology Modules & \\NoPathologyAUC \\\\")
+    latex_commands.append("% w/o MIL Attention & \\NoMILAUC \\\\")
+    latex_commands.append("% Uniform Sampling & \\UniformSamplingAUC \\\\")
+    latex_commands.append("")
+    
+    # Ablation study mapping: Configuration -> Model name in metrics_df
+    ablation_mapping = {
+        'FullModel': 'attention_pool_extra3',  # Best/full model
+        'NoKeyframe': 'uniform',  # w/o Keyframe Selection = Uniform sampling
+        'NoPathology': 'singletask',  # w/o Pathology Modules = Single task
+        'NoMIL': 'mean_pool',  # w/o MIL Attention = Mean pooling
+        'UniformSampling': 'uniform',  # Uniform Sampling (same as NoKeyframe)
+        'NoSiteEmbedding': 'mean_pool',  # w/o Site Embeddings (approximation)
+    }
+    
+    for macro_name, model_name in ablation_mapping.items():
+        model_data = metrics_df[metrics_df['model'] == model_name]
+        
+        if len(model_data) > 0:
+            auc_data = model_data[model_data['metric'] == 'auc']
+            if len(auc_data) > 0:
+                auc_mean = auc_data['mean'].iloc[0]
+                auc_std = auc_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.3f} $\\pm$ {auc_std:.3f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
+        else:
+            latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
+    
+    # Add placeholder for Single Video Only (not in current results)
+    latex_commands.append("\\newcommand{\\SingleVideoAUC}{[TBU] $\\pm$ [TBU]}")
+    latex_commands.append("")
+
     # Write to file
     output_path = os.path.join(output_dir, f'model_metrics_macros_{split}.tex')
     with open(output_path, 'w') as f:
@@ -2115,7 +2176,7 @@ def main():
     print(f"\n{'='*70}")
     print("GENERATING LATEX MACROS FOR REPORT")
     print(f"{'='*70}")
-    create_latex_macros(metrics_df, args.output_dir, args.split)
+    create_latex_macros(metrics_df, ensemble_results, args.output_dir, args.split)
     
     # Save summary report
     summary_data = {
