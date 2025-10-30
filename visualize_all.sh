@@ -22,6 +22,7 @@ MODEL_TYPES=(
     "attention_pool_extra"
     "attention_pool_extra1"
     "attention_pool_extra2"
+    "attention_pool_extra3"
     # "mean_pool"
     # "singletask"
     # "uniform"

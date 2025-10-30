@@ -3,9 +3,14 @@ attention_pool_noInitWeights vs attention_pool,-0.0148,0.4129,,No,-0.408,Small
 attention_pool_noInitWeights vs attention_pool_extra,-0.0204,0.0487,*,No,-1.253,Large
 attention_pool_noInitWeights vs attention_pool_extra1,-0.0216,0.0369,*,No,-1.378,Large
 attention_pool_noInitWeights vs attention_pool_extra2,-0.0390,0.0492,*,No,-1.248,Large
+attention_pool_noInitWeights vs attention_pool_extra3,-0.0531,0.0105,*,No,-2.032,Large
 attention_pool vs attention_pool_extra,-0.0056,0.6301,,No,-0.233,Small
 attention_pool vs attention_pool_extra1,-0.0069,0.5922,,No,-0.260,Small
 attention_pool vs attention_pool_extra2,-0.0242,0.1014,,No,-0.948,Large
+attention_pool vs attention_pool_extra3,-0.0384,0.0371,*,No,-1.376,Large
 attention_pool_extra vs attention_pool_extra1,-0.0013,0.7095,,No,-0.179,Negligible
 attention_pool_extra vs attention_pool_extra2,-0.0186,0.0653,,No,-1.127,Large
+attention_pool_extra vs attention_pool_extra3,-0.0328,0.0139,*,No,-1.872,Large
 attention_pool_extra1 vs attention_pool_extra2,-0.0173,0.1233,,No,-0.871,Large
+attention_pool_extra1 vs attention_pool_extra3,-0.0315,0.0113,*,No,-1.986,Large
+attention_pool_extra2 vs attention_pool_extra3,-0.0142,0.3113,,No,-0.518,Medium
