@@ -11,27 +11,27 @@ Attention Pool Extra3,Pleural Effusion,XGBoost,0.829,[0.778-0.880],43689,0.011,5
 Attention Pool Extra3,Other Pathology,Random Forest,0.644,[0.614-0.674],43689,0.405,5
 Attention Pool Extra3,Other Pathology,Logistic Regression,0.690,[0.662-0.717],43689,0.405,5
 Attention Pool Extra3,Other Pathology,XGBoost,0.684,[0.662-0.707],43689,0.405,5
-Attention Pool Extra2,A Lines,Random Forest,0.719,[0.651-0.787],43689,0.472,5
-Attention Pool Extra2,A Lines,Logistic Regression,0.762,[0.721-0.802],43689,0.472,5
-Attention Pool Extra2,A Lines,XGBoost,0.761,[0.717-0.806],43689,0.472,5
-Attention Pool Extra2,Large Consolidation,Random Forest,0.819,[0.760-0.879],43689,0.110,5
-Attention Pool Extra2,Large Consolidation,Logistic Regression,0.899,[0.880-0.918],43689,0.110,5
-Attention Pool Extra2,Large Consolidation,XGBoost,0.866,[0.817-0.916],43689,0.110,5
-Attention Pool Extra2,Pleural Effusion,Random Forest,0.592,[0.553-0.631],43689,0.011,5
-Attention Pool Extra2,Pleural Effusion,Logistic Regression,0.771,[0.723-0.820],43689,0.011,5
-Attention Pool Extra2,Pleural Effusion,XGBoost,0.756,[0.643-0.868],43689,0.011,5
-Attention Pool Extra2,Other Pathology,Random Forest,0.601,[0.577-0.626],43689,0.405,5
-Attention Pool Extra2,Other Pathology,Logistic Regression,0.662,[0.635-0.689],43689,0.405,5
-Attention Pool Extra2,Other Pathology,XGBoost,0.650,[0.617-0.682],43689,0.405,5
-Attention Pool Extra1,A Lines,Random Forest,0.710,[0.692-0.728],43689,0.472,5
-Attention Pool Extra1,A Lines,Logistic Regression,0.751,[0.737-0.766],43689,0.472,5
-Attention Pool Extra1,A Lines,XGBoost,0.755,[0.742-0.767],43689,0.472,5
-Attention Pool Extra1,Large Consolidation,Random Forest,0.824,[0.801-0.847],43689,0.110,5
-Attention Pool Extra1,Large Consolidation,Logistic Regression,0.884,[0.871-0.897],43689,0.110,5
-Attention Pool Extra1,Large Consolidation,XGBoost,0.871,[0.850-0.892],43689,0.110,5
-Attention Pool Extra1,Pleural Effusion,Random Forest,0.655,[0.624-0.685],43689,0.011,5
-Attention Pool Extra1,Pleural Effusion,Logistic Regression,0.785,[0.738-0.832],43689,0.011,5
-Attention Pool Extra1,Pleural Effusion,XGBoost,0.815,[0.773-0.856],43689,0.011,5
-Attention Pool Extra1,Other Pathology,Random Forest,0.605,[0.592-0.617],43689,0.405,5
-Attention Pool Extra1,Other Pathology,Logistic Regression,0.655,[0.639-0.671],43689,0.405,5
-Attention Pool Extra1,Other Pathology,XGBoost,0.645,[0.640-0.650],43689,0.405,5
+Original,A Lines,Random Forest,0.704,[0.660-0.749],43689,0.472,5
+Original,A Lines,Logistic Regression,0.761,[0.725-0.796],43689,0.472,5
+Original,A Lines,XGBoost,0.745,[0.702-0.788],43689,0.472,5
+Original,Large Consolidation,Random Forest,0.812,[0.760-0.865],43689,0.110,5
+Original,Large Consolidation,Logistic Regression,0.899,[0.877-0.922],43689,0.110,5
+Original,Large Consolidation,XGBoost,0.868,[0.856-0.881],43689,0.110,5
+Original,Pleural Effusion,Random Forest,0.663,[0.596-0.730],43689,0.011,5
+Original,Pleural Effusion,Logistic Regression,0.846,[0.817-0.876],43689,0.011,5
+Original,Pleural Effusion,XGBoost,0.834,[0.785-0.883],43689,0.011,5
+Original,Other Pathology,Random Forest,0.617,[0.604-0.630],43689,0.405,5
+Original,Other Pathology,Logistic Regression,0.647,[0.625-0.669],43689,0.405,5
+Original,Other Pathology,XGBoost,0.646,[0.635-0.658],43689,0.405,5
+Original Noinitweights,A Lines,Random Forest,0.702,[0.610-0.793],43689,0.472,5
+Original Noinitweights,A Lines,Logistic Regression,0.753,[0.688-0.817],43689,0.472,5
+Original Noinitweights,A Lines,XGBoost,0.737,[0.651-0.823],43689,0.472,5
+Original Noinitweights,Large Consolidation,Random Forest,0.747,[0.635-0.858],43689,0.110,5
+Original Noinitweights,Large Consolidation,Logistic Regression,0.867,[0.826-0.908],43689,0.110,5
+Original Noinitweights,Large Consolidation,XGBoost,0.806,[0.730-0.882],43689,0.110,5
+Original Noinitweights,Pleural Effusion,Random Forest,0.613,[0.552-0.674],43689,0.011,5
+Original Noinitweights,Pleural Effusion,Logistic Regression,0.843,[0.782-0.903],43689,0.011,5
+Original Noinitweights,Pleural Effusion,XGBoost,0.785,[0.728-0.842],43689,0.011,5
+Original Noinitweights,Other Pathology,Random Forest,0.601,[0.561-0.640],43689,0.405,5
+Original Noinitweights,Other Pathology,Logistic Regression,0.653,[0.609-0.697],43689,0.405,5
+Original Noinitweights,Other Pathology,XGBoost,0.640,[0.604-0.676],43689,0.405,5

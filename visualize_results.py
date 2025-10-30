@@ -1919,75 +1919,17 @@ def create_latex_macros(metrics_df: pd.DataFrame, output_dir: str, split: str = 
     # Get unique models
     models = metrics_df['model'].unique()
     
-    for model in models:
-        # Get LaTeX-friendly name (remove hyphens, underscores, and title case)
-        latex_model_name = model_name_mapping.get(model, model.replace('_', '').replace('-', '').title())
-        
-        latex_commands.append(f"% Metrics for {model}")
-        
-        for metric in metrics_to_extract:
-            # Filter data for this model and metric
-            metric_data = metrics_df[(metrics_df['model'] == model) & 
-                                    (metrics_df['metric'] == metric)]
-            
-            if len(metric_data) > 0:
-                mean_val = metric_data['mean'].iloc[0]
-                std_val = metric_data['std'].iloc[0]
-                ci_lower = metric_data['ci_lower'].iloc[0]
-                ci_upper = metric_data['ci_upper'].iloc[0]
-                
-                # Create macro names (sanitize to remove numbers and special chars)
-                metric_name = sanitize_metric_name(metric)
-                
-                # Mean value
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name}Mean}}{{{mean_val:.3f}}}"
-                )
-                
-                # Standard deviation
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name}Std}}{{{std_val:.3f}}}"
-                )
-                
-                # 95% CI lower bound
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name}CILower}}{{{ci_lower:.3f}}}"
-                )
-                
-                # 95% CI upper bound
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name}CIUpper}}{{{ci_upper:.3f}}}"
-                )
-            else:
-                # If metric not found, use TBU
-                metric_name = sanitize_metric_name(metric)
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name}Mean}}{{TBU}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name}Std}}{{TBU}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name}CILower}}{{TBU}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_model_name}{metric_name}CIUpper}}{{TBU}}"
-                )
-        
-        latex_commands.append("")
-    
     # Add convenience macros for the specific table in the user's request
     latex_commands.append("% Convenience macros for architecture comparison table")
     latex_commands.append("")
     
-    # For each model in the table (use only one variant per model to avoid duplicates)
+    # For each model in the table
     table_models = [
-        ('original', 'CLIPRLOurs'),
-        ('attention_pool', 'CLIPAttention'),
-        ('3dcnn', 'ThreeDResNet'),
+        ('attention_pool_extra3', "AttentionPoolBest"),
         ('cnnlstm', 'CNNLSTM'),
-        ('vivit', 'VideoTransformer'),
-        ('r2plus1d', 'RTwoPlusOneD')
+        ('3dcnn', 'ThreeDResNet'),
+        ('inception3d', 'Inception3D'),
+        ('vivit', 'VideoTransformer')
     ]
     
     for internal_name, latex_name in table_models:

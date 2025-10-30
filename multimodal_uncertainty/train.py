@@ -256,7 +256,7 @@ def train_model(model, train_loader, val_loader, device, epochs=100, lr=0.001,
     # Loss function
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
-    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=False)  # Disable verbose for cleaner output
+    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
     
     # Early stopping
     early_stopping = EarlyStopping(patience=10, min_delta=0.001)
@@ -825,3 +825,8 @@ if __name__ == "__main__":
     print("📊 13 Models | 🎯 5-Fold CV | 🔬 Advanced Uncertainty Methods")
     print("=" * 60)
     main()
+
+
+
+# python -m train --clinical_data_path ../Data/clinical_data/CLUSSTERBenin-ClinicalDataForResea_DATA_2023-05-24_1630.csv --base_h5_path /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra2/eval_results --base_site_path /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra2/eval_results --num_folds 5 --epochs 50 --batch_size 32 --learning_rate 1e-3 --hidden_dim 256 --dropout 0.1 --save_dir /capstor/store/cscs/swissai/a127/ultr-ai/multimodal/attention_pool_extra2
+# python -m train --clinical_data_path ../Data/clinical_data/CLUSSTERBenin-ClinicalDataForResea_DATA_2023-05-24_1630.csv --base_h5_path /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3/eval_results --base_site_path /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3/eval_results --num_folds 5 --epochs 50 --batch_size 32 --learning_rate 1e-3 --hidden_dim 256 --dropout 0.1 --save_dir /capstor/store/cscs/swissai/a127/ultr-ai/multimodal/attention_pool_extra3
