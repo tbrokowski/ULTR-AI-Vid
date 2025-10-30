@@ -1865,7 +1865,7 @@ def create_statistical_significance_table(statistical_results: Dict, output_dir:
 # Data for report
 # =============================================================================
 
-def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: pd.DataFrame, output_dir: str, split: str = 'test') -> None:
+def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output_dir: str, split: str = 'test') -> None:
     """
     Create LaTeX macros file with all relevant numbers for the report.
     
@@ -1891,7 +1891,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: pd.DataFrame
         ('attention_pool_extra3', "AttentionPoolBest"),
         ('cnnlstm', 'CNNLSTM'),
         ('3dcnn', 'ThreeDResNet'),
-        ('inception3d', 'Inception3D'),
+        ('inception3d', 'InceptionThreeD'),
         ('vivit', 'VideoTransformer')
     ]
     
@@ -1942,53 +1942,73 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: pd.DataFrame
     
     # Add macros for pathology ensemble results (only for best model)
     latex_commands.append("% Macros for pathology-specific metrics (best model: attention_pool_extra3)")
-    latex_commands.append("% Usage in LaTeX table:")
-    latex_commands.append("% A-lines (Normal) & \\AlinesAUC & \\AlinesFone \\\\")
-    latex_commands.append("% Other Pathology (B-lines & Small Consolidations) & \\OtherPathologyAUC & \\OtherPathologyFone \\\\")
-    latex_commands.append("% Large Consolidations & \\LargeConsolidationsAUC & \\LargeConsolidationsFone \\\\")
-    latex_commands.append("% Pleural Effusion & \\PleuralEffusionAUC & \\PleuralEffusionFone \\\\")
     latex_commands.append("")
     
-    # Filter for only the best model (attention_pool_extra3)
-    best_model = 'Attentionpoolextra3'  # This is how it appears in the ensemble results
-    best_model_results = ensemble_results[ensemble_results['Neural Network Model'].str.replace(' ', '') == best_model]
+    # Load pathology results from JSON file
+    pathology_json_path = os.path.join(output_dir, f'pathology_ensemble_results_{split}.json')
     
-    # Pathology name mapping: data name -> (LaTeX macro name, display name)
+    # Pathology name mapping: JSON key -> (LaTeX macro name, display name)
     pathology_mapping = {
-        'ALines': ('Alines', 'A-lines (Normal)'),
-        'LargeConsolidation': ('LargeConsolidations', 'Large Consolidations'),
-        'PleuralEffusion': ('PleuralEffusion', 'Pleural Effusion'),
-        'OtherPathology': ('OtherPathology', 'Other Pathology (B-lines & Small Consolidations)')
+        'a_lines': ('Alines', 'A-lines (Normal)'),
+        'large_consolidation': ('LargeConsolidations', 'Large Consolidations'),
+        'pleural_effusion': ('PleuralEffusion', 'Pleural Effusion'),
+        'other_pathology': ('OtherPathology', 'Other Pathology (B-lines & Small Consolidations)')
     }
     
     # Track which pathologies we've added
     added_pathologies = set()
     
-    if len(best_model_results) > 0:
-        for _, row in best_model_results.iterrows():
-            pathology = row['Pathology'].replace(' ', '')
+    # Try to load and parse the JSON file
+    if os.path.exists(pathology_json_path):
+        try:
+            with open(pathology_json_path, 'r') as f:
+                pathology_data = json.load(f)
             
-            # Get mapping
-            if pathology in pathology_mapping:
-                macro_name, display_name = pathology_mapping[pathology]
+            # Get data for best model (attention_pool_extra3)
+            if 'attention_pool_extra3' in pathology_data:
+                best_model_data = pathology_data['attention_pool_extra3']
                 
-                # Get AUC mean and std
-                auc_mean = float(row['AUC Mean'])
-                auc_std = float(row['AUC Std'])
-                
-                latex_commands.append(
-                    f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.3f} $\\pm$ {auc_std:.3f}}}"
-                )
-                
-                # Get F1 mean and std
-                f1_mean = float(row['F1 Mean'])
-                f1_std = float(row['F1 Std'])
-                latex_commands.append(
-                    f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.3f} $\\pm$ {f1_std:.3f}}}"
-                )
-                latex_commands.append("")
-                
-                added_pathologies.add(macro_name)
+                # Process each pathology
+                for json_key, (macro_name, display_name) in pathology_mapping.items():
+                    if json_key in best_model_data:
+                        pathology_results = best_model_data[json_key]
+                        
+                        # Find the best performing ensemble method based on AUC
+                        best_method = None
+                        best_auc = -1
+                        
+                        for method_name, method_results in pathology_results.items():
+                            if 'mean_auc' in method_results:
+                                if method_results['mean_auc'] > best_auc:
+                                    best_auc = method_results['mean_auc']
+                                    best_method = method_name
+                        
+                        # Use the best performing method
+                        if best_method:
+                            best_results = pathology_results[best_method]
+                            
+                            # Get AUC mean and std
+                            auc_mean = best_results['mean_auc']
+                            auc_std = best_results['std_auc']
+                            
+                            latex_commands.append(
+                                f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.3f} $\\pm$ {auc_std:.3f}}}"
+                            )
+                            
+                            # Get F1 mean and std
+                            f1_mean = best_results['mean_f1']
+                            f1_std = best_results['std_f1']
+                            latex_commands.append(
+                                f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.3f} $\\pm$ {f1_std:.3f}}}"
+                            )
+                            latex_commands.append("")
+                            
+                            added_pathologies.add(macro_name)
+                            print(f"  ✓ {display_name}: Using {best_method} (AUC: {auc_mean:.3f})")
+        except Exception as e:
+            print(f"  ⚠ Warning: Could not load pathology JSON file: {e}")
+    else:
+        print(f"  ⚠ Warning: Pathology JSON file not found at {pathology_json_path}")
     
     # Add placeholders for any missing pathologies
     all_required = ['Alines', 'OtherPathology', 'LargeConsolidations', 'PleuralEffusion']
@@ -2000,12 +2020,6 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: pd.DataFrame
 
     # Add macros for ablation study table
     latex_commands.append("% Macros for ablation study table")
-    latex_commands.append("% Usage in LaTeX table:")
-    latex_commands.append("% Full Model & \\FullModelAUC \\\\")
-    latex_commands.append("% w/o Keyframe Selection & \\NoKeyframeAUC \\\\")
-    latex_commands.append("% w/o Pathology Modules & \\NoPathologyAUC \\\\")
-    latex_commands.append("% w/o MIL Attention & \\NoMILAUC \\\\")
-    latex_commands.append("% Uniform Sampling & \\UniformSamplingAUC \\\\")
     latex_commands.append("")
     
     # Ablation study mapping: Configuration -> Model name in metrics_df

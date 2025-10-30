@@ -1,5 +1,5 @@
 {
-  "analysis_date": "2025-10-30T18:52:24.218506",
+  "analysis_date": "2025-10-30T22:30:54.021911",
   "results_directory": "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results",
   "models_analyzed": [
     "inception3d",
@@ -13,7 +13,6 @@
     "singletask",
     "uniform",
     "no_rl_full_train",
-    "r2plus1d",
     "original_noInitWeights",
     "original",
     "vivit"
