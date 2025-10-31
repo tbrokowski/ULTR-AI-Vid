@@ -2024,12 +2024,10 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     
     # Ablation study mapping: Configuration -> Model name in metrics_df
     ablation_mapping = {
-        'FullModel': 'attention_pool_extra3',  # Best/full model
-        'NoKeyframe': 'uniform',  # w/o Keyframe Selection = Uniform sampling
-        'NoPathology': 'singletask',  # w/o Pathology Modules = Single task
-        'NoMIL': 'mean_pool',  # w/o MIL Attention = Mean pooling
-        'UniformSampling': 'uniform',  # Uniform Sampling (same as NoKeyframe)
-        'NoSiteEmbedding': 'mean_pool',  # w/o Site Embeddings (approximation)
+        'FullModel': 'attention_pool_extra3',
+        'NoKeyframe': 'mean_pool',
+        'NoPathology': 'singletask',
+        'UniformSampling': 'uniform',
     }
     
     for macro_name, model_name in ablation_mapping.items():
@@ -2051,6 +2049,16 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     # Add placeholder for Single Video Only (not in current results)
     latex_commands.append("\\newcommand{\\SingleVideoAUC}{[TBU] $\\pm$ [TBU]}")
     latex_commands.append("")
+
+    # Some computations for the report
+    auc_mean_best = metrics_df[(metrics_df['model'] == 'attention_pool_extra3') & (metrics_df['metric'] == 'auc')]['mean'].values
+    auc_nokeyframe = metrics_df[(metrics_df['model'] == 'mean_pool') & (metrics_df['metric'] == 'auc')]['mean'].values
+    if len(auc_mean_best) == 1 and len(auc_nokeyframe) == 1:
+        improvement = auc_mean_best[0] - auc_nokeyframe[0]
+        latex_commands.append(f"\\newcommand{{\\AUCImprovementNoKeyframe}}{{{improvement:.3f}}}")
+    else:
+        print(auc_mean_best, auc_nokeyframe)
+        raise ValueError("Required models for AUC improvement calculation not found.")
 
     # Write to file
     output_path = os.path.join(output_dir, f'model_metrics_macros_{split}.tex')
