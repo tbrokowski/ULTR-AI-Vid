@@ -2376,8 +2376,6 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
         else:
             latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
     
-    # Add placeholder for Single Video Only (not in current results)
-    latex_commands.append("\\newcommand{\\SingleVideoAUC}{[TBU] $\\pm$ [TBU]}")
     latex_commands.append("")
 
     # Some computations for the report
