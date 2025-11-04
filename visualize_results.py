@@ -142,6 +142,33 @@ def get_pathology_display_name(internal_name: str) -> str:
     """Get the display name for a pathology, fallback to title case of internal name."""
     return PATHOLOGY_DISPLAY_NAMES.get(internal_name, internal_name.replace('_', ' ').title())
 
+
+def _find_model_in_metrics(metrics_df: pd.DataFrame, internal_name: str) -> Tuple[pd.DataFrame, Optional[str]]:
+    """Try to find a model in metrics_df using several common name variants.
+
+    Returns (model_data_df, resolved_name) where model_data_df may be empty if not found.
+    This helps handle inconsistent naming like 'cnn_lstm' vs 'cnnlstm' or '3d_cnn' vs '3dcnn'.
+    """
+    variants = [
+        internal_name,
+        internal_name.replace('_', ''),
+        internal_name.replace('_', '-'),
+        internal_name.replace('-', '_'),
+        internal_name.lower(),
+        internal_name.upper(),
+    ]
+
+    # Deduplicate while preserving order
+    seen = set()
+    variants = [v for v in variants if not (v in seen or seen.add(v))]
+
+    for v in variants:
+        model_data = metrics_df[metrics_df['model'] == v]
+        if len(model_data) > 0:
+            return model_data, v
+
+    return pd.DataFrame(), None
+
 # =============================================================================
 # DATA LOADING AND PROCESSING
 # =============================================================================
@@ -2300,8 +2327,8 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     ]
     
     for internal_name, latex_name in table_models:
-        # Check if this model exists in the data
-        model_data = metrics_df[metrics_df['model'] == internal_name]
+        # Check if this model exists in the data; try common name variants
+        model_data, resolved_name = _find_model_in_metrics(metrics_df, internal_name)
         
         if len(model_data) > 0:
             # Get AUC
@@ -2435,7 +2462,8 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     }
     
     for macro_name, model_name in ablation_mapping.items():
-        model_data = metrics_df[metrics_df['model'] == model_name]
+        # Try variants for robustness (e.g., 'mean_pool_extra3' vs 'meanpoolextra3')
+        model_data, resolved_name = _find_model_in_metrics(metrics_df, model_name)
         
         if len(model_data) > 0:
             auc_data = model_data[model_data['metric'] == 'auc']
