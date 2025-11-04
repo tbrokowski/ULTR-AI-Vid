@@ -24,7 +24,7 @@ MODEL_TYPES=(
     # "attention_pool_extra2"
     "attention_pool_extra3"
     "mean_pool_extra3"
-    "singletask"
+    "singletask_extra3"
     "uniform_extra3"
     "no_rl_full_train"
     "r2plus1d"

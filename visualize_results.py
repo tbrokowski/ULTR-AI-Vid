@@ -2052,7 +2052,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
 
     # Some computations for the report
     auc_mean_best = metrics_df[(metrics_df['model'] == 'attention_pool_extra3') & (metrics_df['metric'] == 'auc')]['mean'].values
-    auc_nokeyframe = metrics_df[(metrics_df['model'] == 'mean_pool') & (metrics_df['metric'] == 'auc')]['mean'].values
+    auc_nokeyframe = metrics_df[(metrics_df['model'] == 'mean_pool_extra3') & (metrics_df['metric'] == 'auc')]['mean'].values
     if len(auc_mean_best) == 1 and len(auc_nokeyframe) == 1:
         improvement = auc_mean_best[0] - auc_nokeyframe[0]
         latex_commands.append(f"\\newcommand{{\\AUCImprovementNoKeyframe}}{{{improvement:.3f}}}")

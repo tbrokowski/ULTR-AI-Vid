@@ -23,15 +23,3 @@ Mean Pool Extra3,Pleural Effusion,XGBoost,0.819,0.066,[0.737-0.900],0.048,0.052,
 Mean Pool Extra3,Other Pathology,Random Forest,0.645,0.032,[0.606-0.685],0.487,0.089,43689,0.405,5
 Mean Pool Extra3,Other Pathology,Logistic Regression,0.672,0.031,[0.634-0.711],0.489,0.274,43689,0.405,5
 Mean Pool Extra3,Other Pathology,XGBoost,0.686,0.046,[0.629-0.743],0.487,0.135,43689,0.405,5
-Uniform Extra3,A Lines,Random Forest,0.753,0.033,[0.713-0.794],0.661,0.026,43689,0.472,5
-Uniform Extra3,A Lines,Logistic Regression,0.792,0.011,[0.778-0.806],0.724,0.006,43689,0.472,5
-Uniform Extra3,A Lines,XGBoost,0.795,0.017,[0.773-0.816],0.698,0.014,43689,0.472,5
-Uniform Extra3,Large Consolidation,Random Forest,0.868,0.027,[0.834-0.901],0.421,0.106,43689,0.110,5
-Uniform Extra3,Large Consolidation,Logistic Regression,0.912,0.009,[0.901-0.922],0.530,0.013,43689,0.110,5
-Uniform Extra3,Large Consolidation,XGBoost,0.902,0.016,[0.882-0.922],0.449,0.117,43689,0.110,5
-Uniform Extra3,Pleural Effusion,Random Forest,0.618,0.057,[0.547-0.689],0.060,0.028,43689,0.011,5
-Uniform Extra3,Pleural Effusion,Logistic Regression,0.794,0.016,[0.774-0.813],0.053,0.017,43689,0.011,5
-Uniform Extra3,Pleural Effusion,XGBoost,0.817,0.081,[0.716-0.917],0.041,0.034,43689,0.011,5
-Uniform Extra3,Other Pathology,Random Forest,0.635,0.019,[0.611-0.659],0.490,0.046,43689,0.405,5
-Uniform Extra3,Other Pathology,Logistic Regression,0.674,0.019,[0.651-0.698],0.568,0.043,43689,0.405,5
-Uniform Extra3,Other Pathology,XGBoost,0.677,0.016,[0.658-0.696],0.499,0.063,43689,0.405,5
