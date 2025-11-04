@@ -323,6 +323,183 @@ def calculate_comprehensive_metrics(y_true: np.ndarray, y_prob: np.ndarray,
         
     return metrics
 
+def find_optimal_threshold_with_constraints(all_results: Dict, model_type: str, 
+                                           min_specificity: float = 0.70,
+                                           min_sensitivity: float = 0.90,
+                                           split: str = 'val') -> Dict:
+    """
+    Find the optimal threshold for a model that satisfies minimum specificity and sensitivity constraints.
+    
+    Args:
+        all_results: Dictionary containing all model results
+        model_type: The model to analyze (e.g., 'attention_pool_extra3')
+        min_specificity: Minimum required specificity (default: 0.70)
+        min_sensitivity: Minimum required sensitivity (default: 0.90)
+        split: Dataset split to use for finding threshold (default: 'val')
+    
+    Returns:
+        Dictionary with optimal threshold and performance metrics
+    """
+    print(f"\n{'='*70}")
+    print(f"FINDING OPTIMAL THRESHOLD FOR {model_type.upper()}")
+    print(f"{'='*70}")
+    print(f"Constraints: Sensitivity ≥ {min_sensitivity*100:.0f}%, Specificity ≥ {min_specificity*100:.0f}%")
+    print(f"Using {split.upper()} dataset")
+    
+    if model_type not in all_results:
+        print(f"❌ Model {model_type} not found in results")
+        return None
+    
+    # Collect all predictions across folds
+    all_y_true = []
+    all_y_prob = []
+    fold_data_list = []
+    
+    for fold in all_results[model_type].keys():
+        if split not in all_results[model_type][fold]:
+            continue
+        
+        fold_data = all_results[model_type][fold][split]
+        if 'patients' not in fold_data:
+            continue
+        
+        patients_df = fold_data['patients']
+        
+        if 'tb_label' in patients_df.columns and 'tb_prob' in patients_df.columns:
+            valid_mask = patients_df['tb_label'] >= 0
+            if valid_mask.sum() == 0:
+                continue
+            
+            y_true = patients_df.loc[valid_mask, 'tb_label'].values
+            y_prob = patients_df.loc[valid_mask, 'tb_prob'].values
+            
+            all_y_true.extend(y_true)
+            all_y_prob.extend(y_prob)
+            
+            fold_data_list.append({
+                'fold': fold,
+                'y_true': y_true,
+                'y_prob': y_prob
+            })
+    
+    if len(all_y_true) == 0:
+        print(f"❌ No valid data found for {model_type} on {split} split")
+        return None
+    
+    all_y_true = np.array(all_y_true)
+    all_y_prob = np.array(all_y_prob)
+    
+    print(f"Loaded {len(all_y_true)} samples across {len(fold_data_list)} folds")
+    print(f"Class distribution: {np.bincount(all_y_true.astype(int))}")
+    
+    # Compute ROC curve
+    fpr, tpr, thresholds = roc_curve(all_y_true, all_y_prob)
+    specificity = 1 - fpr
+    sensitivity = tpr
+    
+    # Find thresholds that meet both constraints
+    valid_indices = np.where((sensitivity >= min_sensitivity) & (specificity >= min_specificity))[0]
+    
+    if len(valid_indices) == 0:
+        print(f"❌ No threshold found that satisfies both constraints!")
+        print(f"   Trying to find closest match...")
+        
+        # Find best compromise
+        sens_violations = np.maximum(0, min_sensitivity - sensitivity)
+        spec_violations = np.maximum(0, min_specificity - specificity)
+        total_violation = sens_violations + spec_violations
+        best_idx = np.argmin(total_violation)
+        
+        print(f"   Best compromise threshold:")
+        print(f"   - Threshold: {thresholds[best_idx]:.4f}")
+        print(f"   - Sensitivity: {sensitivity[best_idx]:.4f} (target: {min_sensitivity:.4f})")
+        print(f"   - Specificity: {specificity[best_idx]:.4f} (target: {min_specificity:.4f})")
+        
+        return {
+            'model': model_type,
+            'threshold': thresholds[best_idx],
+            'sensitivity': sensitivity[best_idx],
+            'specificity': specificity[best_idx],
+            'constraints_met': False,
+            'n_samples': len(all_y_true),
+            'split': split
+        }
+    
+    # Among valid thresholds, choose the one that maximizes Youden's J statistic (sens + spec - 1)
+    # This balances both metrics optimally
+    youden_j = sensitivity[valid_indices] + specificity[valid_indices] - 1
+    best_valid_idx = valid_indices[np.argmax(youden_j)]
+    
+    optimal_threshold = thresholds[best_valid_idx]
+    optimal_sensitivity = sensitivity[best_valid_idx]
+    optimal_specificity = specificity[best_valid_idx]
+    
+    # Calculate detailed metrics at optimal threshold
+    y_pred = (all_y_prob >= optimal_threshold).astype(int)
+    detailed_metrics = calculate_comprehensive_metrics(all_y_true, all_y_prob, y_pred, optimal_threshold)
+    
+    print(f"\n✅ OPTIMAL THRESHOLD FOUND: {optimal_threshold:.4f}")
+    print(f"   Performance at optimal threshold:")
+    print(f"   - Sensitivity (Recall): {optimal_sensitivity:.4f} ({optimal_sensitivity*100:.2f}%)")
+    print(f"   - Specificity:          {optimal_specificity:.4f} ({optimal_specificity*100:.2f}%)")
+    print(f"   - Youden's J Index:     {youden_j[np.argmax(youden_j)]:.4f}")
+    print(f"   - Accuracy:             {detailed_metrics['accuracy']:.4f}")
+    print(f"   - F1 Score:             {detailed_metrics['f1']:.4f}")
+    print(f"   - Precision:            {detailed_metrics['precision']:.4f}")
+    print(f"   - AUC:                  {detailed_metrics['auc']:.4f}")
+    
+    # Calculate per-fold performance at this threshold
+    print(f"\n   Per-fold performance at threshold {optimal_threshold:.4f}:")
+    fold_performances = []
+    
+    for fold_data in fold_data_list:
+        y_true_fold = fold_data['y_true']
+        y_prob_fold = fold_data['y_prob']
+        y_pred_fold = (y_prob_fold >= optimal_threshold).astype(int)
+        
+        tn, fp, fn, tp = confusion_matrix(y_true_fold, y_pred_fold, labels=[0, 1]).ravel()
+        sens_fold = tp / (tp + fn) if (tp + fn) > 0 else 0
+        spec_fold = tn / (tn + fp) if (tn + fp) > 0 else 0
+        
+        fold_performances.append({
+            'fold': fold_data['fold'],
+            'sensitivity': sens_fold,
+            'specificity': spec_fold,
+            'n_samples': len(y_true_fold)
+        })
+        
+        print(f"     Fold {fold_data['fold']}: Sens={sens_fold:.4f}, Spec={spec_fold:.4f}, N={len(y_true_fold)}")
+    
+    # Calculate mean and std across folds
+    mean_sens_folds = np.mean([f['sensitivity'] for f in fold_performances])
+    std_sens_folds = np.std([f['sensitivity'] for f in fold_performances], ddof=1) if len(fold_performances) > 1 else 0
+    mean_spec_folds = np.mean([f['specificity'] for f in fold_performances])
+    std_spec_folds = np.std([f['specificity'] for f in fold_performances], ddof=1) if len(fold_performances) > 1 else 0
+    
+    print(f"\n   Mean across folds:")
+    print(f"     Sensitivity: {mean_sens_folds:.4f} ± {std_sens_folds:.4f}")
+    print(f"     Specificity: {mean_spec_folds:.4f} ± {std_spec_folds:.4f}")
+    
+    return {
+        'model': model_type,
+        'threshold': optimal_threshold,
+        'sensitivity': optimal_sensitivity,
+        'specificity': optimal_specificity,
+        'constraints_met': True,
+        'youden_j': youden_j[np.argmax(youden_j)],
+        'detailed_metrics': detailed_metrics,
+        'fold_performances': fold_performances,
+        'mean_sensitivity_folds': mean_sens_folds,
+        'std_sensitivity_folds': std_sens_folds,
+        'mean_specificity_folds': mean_spec_folds,
+        'std_specificity_folds': std_spec_folds,
+        'n_samples': len(all_y_true),
+        'n_folds': len(fold_data_list),
+        'split': split,
+        'min_sensitivity_constraint': min_sensitivity,
+        'min_specificity_constraint': min_specificity
+    }
+
 def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str], 
                                 split: str = 'test') -> pd.DataFrame:
     """Aggregate metrics across folds for all models."""
@@ -778,6 +955,121 @@ def create_metrics_comparison_table(metrics_df: pd.DataFrame, output_dir: str,
     
     print(f"✓ Metrics table saved to {csv_path} and {table_path}")
 
+def visualize_optimal_threshold(all_results: Dict, model_type: str, threshold_results: Dict,
+                                output_dir: str, split: str = 'val') -> None:
+    """
+    Create visualization showing ROC curve with optimal threshold marked.
+    
+    Args:
+        all_results: Dictionary containing all model results
+        model_type: The model being visualized
+        threshold_results: Results from find_optimal_threshold_with_constraints
+        output_dir: Directory to save visualization
+        split: Dataset split used for threshold finding
+    """
+    if threshold_results is None:
+        return
+    
+    print(f"\nCreating threshold visualization for {model_type} ({split})...")
+    
+    # Collect all predictions
+    all_y_true = []
+    all_y_prob = []
+    
+    for fold in all_results[model_type].keys():
+        if split not in all_results[model_type][fold]:
+            continue
+        
+        fold_data = all_results[model_type][fold][split]
+        if 'patients' not in fold_data:
+            continue
+        
+        patients_df = fold_data['patients']
+        
+        if 'tb_label' in patients_df.columns and 'tb_prob' in patients_df.columns:
+            valid_mask = patients_df['tb_label'] >= 0
+            if valid_mask.sum() == 0:
+                continue
+            
+            y_true = patients_df.loc[valid_mask, 'tb_label'].values
+            y_prob = patients_df.loc[valid_mask, 'tb_prob'].values
+            
+            all_y_true.extend(y_true)
+            all_y_prob.extend(y_prob)
+    
+    all_y_true = np.array(all_y_true)
+    all_y_prob = np.array(all_y_prob)
+    
+    # Compute ROC curve
+    fpr, tpr, thresholds = roc_curve(all_y_true, all_y_prob)
+    specificity = 1 - fpr
+    roc_auc = auc(fpr, tpr)
+    
+    # Get optimal threshold info
+    opt_threshold = threshold_results['threshold']
+    opt_sensitivity = threshold_results['sensitivity']
+    opt_specificity = threshold_results['specificity']
+    
+    # Setup plot
+    setup_publication_style()
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 9))
+    
+    # Plot 1: ROC curve
+    ax1.plot(fpr, tpr, 'b-', lw=3, label=f'ROC Curve (AUC = {roc_auc:.3f})')
+    ax1.plot([0, 1], [0, 1], 'k--', lw=2, alpha=0.5)
+    
+    # Mark optimal threshold
+    opt_fpr = 1 - opt_specificity
+    ax1.plot(opt_fpr, opt_sensitivity, 'ro', markersize=15, 
+            label=f'Optimal Threshold = {opt_threshold:.3f}\n' +
+                  f'Sens = {opt_sensitivity:.3f}, Spec = {opt_specificity:.3f}')
+    
+    # Add constraint rectangle (WHO requirements area)
+    constraint_rect = patches.Rectangle((0, 0.9), 0.3, 0.1, linewidth=2, 
+                                       edgecolor='green', facecolor='lightgreen', 
+                                       alpha=0.3, linestyle='--',
+                                       label=f'Target Region\n(Sens ≥ 0.90, Spec ≥ 0.70)')
+    ax1.add_patch(constraint_rect)
+    
+    ax1.set_xlabel('False Positive Rate (1 - Specificity)', fontsize=16, fontweight='bold')
+    ax1.set_ylabel('True Positive Rate (Sensitivity)', fontsize=16, fontweight='bold')
+    ax1.set_title(f'ROC Curve - {model_type.replace("_", " ").title()}\n({split.upper()} Set)', 
+                 fontsize=18, fontweight='bold')
+    ax1.legend(loc='lower right', fontsize=12, frameon=True, fancybox=True, shadow=True)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_xlim([-0.02, 1.02])
+    ax1.set_ylim([-0.02, 1.02])
+    
+    # Plot 2: Sensitivity and Specificity vs Threshold
+    ax2.plot(thresholds, tpr, 'b-', lw=2.5, label='Sensitivity')
+    ax2.plot(thresholds, specificity, 'r-', lw=2.5, label='Specificity')
+    
+    # Mark optimal threshold
+    ax2.axvline(opt_threshold, color='green', linestyle='--', lw=2.5, 
+               label=f'Optimal Threshold = {opt_threshold:.3f}')
+    
+    # Mark constraint lines
+    ax2.axhline(0.90, color='blue', linestyle=':', lw=2, alpha=0.5, label='Min Sensitivity (0.90)')
+    ax2.axhline(0.70, color='red', linestyle=':', lw=2, alpha=0.5, label='Min Specificity (0.70)')
+    
+    ax2.set_xlabel('Threshold', fontsize=16, fontweight='bold')
+    ax2.set_ylabel('Metric Value', fontsize=16, fontweight='bold')
+    ax2.set_title('Sensitivity & Specificity vs Threshold', fontsize=18, fontweight='bold')
+    ax2.legend(loc='best', fontsize=11, frameon=True, fancybox=True, shadow=True)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_xlim([0, 1])
+    ax2.set_ylim([0, 1.05])
+    
+    plt.tight_layout()
+    
+    # Save
+    output_path = os.path.join(output_dir, f'{model_type}_optimal_threshold_{split}.pdf')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path.replace('.pdf', '.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"✓ Threshold visualization saved to {output_path}")
+
 def create_performance_vs_complexity_plot(all_results: Dict, model_types: List[str],
                                         output_dir: str, split: str = 'test') -> None:
     """Create performance vs model complexity/parameter count plot."""
@@ -989,7 +1281,29 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                     model_copy = type(ml_model)(**ml_model.get_params())
                     model_copy.fit(X_train, y_train)
                     
-                    # Predict
+                    # Get training predictions to find optimal threshold
+                    if hasattr(model_copy, 'predict_proba'):
+                        y_train_proba = model_copy.predict_proba(X_train)
+                        if y_train_proba.shape[1] > 1:
+                            y_train_proba = y_train_proba[:, 1]
+                        else:
+                            y_train_proba = y_train_proba[:, 0]
+                    else:
+                        y_train_proba = model_copy.decision_function(X_train)
+                    
+                    # Find optimal threshold on training data to maximize F1
+                    thresholds = np.linspace(0, 1, 101)  # Test 101 thresholds from 0 to 1
+                    best_f1 = 0
+                    best_threshold = 0.5
+                    
+                    for threshold in thresholds:
+                        y_train_pred = (y_train_proba >= threshold).astype(int)
+                        train_f1 = f1_score(y_train, y_train_pred, zero_division=0)
+                        if train_f1 > best_f1:
+                            best_f1 = train_f1
+                            best_threshold = threshold
+                    
+                    # Predict on test set
                     if hasattr(model_copy, 'predict_proba'):
                         y_pred_proba = model_copy.predict_proba(X_test)
                         if y_pred_proba.shape[1] > 1:
@@ -1003,8 +1317,8 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                     try:
                         fold_auc = roc_auc_score(y_test, y_pred_proba)
                         
-                        # Choose a threshold of 0.5
-                        y_pred = (y_pred_proba > 0.5).astype(int)
+                        # Use the optimal threshold found on training data
+                        y_pred = (y_pred_proba >= best_threshold).astype(int)
                         fold_f1 = f1_score(y_test, y_pred, zero_division=0)
                         
                         fold_scores.append(fold_auc)
@@ -1015,8 +1329,12 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                             'y_pred_proba': y_pred_proba,
                             'y_pred': y_pred,
                             'auc': fold_auc,
-                            'f1': fold_f1
+                            'f1': fold_f1,
+                            'optimal_threshold': best_threshold,
+                            'train_f1_at_threshold': best_f1
                         })
+                        
+                        print(f"          Fold {test_fold}: Optimal threshold = {best_threshold:.3f}, Test F1 = {fold_f1:.3f}")
                     except ValueError as e:
                         print(f"          Error calculating metrics for fold {test_fold}: {e}")
                         continue
@@ -1030,20 +1348,28 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                     mean_f1 = np.mean(f1_scores)
                     std_f1 = np.std(f1_scores, ddof=1) if len(f1_scores) > 1 else 0
                     
+                    # Calculate optimal threshold statistics
+                    optimal_thresholds = [pred['optimal_threshold'] for pred in fold_predictions]
+                    mean_threshold = np.mean(optimal_thresholds)
+                    std_threshold = np.std(optimal_thresholds, ddof=1) if len(optimal_thresholds) > 1 else 0
+                    
                     fold_results[ml_name] = {
                         'mean_auc': mean_auc,
                         'std_auc': std_auc,
                         'mean_f1': mean_f1,
                         'std_f1': std_f1,
+                        'mean_threshold': mean_threshold,
+                        'std_threshold': std_threshold,
                         'fold_scores': fold_scores,
                         'f1_scores': f1_scores,
+                        'optimal_thresholds': optimal_thresholds,
                         'fold_predictions': fold_predictions,
                         'feature_names': feature_cols,
                         'n_samples': len(X),
                         'class_distribution': np.bincount(y).tolist()
                     }
                     
-                    print(f"          {ml_name}: AUC = {mean_auc:.3f} ± {std_auc:.3f}, F1 = {mean_f1:.3f} ± {std_f1:.3f}")
+                    print(f"          {ml_name}: AUC = {mean_auc:.3f} ± {std_auc:.3f}, F1 = {mean_f1:.3f} ± {std_f1:.3f}, Threshold = {mean_threshold:.3f} ± {std_threshold:.3f}")
             
             if fold_results:
                 model_ensemble_results[pathology] = fold_results
@@ -1401,6 +1727,8 @@ def create_pathology_ensemble_summary_table(ensemble_results: Dict, output_dir: 
                 std_auc = ml_results['std_auc']
                 mean_f1 = ml_results['mean_f1']
                 std_f1 = ml_results['std_f1']
+                mean_threshold = ml_results.get('mean_threshold', 0.5)
+                std_threshold = ml_results.get('std_threshold', 0.0)
                 n_samples = ml_results['n_samples']
                 class_dist = ml_results['class_distribution']
                 
@@ -1423,6 +1751,8 @@ def create_pathology_ensemble_summary_table(ensemble_results: Dict, output_dir: 
                     'AUC 95% CI': f"[{ci_lower:.3f}-{ci_upper:.3f}]",
                     'F1 Mean': f"{mean_f1:.3f}",
                     'F1 Std': f"{std_f1:.3f}",
+                    'Optimal Threshold': f"{mean_threshold:.3f}",
+                    'Threshold Std': f"{std_threshold:.3f}",
                     'Samples': n_samples,
                     'Positive Rate': f"{class_dist[1]/(class_dist[0]+class_dist[1]):.3f}" if len(class_dist) > 1 else "N/A",
                     'Cross-Val Folds': n_folds
@@ -1906,7 +2236,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 auc_mean = auc_data['mean'].iloc[0]
                 auc_std = auc_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}AUC}}{{{auc_mean:.3f} $\\pm$ {auc_std:.3f}}}"
+                    f"\\newcommand{{\\{latex_name}AUC}}{{{auc_mean:.2f} $\\pm$ {auc_std:.2f}}}"
                 )
             else:
                 latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
@@ -1917,7 +2247,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 sens_mean = sens_data['mean'].iloc[0]
                 sens_std = sens_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}Sensitivity}}{{{sens_mean:.3f} $\\pm$ {sens_std:.3f}}}"
+                    f"\\newcommand{{\\{latex_name}Sensitivity}}{{{sens_mean:.2f} $\\pm$ {sens_std:.2f}}}"
                 )
             else:
                 latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU $\\pm$ TBU}}")
@@ -1928,7 +2258,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 spec_mean = spec_data['mean'].iloc[0]
                 spec_std = spec_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}Specificity}}{{{spec_mean:.3f} $\\pm$ {spec_std:.3f}}}"
+                    f"\\newcommand{{\\{latex_name}Specificity}}{{{spec_mean:.2f} $\\pm$ {spec_std:.2f}}}"
                 )
             else:
                 latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU $\\pm$ TBU}}")
@@ -1992,19 +2322,19 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                             auc_std = best_results['std_auc']
                             
                             latex_commands.append(
-                                f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.3f} $\\pm$ {auc_std:.3f}}}"
+                                f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.2f} $\\pm$ {auc_std:.2f}}}"
                             )
                             
                             # Get F1 mean and std
                             f1_mean = best_results['mean_f1']
                             f1_std = best_results['std_f1']
                             latex_commands.append(
-                                f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.3f} $\\pm$ {f1_std:.3f}}}"
+                                f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.2f} $\\pm$ {f1_std:.2f}}}"
                             )
                             latex_commands.append("")
                             
                             added_pathologies.add(macro_name)
-                            print(f"  ✓ {display_name}: Using {best_method} (AUC: {auc_mean:.3f})")
+                            print(f"  ✓ {display_name}: Using {best_method} (AUC: {auc_mean:.2f})")
         except Exception as e:
             print(f"  ⚠ Warning: Could not load pathology JSON file: {e}")
     else:
@@ -2039,7 +2369,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 auc_mean = auc_data['mean'].iloc[0]
                 auc_std = auc_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.3f} $\\pm$ {auc_std:.3f}}}"
+                    f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.2f} $\\pm$ {auc_std:.2f}}}"
                 )
             else:
                 latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
@@ -2055,7 +2385,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     auc_nokeyframe = metrics_df[(metrics_df['model'] == 'mean_pool_extra3') & (metrics_df['metric'] == 'auc')]['mean'].values
     if len(auc_mean_best) == 1 and len(auc_nokeyframe) == 1:
         improvement = auc_mean_best[0] - auc_nokeyframe[0]
-        latex_commands.append(f"\\newcommand{{\\AUCImprovementNoKeyframe}}{{{improvement:.3f}}}")
+        latex_commands.append(f"\\newcommand{{\\AUCImprovementNoKeyframe}}{{{improvement:.2f}}}")
     else:
         print(auc_mean_best, auc_nokeyframe)
         raise ValueError("Required models for AUC improvement calculation not found.")
@@ -2091,6 +2421,15 @@ def main():
                        help='Dataset split to analyze')
     parser.add_argument('--top_n', type=int, default=6,
                        help='Number of top models to include in detailed analysis')
+    parser.add_argument('--find_threshold_model', type=str, default='attention_pool_extra3',
+                       help='Model for which to find optimal threshold (default: attention_pool_extra3)')
+    parser.add_argument('--min_sensitivity', type=float, default=0.90,
+                       help='Minimum required sensitivity for threshold optimization (default: 0.90)')
+    parser.add_argument('--min_specificity', type=float, default=0.70,
+                       help='Minimum required specificity for threshold optimization (default: 0.70)')
+    parser.add_argument('--threshold_split', type=str, default='val',
+                       choices=['train', 'val', 'test'],
+                       help='Dataset split to use for threshold optimization (default: val)')
     
     args = parser.parse_args()
     
@@ -2128,6 +2467,48 @@ def main():
     for i, model in enumerate(top_models, 1):
         auc_data = auc_metrics[auc_metrics['model'] == model].iloc[0]
         print(f"  {i}. {model}: {auc_data['mean']:.4f} (95% CI: {auc_data['ci_lower']:.4f}-{auc_data['ci_upper']:.4f})")
+    
+    # Find optimal threshold for specified model on validation set
+    threshold_results = None
+    if args.find_threshold_model in all_results:
+        threshold_results = find_optimal_threshold_with_constraints(
+            all_results, 
+            args.find_threshold_model,
+            min_specificity=args.min_specificity,
+            min_sensitivity=args.min_sensitivity,
+            split=args.threshold_split
+        )
+        
+        if threshold_results:
+            # Save threshold results
+            threshold_output_path = os.path.join(args.output_dir, f'{args.find_threshold_model}_optimal_threshold.json')
+            with open(threshold_output_path, 'w') as f:
+                # Convert numpy types to native Python types for JSON serialization
+                serializable_results = {}
+                for key, value in threshold_results.items():
+                    if key == 'fold_performances':
+                        serializable_results[key] = [
+                            {k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
+                             for k, v in fold_perf.items()}
+                            for fold_perf in value
+                        ]
+                    elif key == 'detailed_metrics':
+                        serializable_results[key] = {k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
+                                                    for k, v in value.items()}
+                    elif isinstance(value, (np.floating, np.integer)):
+                        serializable_results[key] = float(value)
+                    else:
+                        serializable_results[key] = value
+                
+                json.dump(serializable_results, f, indent=2)
+            
+            print(f"\n📄 Optimal threshold results saved to: {threshold_output_path}")
+            
+            # Create visualization
+            visualize_optimal_threshold(all_results, args.find_threshold_model, 
+                                       threshold_results, args.output_dir, args.threshold_split)
+    else:
+        print(f"\n⚠ Warning: {args.find_threshold_model} not found in results")
     
     # Create visualizations
     print(f"\n{'='*70}")
@@ -2229,11 +2610,21 @@ def main():
     print(f"   • Site-level pathology analysis (top 3 models)")
     print(f"   • Pathology ensemble modeling (ML models trained on NN predictions)")
     print(f"   • Neural vs ML pathology prediction comparisons")
+    if threshold_results:
+        print(f"   • Optimal threshold analysis for {args.find_threshold_model} ({args.threshold_split} set)")
     print(f"📄 LaTeX report file:")
     print(f"   • model_metrics_macros_{args.split}.tex (macro definitions)")
     print(f"🏆 Best performing model: {top_models[0]} (AUC: {auc_metrics.iloc[0]['mean']:.4f})")
     if ensemble_results:
         print(f"🔬 Pathology ensemble models trained for {len(ensemble_results)} neural network models")
+    if threshold_results and threshold_results.get('constraints_met'):
+        print(f"🎯 Optimal threshold for {args.find_threshold_model}: {threshold_results['threshold']:.4f}")
+        print(f"   - Sensitivity: {threshold_results['sensitivity']:.3f} (≥{args.min_sensitivity:.2f} ✓)")
+        print(f"   - Specificity: {threshold_results['specificity']:.3f} (≥{args.min_specificity:.2f} ✓)")
+    elif threshold_results and not threshold_results.get('constraints_met'):
+        print(f"⚠️  Best compromise threshold for {args.find_threshold_model}: {threshold_results['threshold']:.4f}")
+        print(f"   - Sensitivity: {threshold_results['sensitivity']:.3f} (target: ≥{args.min_sensitivity:.2f})")
+        print(f"   - Specificity: {threshold_results['specificity']:.3f} (target: ≥{args.min_specificity:.2f})")
     print(f"{'='*70}")
 
 if __name__ == "__main__":
