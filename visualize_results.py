@@ -95,7 +95,52 @@ MODEL_COLORS = {
 }
 
 # Professional color palette for top models
-TOP_MODELS_COLORS = ['#36454F', '#00CCFE', '#0247FF', '#0018A7', '#8B0000', '#4B0082']
+# HMV-MIL in dark blue, others in shades of yellow, orange, and red
+TOP_MODELS_COLORS = ['#00008B', '#FFD700', '#FFA500', '#FF8C00', '#FF6347', '#DC143C']  # Dark blue, Gold, Orange, Dark orange, Tomato, Crimson
+
+# Model-specific colors for ROC/PR curves
+MODEL_CURVE_COLORS = {
+    'attention_pool_extra3': '#00008B',  # Dark blue for HMV-MIL
+    'mean_pool_extra3': '#FFD700',       # Gold
+    'singletask_extra3': '#FFA500',      # Orange
+    'uniform_extra3': '#FF8C00',         # Dark orange
+    'cnnlstm': '#FF6347',                # Tomato
+    '3dcnn': '#DC143C',                  # Crimson
+    'inception3d': '#FF4500',            # Orange red
+    'vivit': '#FF1493',                  # Deep pink
+}
+
+# Model display name mapping: internal name -> display name
+MODEL_DISPLAY_NAMES = {
+    'attention_pool_extra3': 'HMV-MIL',
+    'mean_pool_extra3': 'NoKeyframe',
+    'singletask_extra3': 'NoPathology',
+    'uniform_extra3': 'UniformSampling',
+    'cnnlstm': 'CNN-LSTM',
+    '3dcnn': '3D-ResNet',
+    'inception3d': 'Inception3D',
+    'vivit': 'Video Transformer',
+    'r2plus1d': 'R2Plus1D',
+    'original': 'Original',
+    'attention_pool': 'Attention Pool',
+    'mean_pool': 'Mean Pool',
+}
+
+def get_model_display_name(internal_name: str) -> str:
+    """Get the display name for a model, fallback to title case of internal name."""
+    return MODEL_DISPLAY_NAMES.get(internal_name, internal_name.replace('_', ' ').title())
+
+# Pathology display name mapping: internal name -> display name
+PATHOLOGY_DISPLAY_NAMES = {
+    'a_lines': 'A-lines',
+    'large_consolidation': 'Large Consolidation',
+    'pleural_effusion': 'Pleural Effusion',
+    'other_pathology': 'B-lines and Small Consolidations'
+}
+
+def get_pathology_display_name(internal_name: str) -> str:
+    """Get the display name for a pathology, fallback to title case of internal name."""
+    return PATHOLOGY_DISPLAY_NAMES.get(internal_name, internal_name.replace('_', ' ').title())
 
 # =============================================================================
 # DATA LOADING AND PROCESSING
@@ -694,8 +739,15 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
     setup_publication_style()
     fig, ax = plt.subplots(figsize=(12, 10))
     
-    colors = TOP_MODELS_COLORS[:len(model_types)] if len(model_types) <= len(TOP_MODELS_COLORS) else \
-             [MODEL_COLORS.get(m, f'C{i}') for i, m in enumerate(model_types)]
+    # Use model-specific colors from MODEL_CURVE_COLORS, fallback to TOP_MODELS_COLORS
+    colors = []
+    for i, m in enumerate(model_types):
+        if m in MODEL_CURVE_COLORS:
+            colors.append(MODEL_CURVE_COLORS[m])
+        elif i < len(TOP_MODELS_COLORS):
+            colors.append(TOP_MODELS_COLORS[i])
+        else:
+            colors.append(MODEL_COLORS.get(m, f'C{i}'))
     
     mean_fpr = np.linspace(0, 1, 100)
     
@@ -749,7 +801,8 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
         ci_upper_auc = np.percentile(aucs, 97.5)
         
         # Plot mean curve
-        label = f'{model_type.replace("_", " ").title()} (AUC = {mean_auc:.3f}, 95% CI [{ci_lower_auc:.3f}-{ci_upper_auc:.3f}])'
+        display_name = get_model_display_name(model_type)
+        label = f'{display_name} (AUC = {mean_auc:.3f}, 95% CI [{ci_lower_auc:.3f}-{ci_upper_auc:.3f}])'
         ax.plot(mean_fpr, mean_tpr, color=colors[i], lw=3, label=label)
         
         # Fill confidence interval
@@ -807,8 +860,15 @@ def create_pr_curves_with_ci(all_results: Dict, model_types: List[str],
     setup_publication_style()
     fig, ax = plt.subplots(figsize=(12, 10))
     
-    colors = TOP_MODELS_COLORS[:len(model_types)] if len(model_types) <= len(TOP_MODELS_COLORS) else \
-             [MODEL_COLORS.get(m, f'C{i}') for i, m in enumerate(model_types)]
+    # Use model-specific colors from MODEL_CURVE_COLORS, fallback to TOP_MODELS_COLORS
+    colors = []
+    for i, m in enumerate(model_types):
+        if m in MODEL_CURVE_COLORS:
+            colors.append(MODEL_CURVE_COLORS[m])
+        elif i < len(TOP_MODELS_COLORS):
+            colors.append(TOP_MODELS_COLORS[i])
+        else:
+            colors.append(MODEL_COLORS.get(m, f'C{i}'))
     
     mean_recall = np.linspace(0, 1, 100)
     
@@ -857,7 +917,8 @@ def create_pr_curves_with_ci(all_results: Dict, model_types: List[str],
         ci_lower_auprc = np.percentile(auprcs, 2.5)
         ci_upper_auprc = np.percentile(auprcs, 97.5)
         
-        label = f'{model_type.replace("_", " ").title()} (AUPRC = {mean_auprc:.3f}, 95% CI [{ci_lower_auprc:.3f}-{ci_upper_auprc:.3f}])'
+        display_name = get_model_display_name(model_type)
+        label = f'{display_name} (AUPRC = {mean_auprc:.3f}, 95% CI [{ci_lower_auprc:.3f}-{ci_upper_auprc:.3f}])'
         ax.plot(mean_recall, mean_precision, color=colors[i], lw=3, label=label)
         ax.fill_between(mean_recall, precision_lower, precision_upper, color=colors[i], alpha=0.2)
     
@@ -891,7 +952,8 @@ def create_metrics_comparison_table(metrics_df: pd.DataFrame, output_dir: str,
                   'f1', 'ppv', 'npv', 'sens_at_90_spec', 'sens_at_70_spec']
     
     for model in models:
-        row = {'Model': model.replace('_', ' ').title()}
+        display_name = get_model_display_name(model)
+        row = {'Model': display_name}
         
         for metric in key_metrics:
             metric_data = metrics_df[(metrics_df['model'] == model) & 
@@ -1033,7 +1095,8 @@ def visualize_optimal_threshold(all_results: Dict, model_type: str, threshold_re
     
     ax1.set_xlabel('False Positive Rate (1 - Specificity)', fontsize=16, fontweight='bold')
     ax1.set_ylabel('True Positive Rate (Sensitivity)', fontsize=16, fontweight='bold')
-    ax1.set_title(f'ROC Curve - {model_type.replace("_", " ").title()}\n({split.upper()} Set)', 
+    display_name = get_model_display_name(model_type)
+    ax1.set_title(f'ROC Curve - {display_name}\n({split.upper()} Set)', 
                  fontsize=18, fontweight='bold')
     ax1.legend(loc='lower right', fontsize=12, frameon=True, fancybox=True, shadow=True)
     ax1.grid(True, alpha=0.3)
@@ -1108,13 +1171,16 @@ def create_performance_vs_complexity_plot(all_results: Dict, model_types: List[s
             complexity_values.append(model_complexity[model])
             auc_means.append(row['mean'])
             auc_errors.append((row['ci_upper'] - row['ci_lower']) / 2)
-            labels.append(model.replace('_', ' ').title())
+            display_name = get_model_display_name(model)
+            labels.append(display_name)
     
     setup_publication_style()
     fig, ax = plt.subplots(figsize=(12, 8))
     
     # Create scatter plot with error bars
-    colors = [MODEL_COLORS.get(label.lower().replace(' ', '_'), 'blue') for label in labels]
+    # Use internal model name to look up color
+    model_names_internal = [row['model'] for _, row in auc_data.iterrows() if row['model'] in model_complexity]
+    colors = [MODEL_COLORS.get(model, 'blue') for model in model_names_internal]
     
     for i, (x, y, yerr, label, color) in enumerate(zip(complexity_values, auc_means, auc_errors, labels, colors)):
         ax.errorbar(x, y, yerr=yerr, fmt='o', markersize=10, color=color, 
@@ -1527,11 +1593,12 @@ def create_nn_vs_best_ml_pathology_comparison(all_results: Dict, ensemble_result
     pathology_names = ['a_lines', 'large_consolidation', 'pleural_effusion', 'other_pathology']
     
     # Color scheme: each pathology gets a color family with light (NN) and dark (ML) shades
+    # A-lines = royal blue, Consolidations = dark purple, Pleural effusions = light blue, Small consolidations/b-lines = light purple
     pathology_colors = {
-        'a_lines': {'light': '#FF9999', 'dark': '#CC0000'},  # Light red, Dark red
-        'large_consolidation': {'light': '#99CCFF', 'dark': '#0066CC'},  # Light blue, Dark blue
-        'pleural_effusion': {'light': '#99FF99', 'dark': '#009900'},  # Light green, Dark green
-        'other_pathology': {'light': '#FFCC99', 'dark': '#FF6600'}  # Light orange, Dark orange
+        'a_lines': {'light': '#6495ED', 'dark': '#4169E1'},  # Cornflower blue (light), Royal blue (dark)
+        'large_consolidation': {'light': '#9370DB', 'dark': '#4B0082'},  # Medium purple (light), Indigo/dark purple (dark)
+        'pleural_effusion': {'light': '#87CEEB', 'dark': '#4682B4'},  # Sky blue (light), Steel blue (dark)
+        'other_pathology': {'light': '#DDA0DD', 'dark': '#9370DB'}  # Plum/light purple (light), Medium purple (dark)
     }
     
     # Step 1: Extract NN direct performance from site-level data
@@ -1623,7 +1690,8 @@ def create_nn_vs_best_ml_pathology_comparison(all_results: Dict, ensemble_result
     
     for pathology in pathology_names:
         if pathology in nn_performance or pathology in ml_performance:
-            pathology_labels.append(pathology.replace('_', ' ').title())
+            display_name = get_pathology_display_name(pathology)
+            pathology_labels.append(display_name)
             
             # NN performance
             if pathology in nn_performance:
@@ -1666,7 +1734,8 @@ def create_nn_vs_best_ml_pathology_comparison(all_results: Dict, ensemble_result
     # Customize plot
     ax.set_xlabel('Pathology Type', fontsize=16, fontweight='bold')
     ax.set_ylabel('AUC Score', fontsize=16, fontweight='bold')
-    ax.set_title(f'Neural Network vs. ML Ensemble Pathology Prediction\n{model_type.replace("_", " ").title()} Model ({split.title()} Set)', 
+    display_name = get_model_display_name(model_type)
+    ax.set_title(f'Neural Network vs. ML Ensemble Pathology Prediction\n{display_name} Model ({split.title()} Set)', 
                 fontsize=18, fontweight='bold', pad=20)
     ax.set_xticks(x)
     ax.set_xticklabels(pathology_labels, fontsize=14)
@@ -1742,9 +1811,11 @@ def create_pathology_ensemble_summary_table(ensemble_results: Dict, output_dir: 
                 else:
                     ci_lower = ci_upper = mean_auc
                 
+                display_name = get_model_display_name(model_type)
+                pathology_display = get_pathology_display_name(pathology)
                 table_data.append({
-                    'Neural Network Model': model_type.replace('_', ' ').title(),
-                    'Pathology': pathology.replace('_', ' ').title(),
+                    'Neural Network Model': display_name,
+                    'Pathology': pathology_display,
                     'ML Algorithm': ml_name,
                     'AUC Mean': f"{mean_auc:.3f}",
                     'AUC Std': f"{std_auc:.3f}",
@@ -1866,7 +1937,8 @@ def analyze_attention_patterns(all_results: Dict, top_models: List[str],
             
         # Create attention visualization
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        fig.suptitle(f'Attention Pattern Analysis - {model_type.replace("_", " ").title()}', 
+        display_name = get_model_display_name(model_type)
+        fig.suptitle(f'Attention Pattern Analysis - {display_name}', 
                     fontsize=16, fontweight='bold')
         
         # Filter by TB label
@@ -2001,7 +2073,8 @@ def analyze_site_level_predictions(all_results: Dict, top_models: List[str],
         # Analyze pathology predictions
         setup_publication_style()
         fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-        fig.suptitle(f'Site-Level Pathology Analysis - {model_type.replace("_", " ").title()}', 
+        display_name = get_model_display_name(model_type)
+        fig.suptitle(f'Site-Level Pathology Analysis - {display_name}', 
                     fontsize=16, fontweight='bold')
         
         # 1. Pathology prevalence
@@ -2016,7 +2089,8 @@ def analyze_site_level_predictions(all_results: Dict, top_models: List[str],
                 if valid_mask.sum() > 0:
                     prevalence = combined_sites.loc[valid_mask, finding_col].mean()
                     prevalences.append(prevalence)
-                    pathology_labels.append(pathology.replace('_', ' ').title())
+                    display_name = get_pathology_display_name(pathology)
+                    pathology_labels.append(display_name)
         
         if prevalences:
             bars = ax.bar(pathology_labels, prevalences, color='steelblue', alpha=0.7)
