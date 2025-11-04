@@ -2025,9 +2025,9 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     # Ablation study mapping: Configuration -> Model name in metrics_df
     ablation_mapping = {
         'FullModel': 'attention_pool_extra3',
-        'NoKeyframe': 'mean_pool',
-        'NoPathology': 'singletask',
-        'UniformSampling': 'uniform',
+        'NoKeyframe': 'mean_pool_extra3',
+        'NoPathology': 'singletask_extra3',
+        'UniformSampling': 'uniform_extra3',
     }
     
     for macro_name, model_name in ablation_mapping.items():
