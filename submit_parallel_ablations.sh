@@ -16,9 +16,9 @@ declare -A ABLATIONS=(
  ## ["original_noInitWeights"]="original_noInitWeights"
  ## ["attention_pool"]="attention_pool"
  ## ["attention_pool_noInitWeights"]="attention_pool_noInitWeights"
- ## ["mean_pool"]="mean_pool"
- ## ["single_task"]="singletask"
- ## ["uniform"]="uniform"
+#  ["mean_pool_extra3"]="mean_pool_extra3"
+ ["single_task_extra3"]="singletask_extra3"
+#  ["uniform_extra3"]="uniform_extra3"
  ## ["no_rl_full_train"]="no_rl_full_train"
  # ["r2plus1d"]="r2plus1d"
  ## ["inception3d"]="inception3d"
@@ -27,11 +27,11 @@ declare -A ABLATIONS=(
   # ["LeViT_RL"]="LeViT-RL"
   # ["original_test"]="original_test"
   # ["attention_pool_extra"]="attention_pool_extra"
-  ["attention_pool_extra3"]="attention_pool_extra3"
+  # ["attention_pool_extra3"]="attention_pool_extra3"
 )
 
 # Which folds to run
-FOLDS=(0 1 2 3 4)
+FOLDS=(1)
 
 # SLURM runner that launches a *single* experiment on 1 node
 SLURM_SCRIPT="run_ablation_single_node.sh"

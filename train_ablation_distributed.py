@@ -1785,6 +1785,11 @@ class AblationTrainer:
         """Evaluate the best model (simplified version - implement full version as needed)."""
         logger.info("Evaluating best TB ablation model on all splits...")
         
+        # Clear GPU cache before evaluation to avoid OOM
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         # Load best model
         best_model_path = os.path.join(self.config.experiment_dir, "checkpoint_best.pth")
         if not os.path.exists(best_model_path):
@@ -1816,6 +1821,11 @@ class AblationTrainer:
                     + (f", TB Label f1: {summary_f1:.4f}" if summary_f1 is not None else "")
                     + (f", TB Label acc: {summary_acc:.4f}" if summary_acc is not None else "")
                 )
+            
+            # Clear GPU cache between splits to avoid OOM
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
     
     def resume_training_from_checkpoint(self, checkpoint_path):
         """Resume training from a checkpoint."""
