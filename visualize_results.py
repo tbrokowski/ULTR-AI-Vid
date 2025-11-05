@@ -573,11 +573,24 @@ def find_optimal_threshold_with_constraints(all_results: Dict, model_type: str,
     }
 
 def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str], 
-                                split: str = 'test') -> pd.DataFrame:
-    """Aggregate metrics across folds for all models."""
+                                split: str = 'test', 
+                                model_thresholds: Optional[Dict[str, float]] = None) -> pd.DataFrame:
+    """
+    Aggregate metrics across folds for all models.
+    
+    Args:
+        all_results: Dictionary containing all model results
+        model_types: List of model types to analyze
+        split: Dataset split to analyze
+        model_thresholds: Optional dict mapping model_type -> optimal threshold.
+                         If provided, metrics will be computed using these thresholds
+                         instead of the default 0.5 or pre-computed predictions.
+    """
     print(f"\n{'='*70}")
     print(f"CALCULATING CROSS-FOLD METRICS ({split.upper()} SPLIT)")
     print(f"{'='*70}")
+    if model_thresholds:
+        print(f"Using custom thresholds for models: {list(model_thresholds.keys())}")
     
     aggregated_results = []
     
@@ -611,9 +624,16 @@ def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str],
                     
                 y_true = patients_df.loc[valid_mask, 'tb_label'].values
                 y_prob = patients_df.loc[valid_mask, 'tb_prob'].values
-                y_pred = patients_df.loc[valid_mask, 'tb_pred'].values if 'tb_pred' in patients_df.columns else None
                 
-                metrics = calculate_comprehensive_metrics(y_true, y_prob, y_pred)
+                # Use custom threshold if provided, otherwise use default behavior
+                if model_thresholds and model_type in model_thresholds:
+                    threshold = model_thresholds[model_type]
+                    y_pred = (y_prob >= threshold).astype(int)
+                    metrics = calculate_comprehensive_metrics(y_true, y_prob, y_pred, threshold)
+                else:
+                    y_pred = patients_df.loc[valid_mask, 'tb_pred'].values if 'tb_pred' in patients_df.columns else None
+                    metrics = calculate_comprehensive_metrics(y_true, y_prob, y_pred)
+                
                 metrics['fold'] = fold
                 metrics['n_patients'] = len(y_true)
                 fold_metrics.append(metrics)
@@ -2296,12 +2316,19 @@ def create_statistical_significance_table(statistical_results: Dict, output_dir:
 # Data for report
 # =============================================================================
 
-def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output_dir: str, split: str = 'test') -> None:
+def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output_dir: str, split: str = 'test', threshold_results: Optional[Dict] = None) -> None:
     """
     Create LaTeX macros file with all relevant numbers for the report.
     
     Generates a .tex file with \newcommand macros containing model performance metrics
     that can be directly imported into a LaTeX report.
+    
+    Args:
+        metrics_df: DataFrame with aggregated metrics across folds
+        ensemble_results: Dictionary with pathology ensemble results
+        output_dir: Directory to save the LaTeX file
+        split: Dataset split being analyzed
+        threshold_results: Optional dict with optimal threshold information
     """
     print(f"\n{'='*70}")
     print(f"CREATING LATEX MACROS FILE")
@@ -2311,7 +2338,21 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     latex_commands.append("% LaTeX macros for model performance metrics")
     latex_commands.append(f"% Generated on: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
     latex_commands.append(f"% Split: {split}")
+    if threshold_results:
+        latex_commands.append(f"% Using optimal threshold: {threshold_results['threshold']:.4f} for {threshold_results['model']}")
+        latex_commands.append(f"% Threshold found on: {threshold_results['split']} set")
+        latex_commands.append(f"% Constraints: Sensitivity >= {threshold_results['min_sensitivity_constraint']:.2f}, Specificity >= {threshold_results['min_specificity_constraint']:.2f}")
     latex_commands.append("")
+    
+    # Add optimal threshold information if available
+    if threshold_results:
+        latex_commands.append("% Optimal threshold information")
+        latex_commands.append(f"\\newcommand{{\\OptimalThreshold}}{{{threshold_results['threshold']:.4f}}}")
+        latex_commands.append(f"\\newcommand{{\\OptimalThresholdModel}}{{{get_model_display_name(threshold_results['model'])}}}")
+        latex_commands.append(f"\\newcommand{{\\OptimalThresholdSplit}}{{{threshold_results['split'].upper()}}}")
+        if 'youden_j' in threshold_results:
+            latex_commands.append(f"\\newcommand{{\\OptimalThresholdYoudenJ}}{{{threshold_results['youden_j']:.4f}}}")
+        latex_commands.append("")
     
     # Add convenience macros for the specific table in the user's request
     latex_commands.append("% Convenience macros for architecture comparison table")
@@ -2553,23 +2594,10 @@ def main():
         print("❌ No results found. Please check the results directory structure.")
         return
     
-    # Calculate comprehensive metrics
-    metrics_df = aggregate_cross_fold_metrics(all_results, args.model_types, args.split)
-    
-    # Perform statistical analysis
-    statistical_results = perform_statistical_tests(all_results, args.model_types, args.split)
-    
-    # Select top performing models
-    auc_metrics = metrics_df[metrics_df['metric'] == 'auc'].sort_values('mean', ascending=False)
-    top_models = auc_metrics.head(args.top_n)['model'].tolist()
-    
-    print(f"\n🏆 Top {args.top_n} models by AUC:")
-    for i, model in enumerate(top_models, 1):
-        auc_data = auc_metrics[auc_metrics['model'] == model].iloc[0]
-        print(f"  {i}. {model}: {auc_data['mean']:.4f} (95% CI: {auc_data['ci_lower']:.4f}-{auc_data['ci_upper']:.4f})")
-    
-    # Find optimal threshold for specified model on validation set
+    # Find optimal threshold for specified model on validation set FIRST
+    # This allows us to use it when computing test set metrics
     threshold_results = None
+    optimal_threshold = None
     if args.find_threshold_model in all_results:
         threshold_results = find_optimal_threshold_with_constraints(
             all_results, 
@@ -2580,6 +2608,8 @@ def main():
         )
         
         if threshold_results:
+            optimal_threshold = threshold_results['threshold']
+            
             # Save threshold results
             threshold_output_path = os.path.join(args.output_dir, f'{args.find_threshold_model}_optimal_threshold.json')
             with open(threshold_output_path, 'w') as f:
@@ -2603,12 +2633,34 @@ def main():
                 json.dump(serializable_results, f, indent=2)
             
             print(f"\n📄 Optimal threshold results saved to: {threshold_output_path}")
+            print(f"✅ Using optimal threshold {optimal_threshold:.4f} for {args.find_threshold_model} metrics on {args.split} set")
             
             # Create visualization
             visualize_optimal_threshold(all_results, args.find_threshold_model, 
                                        threshold_results, args.output_dir, args.threshold_split)
     else:
         print(f"\n⚠ Warning: {args.find_threshold_model} not found in results")
+    
+    # Prepare model thresholds dictionary for metrics calculation
+    model_thresholds = {}
+    if optimal_threshold is not None:
+        model_thresholds[args.find_threshold_model] = optimal_threshold
+    
+    # Calculate comprehensive metrics using optimal threshold if available
+    metrics_df = aggregate_cross_fold_metrics(all_results, args.model_types, args.split, 
+                                              model_thresholds=model_thresholds)
+    
+    # Perform statistical analysis
+    statistical_results = perform_statistical_tests(all_results, args.model_types, args.split)
+    
+    # Select top performing models
+    auc_metrics = metrics_df[metrics_df['metric'] == 'auc'].sort_values('mean', ascending=False)
+    top_models = auc_metrics.head(args.top_n)['model'].tolist()
+    
+    print(f"\n🏆 Top {args.top_n} models by AUC:")
+    for i, model in enumerate(top_models, 1):
+        auc_data = auc_metrics[auc_metrics['model'] == model].iloc[0]
+        print(f"  {i}. {model}: {auc_data['mean']:.4f} (95% CI: {auc_data['ci_lower']:.4f}-{auc_data['ci_upper']:.4f})")
     
     # Create visualizations
     print(f"\n{'='*70}")
@@ -2679,7 +2731,7 @@ def main():
     print(f"\n{'='*70}")
     print("GENERATING LATEX MACROS FOR REPORT")
     print(f"{'='*70}")
-    create_latex_macros(metrics_df, ensemble_results, args.output_dir, args.split)
+    create_latex_macros(metrics_df, ensemble_results, args.output_dir, args.split, threshold_results)
     
     # Save summary report
     summary_data = {
@@ -2714,6 +2766,9 @@ def main():
         print(f"   • Optimal threshold analysis for {args.find_threshold_model} ({args.threshold_split} set)")
     print(f"📄 LaTeX report file:")
     print(f"   • model_metrics_macros_{args.split}.tex (macro definitions)")
+    if threshold_results and args.find_threshold_model in top_models:
+        print(f"   ⚠️  NOTE: Metrics for {args.find_threshold_model} computed using optimal threshold {threshold_results['threshold']:.4f}")
+        print(f"          (found on {args.threshold_split} set, applied to {args.split} set)")
     print(f"🏆 Best performing model: {top_models[0]} (AUC: {auc_metrics.iloc[0]['mean']:.4f})")
     if ensemble_results:
         print(f"🔬 Pathology ensemble models trained for {len(ensemble_results)} neural network models")
