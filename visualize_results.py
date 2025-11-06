@@ -108,6 +108,7 @@ MODEL_CURVE_COLORS = {
     '3dcnn': '#FFA500',                  # Orange
     'inception3d': '#FF8C00',            # Dark orange
     'vivit': '#FF6347',                  # Tomato (red)
+    'levit_attention': '#DC143C',        # Crimson (red)
 }
 
 # Model display name mapping: internal name -> display name
@@ -121,6 +122,7 @@ MODEL_DISPLAY_NAMES = {
     'inception3d': '3D-Inception',
     'vivit': 'Video Transformer',
     'r2plus1d': 'R2Plus1D',
+    'levit_attention': 'LeViT-Attention',
     'original': 'Original',
     'attention_pool': 'Attention Pool',
     'mean_pool': 'Mean Pool',
@@ -912,7 +914,8 @@ def create_pr_curves_with_ci(all_results: Dict, model_types: List[str],
         'cnnlstm',                # CNN-LSTM
         '3dcnn',                  # 3D-ResNet-18
         'inception3d',            # 3D-Inception
-        'vivit'                   # Video Transformer
+        'vivit',                   # Video Transformer
+        'levit_attention',         # LeViT-Attention
     ]
     
     # Filter to only include models that exist in all_results
