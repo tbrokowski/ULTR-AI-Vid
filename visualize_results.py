@@ -2372,6 +2372,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     # For each model in the table
     table_models = [
         ('attention_pool_extra3', "AttentionPoolBest"),
+        ('levit_attention', 'LeViTAttention'),
         ('cnnlstm', 'CNNLSTM'),
         ('3dcnn', 'ThreeDResNet'),
         ('inception3d', 'InceptionThreeD'),
@@ -2389,10 +2390,14 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 auc_mean = auc_data['mean'].iloc[0]
                 auc_std = auc_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}AUC}}{{{auc_mean:.2f} $\\pm$ {auc_std:.2f}}}"
+                    f"\\newcommand{{\\{latex_name}AUCMean}}{{{auc_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}AUCStd}}{{{auc_std:.2f}}}"
                 )
             else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}AUCMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}AUCStd}}{{TBU}}")
             
             # Get Sensitivity
             sens_data = model_data[model_data['metric'] == 'sensitivity']
@@ -2400,10 +2405,14 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 sens_mean = sens_data['mean'].iloc[0]
                 sens_std = sens_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}Sensitivity}}{{{sens_mean:.2f} $\\pm$ {sens_std:.2f}}}"
+                    f"\\newcommand{{\\{latex_name}SensitivityMean}}{{{sens_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SensitivityStd}}{{{sens_std:.2f}}}"
                 )
             else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU $\\pm$ TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityStd}}{{TBU}}")
             
             # Get Specificity
             spec_data = model_data[model_data['metric'] == 'specificity']
@@ -2411,15 +2420,22 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 spec_mean = spec_data['mean'].iloc[0]
                 spec_std = spec_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}Specificity}}{{{spec_mean:.2f} $\\pm$ {spec_std:.2f}}}"
+                    f"\\newcommand{{\\{latex_name}SpecificityMean}}{{{spec_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecificityStd}}{{{spec_std:.2f}}}"
                 )
             else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU $\\pm$ TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityStd}}{{TBU}}")
         else:
             # Model not found, use TBU
-            latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU $\\pm$ TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU $\\pm$ TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}AUCMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}AUCStd}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityStd}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityStd}}{{TBU}}")
         
         latex_commands.append("")
     
@@ -2475,21 +2491,30 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                             auc_std = best_results['std_auc']
                             
                             latex_commands.append(
-                                f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.2f} $\\pm$ {auc_std:.2f}}}"
+                                f"\\newcommand{{\\{macro_name}AUCMean}}{{{auc_mean:.2f}}}"
+                            )
+                            latex_commands.append(
+                                f"\\newcommand{{\\{macro_name}AUCStd}}{{{auc_std:.2f}}}"
                             )
                             
                             # Get AUPRC mean and std
                             auprc_mean = best_results.get('mean_auprc', 0)
                             auprc_std = best_results.get('std_auprc', 0)
                             latex_commands.append(
-                                f"\\newcommand{{\\{macro_name}AUPRC}}{{{auprc_mean:.2f} $\\pm$ {auprc_std:.2f}}}"
+                                f"\\newcommand{{\\{macro_name}AUPRCMean}}{{{auprc_mean:.2f}}}"
+                            )
+                            latex_commands.append(
+                                f"\\newcommand{{\\{macro_name}AUPRCStd}}{{{auprc_std:.2f}}}"
                             )
                             
                             # Get F1 mean and std
                             f1_mean = best_results['mean_f1']
                             f1_std = best_results['std_f1']
                             latex_commands.append(
-                                f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.2f} $\\pm$ {f1_std:.2f}}}"
+                                f"\\newcommand{{\\{macro_name}FoneMean}}{{{f1_mean:.2f}}}"
+                            )
+                            latex_commands.append(
+                                f"\\newcommand{{\\{macro_name}FoneStd}}{{{f1_std:.2f}}}"
                             )
                             latex_commands.append("")
                             
@@ -2504,9 +2529,12 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     all_required = ['Alines', 'OtherPathology', 'LargeConsolidations', 'PleuralEffusion']
     for pathology_name in all_required:
         if pathology_name not in added_pathologies:
-            latex_commands.append(f"\\newcommand{{\\{pathology_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
-            latex_commands.append(f"\\newcommand{{\\{pathology_name}AUPRC}}{{[TBU] $\\pm$ [TBU]}}")
-            latex_commands.append(f"\\newcommand{{\\{pathology_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}AUCMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}AUCStd}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}AUPRCMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}AUPRCStd}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}FoneMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}FoneStd}}{{TBU}}")
             latex_commands.append("")
 
     # Add macros for ablation study table
@@ -2530,12 +2558,17 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 auc_mean = auc_data['mean'].iloc[0]
                 auc_std = auc_data['std'].iloc[0]
                 latex_commands.append(
-                    f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.2f} $\\pm$ {auc_std:.2f}}}"
+                    f"\\newcommand{{\\{macro_name}AUCMean}}{{{auc_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{macro_name}AUCStd}}{{{auc_std:.2f}}}"
                 )
             else:
-                latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
+                latex_commands.append(f"\\newcommand{{\\{macro_name}AUCMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{macro_name}AUCStd}}{{TBU}}")
         else:
-            latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
+            latex_commands.append(f"\\newcommand{{\\{macro_name}AUCMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{macro_name}AUCStd}}{{TBU}}")
     
     latex_commands.append("")
 
