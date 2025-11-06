@@ -14,9 +14,9 @@ active_tasks:
 task_weights:
   TB Label: 1.0
 task_pos_weights:
-  TB Label: 1.4
+  TB Label: 2.0
 use_pathology_loss: true
-pathology_weight: 1.0
+pathology_weight: 1.2
 pathology_pos_weights:
 - 1.0
 - 4.0
@@ -50,7 +50,7 @@ mode: video
 pooling: attention
 model_name: ablation_LeVit_attention_pool_tb_classifier_fold3
 hidden_dim: 512
-dropout_rate: 0.3
+dropout_rate: 0.2
 num_classes: 1
 classification_type: binary
 backbone: levit_256
@@ -70,7 +70,7 @@ pathology_eta_min: 1.0e-06
 patient_pipeline_lr: 0.0001
 patient_pipeline_weight_decay: 1.0e-05
 patient_pipeline_eta_min: 1.0e-06
-pos_weight: 1.4
+pos_weight: 2.0
 eval_metric: auc
 eval_metric_goal: max
 early_stopping_patience: 20
