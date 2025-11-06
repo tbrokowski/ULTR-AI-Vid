@@ -9,6 +9,8 @@
 #SBATCH --time=0:59:59
 #SBATCH --environment /users/mbarbiere/.edf/run_ai.toml
 #SBATCH -A a127
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=mattia.barbiere@epfl.ch
 
 set -euo pipefail
 echo "START TIME: $(date)"
