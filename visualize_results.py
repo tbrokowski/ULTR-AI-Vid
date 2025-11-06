@@ -95,12 +95,15 @@ MODEL_COLORS = {
 }
 
 # Professional color palette for top models
-# HMV-MIL in black, others in distinct colors
-TOP_MODELS_COLORS = ['#000000', '#FFD700', '#FFA500', '#FF8C00', '#FF6347', '#DC143C']  # Black, Gold, Orange, Dark orange, Tomato, Crimson
+# HMV-MIL in dark blue, others in shades of yellow, orange, and red
+TOP_MODELS_COLORS = ['#00008B', '#FFD700', '#FFA500', '#FF8C00', '#FF6347', '#DC143C']  # Dark blue, Gold, Orange, Dark orange, Tomato, Crimson
 
 # Model-specific colors for ROC/PR curves
 MODEL_CURVE_COLORS = {
     'attention_pool_extra3': '#00008B',  # Dark blue for HMV-MIL
+    'mean_pool_extra3': '#FFD700',       # Gold
+    'singletask_extra3': '#FFA500',      # Orange
+    'uniform_extra3': '#FF8C00',         # Dark orange
     'cnnlstm': '#FFD700',                # Gold (yellow)
     '3dcnn': '#FFA500',                  # Orange
     'inception3d': '#FF8C00',            # Dark orange
@@ -563,7 +566,7 @@ def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str],
         optimal_thresholds = []
         
         for fold in all_results[model_type].keys():
-            # Find optimal threshold on validation set for this fold
+            # Find optimal threshold on validation set for this fold using Youden's J statistic
             optimal_threshold = 0.5  # Default
             if 'val' in all_results[model_type][fold]:
                 val_data = all_results[model_type][fold]['val']
@@ -575,14 +578,18 @@ def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str],
                             y_val_true = val_patients_df.loc[val_valid_mask, 'tb_label'].values
                             y_val_prob = val_patients_df.loc[val_valid_mask, 'tb_prob'].values
                             
-                            # Find threshold that maximizes F1 on validation set
+                            # Find threshold that maximizes Youden's J statistic on validation set
                             thresholds = np.linspace(0, 1, 101)
-                            best_f1 = 0
+                            best_youden_j = -1
                             for thresh in thresholds:
                                 y_val_pred = (y_val_prob >= thresh).astype(int)
-                                val_f1 = f1_score(y_val_true, y_val_pred, zero_division=0)
-                                if val_f1 > best_f1:
-                                    best_f1 = val_f1
+                                # Calculate Youden's J = Sensitivity + Specificity - 1
+                                tn, fp, fn, tp = confusion_matrix(y_val_true, y_val_pred, labels=[0, 1]).ravel()
+                                sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+                                specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+                                youden_j = sensitivity + specificity - 1
+                                if youden_j > best_youden_j:
+                                    best_youden_j = youden_j
                                     optimal_threshold = thresh
             
             optimal_thresholds.append(optimal_threshold)
@@ -623,9 +630,16 @@ def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str],
         # Print optimal threshold info
         if 'optimal_threshold' in fold_metrics[0]:
             thresholds = [m['optimal_threshold'] for m in fold_metrics]
+            sensitivities = [m['sensitivity'] for m in fold_metrics]
+            specificities = [m['specificity'] for m in fold_metrics]
+            f1_scores = [m['f1'] for m in fold_metrics]
             mean_threshold = np.mean(thresholds)
             std_threshold = np.std(thresholds, ddof=1) if len(thresholds) > 1 else 0
-            print(f"  Optimal threshold: {mean_threshold:.3f} ± {std_threshold:.3f}")
+            mean_sens = np.mean(sensitivities)
+            mean_spec = np.mean(specificities)
+            mean_f1 = np.mean(f1_scores)
+            print(f"  Optimal threshold (Youden's J): {mean_threshold:.3f} ± {std_threshold:.3f}")
+            print(f"  Test performance: Sens={mean_sens:.3f}, Spec={mean_spec:.3f}, F1={mean_f1:.3f}")
             
         # Calculate statistics across folds
         metrics_df = pd.DataFrame(fold_metrics)
@@ -762,12 +776,12 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
     print(f"{'='*50}")
     
     # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
-    # HMV-MIL (attention_pool_extra3) in black, others in distinct colors
+    # HMV-MIL (attention_pool_extra3) in dark blue, others in yellow/orange/red shades
     publication_models = [
-        'attention_pool_extra3',  # HMV-MIL (black)
+        'attention_pool_extra3',  # HMV-MIL (dark blue)
         'cnnlstm',                # CNN-LSTM
-        '3dcnn',                  # 3D-ResNet
-        'inception3d',            # Inception3D
+        '3dcnn',                  # 3D-ResNet-18
+        'inception3d',            # 3D-Inception
         'vivit'                   # Video Transformer
     ]
     
@@ -892,12 +906,12 @@ def create_pr_curves_with_ci(all_results: Dict, model_types: List[str],
     print(f"\nCreating PR curves ({split})...")
     
     # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
-    # HMV-MIL (attention_pool_extra3) in black, others in distinct colors
+    # HMV-MIL (attention_pool_extra3) in dark blue, others in yellow/orange/red shades
     publication_models = [
-        'attention_pool_extra3',  # HMV-MIL (black)
+        'attention_pool_extra3',  # HMV-MIL (dark blue)
         'cnnlstm',                # CNN-LSTM
-        '3dcnn',                  # 3D-ResNet
-        'inception3d',            # Inception3D
+        '3dcnn',                  # 3D-ResNet-18
+        'inception3d',            # 3D-Inception
         'vivit'                   # Video Transformer
     ]
     
@@ -1405,16 +1419,20 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                     else:
                         y_train_proba = model_copy.decision_function(X_train)
                     
-                    # Find optimal threshold on training data to maximize F1
+                    # Find optimal threshold on training data to maximize Youden's J statistic
                     thresholds = np.linspace(0, 1, 101)  # Test 101 thresholds from 0 to 1
-                    best_f1 = 0
+                    best_youden_j = -1
                     best_threshold = 0.5
                     
                     for threshold in thresholds:
                         y_train_pred = (y_train_proba >= threshold).astype(int)
-                        train_f1 = f1_score(y_train, y_train_pred, zero_division=0)
-                        if train_f1 > best_f1:
-                            best_f1 = train_f1
+                        # Calculate sensitivity and specificity
+                        tn, fp, fn, tp = confusion_matrix(y_train, y_train_pred, labels=[0, 1]).ravel()
+                        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+                        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+                        youden_j = sensitivity + specificity - 1
+                        if youden_j > best_youden_j:
+                            best_youden_j = youden_j
                             best_threshold = threshold
                     
                     # Predict on test set
@@ -1447,10 +1465,10 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                             'auprc': fold_auprc,
                             'f1': fold_f1,
                             'optimal_threshold': best_threshold,
-                            'train_f1_at_threshold': best_f1
+                            'train_youden_j_at_threshold': best_youden_j
                         })
                         
-                        print(f"          Fold {test_fold}: Optimal threshold = {best_threshold:.3f}, Test F1 = {fold_f1:.3f}")
+                        print(f"          Fold {test_fold}: Optimal threshold = {best_threshold:.3f} (Youden's J = {best_youden_j:.3f}), Test F1 = {fold_f1:.3f}, AUPRC = {fold_auprc:.3f}")
                     except ValueError as e:
                         print(f"          Error calculating metrics for fold {test_fold}: {e}")
                         continue
@@ -2373,17 +2391,6 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
             else:
                 latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
             
-            # Get F1 Score (computed with optimal threshold)
-            f1_data = model_data[model_data['metric'] == 'f1']
-            if len(f1_data) > 0:
-                f1_mean = f1_data['mean'].iloc[0]
-                f1_std = f1_data['std'].iloc[0]
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}Fone}}{{{f1_mean:.2f} $\\pm$ {f1_std:.2f}}}"
-                )
-            else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Fone}}{{TBU $\\pm$ TBU}}")
-            
             # Get Sensitivity
             sens_data = model_data[model_data['metric'] == 'sensitivity']
             if len(sens_data) > 0:
@@ -2408,7 +2415,6 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
         else:
             # Model not found, use TBU
             latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}Fone}}{{TBU $\\pm$ TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU $\\pm$ TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU $\\pm$ TBU}}")
         
@@ -2469,18 +2475,18 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                                 f"\\newcommand{{\\{macro_name}AUC}}{{{auc_mean:.2f} $\\pm$ {auc_std:.2f}}}"
                             )
                             
+                            # Get AUPRC mean and std
+                            auprc_mean = best_results.get('mean_auprc', 0)
+                            auprc_std = best_results.get('std_auprc', 0)
+                            latex_commands.append(
+                                f"\\newcommand{{\\{macro_name}AUPRC}}{{{auprc_mean:.2f} $\\pm$ {auprc_std:.2f}}}"
+                            )
+                            
                             # Get F1 mean and std
                             f1_mean = best_results['mean_f1']
                             f1_std = best_results['std_f1']
                             latex_commands.append(
                                 f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.2f} $\\pm$ {f1_std:.2f}}}"
-                            )
-                            
-                            # Get AUPRC mean and std
-                            auprc_mean = best_results.get('mean_auprc', 0.0)
-                            auprc_std = best_results.get('std_auprc', 0.0)
-                            latex_commands.append(
-                                f"\\newcommand{{\\{macro_name}AUPRC}}{{{auprc_mean:.2f} $\\pm$ {auprc_std:.2f}}}"
                             )
                             latex_commands.append("")
                             
@@ -2496,8 +2502,8 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     for pathology_name in all_required:
         if pathology_name not in added_pathologies:
             latex_commands.append(f"\\newcommand{{\\{pathology_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
-            latex_commands.append(f"\\newcommand{{\\{pathology_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
             latex_commands.append(f"\\newcommand{{\\{pathology_name}AUPRC}}{{[TBU] $\\pm$ [TBU]}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
             latex_commands.append("")
 
     # Add macros for ablation study table
@@ -2516,7 +2522,6 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
         model_data = metrics_df[metrics_df['model'] == model_name]
         
         if len(model_data) > 0:
-            # Get AUC
             auc_data = model_data[model_data['metric'] == 'auc']
             if len(auc_data) > 0:
                 auc_mean = auc_data['mean'].iloc[0]
@@ -2526,20 +2531,8 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 )
             else:
                 latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
-            
-            # Get F1 Score (computed with optimal threshold)
-            f1_data = model_data[model_data['metric'] == 'f1']
-            if len(f1_data) > 0:
-                f1_mean = f1_data['mean'].iloc[0]
-                f1_std = f1_data['std'].iloc[0]
-                latex_commands.append(
-                    f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.2f} $\\pm$ {f1_std:.2f}}}"
-                )
-            else:
-                latex_commands.append(f"\\newcommand{{\\{macro_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
         else:
             latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
-            latex_commands.append(f"\\newcommand{{\\{macro_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
     
     latex_commands.append("")
 
