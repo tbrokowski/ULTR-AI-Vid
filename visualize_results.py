@@ -2408,10 +2408,14 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                     f"\\newcommand{{\\{latex_name}SensitivityMean}}{{{sens_mean:.2f}}}"
                 )
                 latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SensitivityMeanPercentage}}{{{sens_mean*100:.0f}\\%}}"
+                )
+                latex_commands.append(
                     f"\\newcommand{{\\{latex_name}SensitivityStd}}{{{sens_std:.2f}}}"
                 )
             else:
                 latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityMeanPercentage}}{{TBU}}")
                 latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityStd}}{{TBU}}")
             
             # Get Specificity
@@ -2421,6 +2425,9 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 spec_std = spec_data['std'].iloc[0]
                 latex_commands.append(
                     f"\\newcommand{{\\{latex_name}SpecificityMean}}{{{spec_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecificityMeanPercentage}}{{{spec_mean*100:.0f}\\%}}"
                 )
                 latex_commands.append(
                     f"\\newcommand{{\\{latex_name}SpecificityStd}}{{{spec_std:.2f}}}"

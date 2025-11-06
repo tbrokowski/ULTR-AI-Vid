@@ -1,52 +1,100 @@
 % LaTeX macros for model performance metrics
-% Generated on: 2025-11-06 09:08:32
+% Generated on: 2025-11-06 18:55:43
 % Split: test
 
 % Convenience macros for architecture comparison table
 
-\newcommand{\AttentionPoolBestAUC}{0.89 $\pm$ 0.01}
-\newcommand{\AttentionPoolBestSensitivity}{0.69 $\pm$ 0.12}
-\newcommand{\AttentionPoolBestSpecificity}{0.93 $\pm$ 0.05}
+\newcommand{\AttentionPoolBestAUCMean}{0.89}
+\newcommand{\AttentionPoolBestAUCStd}{0.01}
+\newcommand{\AttentionPoolBestSensitivityMean}{0.69}
+\newcommand{\AttentionPoolBestSensitivityMeanPercentage}{69\%}
+\newcommand{\AttentionPoolBestSensitivityStd}{0.12}
+\newcommand{\AttentionPoolBestSpecificityMean}{0.93}
+\newcommand{\AttentionPoolBestSpecificityMeanPercentage}{93\%}
+\newcommand{\AttentionPoolBestSpecificityStd}{0.05}
 
-\newcommand{\CNNLSTMAUC}{0.64 $\pm$ 0.05}
-\newcommand{\CNNLSTMSensitivity}{0.88 $\pm$ 0.10}
-\newcommand{\CNNLSTMSpecificity}{0.28 $\pm$ 0.20}
+\newcommand{\LeViTAttentionAUCMean}{TBU}
+\newcommand{\LeViTAttentionAUCStd}{TBU}
+\newcommand{\LeViTAttentionSensitivityMean}{TBU}
+\newcommand{\LeViTAttentionSensitivityStd}{TBU}
+\newcommand{\LeViTAttentionSpecificityMean}{TBU}
+\newcommand{\LeViTAttentionSpecificityStd}{TBU}
 
-\newcommand{\ThreeDResNetAUC}{0.56 $\pm$ 0.07}
-\newcommand{\ThreeDResNetSensitivity}{0.34 $\pm$ 0.17}
-\newcommand{\ThreeDResNetSpecificity}{0.69 $\pm$ 0.16}
+\newcommand{\CNNLSTMAUCMean}{0.64}
+\newcommand{\CNNLSTMAUCStd}{0.05}
+\newcommand{\CNNLSTMSensitivityMean}{0.88}
+\newcommand{\CNNLSTMSensitivityMeanPercentage}{88\%}
+\newcommand{\CNNLSTMSensitivityStd}{0.10}
+\newcommand{\CNNLSTMSpecificityMean}{0.28}
+\newcommand{\CNNLSTMSpecificityMeanPercentage}{28\%}
+\newcommand{\CNNLSTMSpecificityStd}{0.20}
 
-\newcommand{\InceptionThreeDAUC}{0.55 $\pm$ 0.05}
-\newcommand{\InceptionThreeDSensitivity}{0.55 $\pm$ 0.41}
-\newcommand{\InceptionThreeDSpecificity}{0.51 $\pm$ 0.38}
+\newcommand{\ThreeDResNetAUCMean}{0.56}
+\newcommand{\ThreeDResNetAUCStd}{0.07}
+\newcommand{\ThreeDResNetSensitivityMean}{0.34}
+\newcommand{\ThreeDResNetSensitivityMeanPercentage}{34\%}
+\newcommand{\ThreeDResNetSensitivityStd}{0.17}
+\newcommand{\ThreeDResNetSpecificityMean}{0.69}
+\newcommand{\ThreeDResNetSpecificityMeanPercentage}{69\%}
+\newcommand{\ThreeDResNetSpecificityStd}{0.16}
 
-\newcommand{\VideoTransformerAUC}{0.74 $\pm$ 0.02}
-\newcommand{\VideoTransformerSensitivity}{0.65 $\pm$ 0.10}
-\newcommand{\VideoTransformerSpecificity}{0.71 $\pm$ 0.11}
+\newcommand{\InceptionThreeDAUCMean}{0.55}
+\newcommand{\InceptionThreeDAUCStd}{0.05}
+\newcommand{\InceptionThreeDSensitivityMean}{0.55}
+\newcommand{\InceptionThreeDSensitivityMeanPercentage}{55\%}
+\newcommand{\InceptionThreeDSensitivityStd}{0.41}
+\newcommand{\InceptionThreeDSpecificityMean}{0.51}
+\newcommand{\InceptionThreeDSpecificityMeanPercentage}{51\%}
+\newcommand{\InceptionThreeDSpecificityStd}{0.38}
+
+\newcommand{\VideoTransformerAUCMean}{0.74}
+\newcommand{\VideoTransformerAUCStd}{0.02}
+\newcommand{\VideoTransformerSensitivityMean}{0.65}
+\newcommand{\VideoTransformerSensitivityMeanPercentage}{65\%}
+\newcommand{\VideoTransformerSensitivityStd}{0.10}
+\newcommand{\VideoTransformerSpecificityMean}{0.71}
+\newcommand{\VideoTransformerSpecificityMeanPercentage}{71\%}
+\newcommand{\VideoTransformerSpecificityStd}{0.11}
 
 % Macros for pathology-specific metrics (best model: attention_pool_extra3)
 
-\newcommand{\AlinesAUC}{0.80 $\pm$ 0.01}
-\newcommand{\AlinesAUPRC}{0.75 $\pm$ 0.01}
-\newcommand{\AlinesFone}{0.71 $\pm$ 0.04}
+\newcommand{\AlinesAUCMean}{0.80}
+\newcommand{\AlinesAUCStd}{0.01}
+\newcommand{\AlinesAUPRCMean}{0.75}
+\newcommand{\AlinesAUPRCStd}{0.01}
+\newcommand{\AlinesFoneMean}{0.71}
+\newcommand{\AlinesFoneStd}{0.04}
 
-\newcommand{\LargeConsolidationsAUC}{0.92 $\pm$ 0.00}
-\newcommand{\LargeConsolidationsAUPRC}{0.62 $\pm$ 0.02}
-\newcommand{\LargeConsolidationsFone}{0.52 $\pm$ 0.05}
+\newcommand{\LargeConsolidationsAUCMean}{0.92}
+\newcommand{\LargeConsolidationsAUCStd}{0.00}
+\newcommand{\LargeConsolidationsAUPRCMean}{0.62}
+\newcommand{\LargeConsolidationsAUPRCStd}{0.02}
+\newcommand{\LargeConsolidationsFoneMean}{0.52}
+\newcommand{\LargeConsolidationsFoneStd}{0.05}
 
-\newcommand{\PleuralEffusionAUC}{0.83 $\pm$ 0.04}
-\newcommand{\PleuralEffusionAUPRC}{0.08 $\pm$ 0.04}
-\newcommand{\PleuralEffusionFone}{0.12 $\pm$ 0.05}
+\newcommand{\PleuralEffusionAUCMean}{0.83}
+\newcommand{\PleuralEffusionAUCStd}{0.04}
+\newcommand{\PleuralEffusionAUPRCMean}{0.08}
+\newcommand{\PleuralEffusionAUPRCStd}{0.04}
+\newcommand{\PleuralEffusionFoneMean}{0.12}
+\newcommand{\PleuralEffusionFoneStd}{0.05}
 
-\newcommand{\OtherPathologyAUC}{0.69 $\pm$ 0.02}
-\newcommand{\OtherPathologyAUPRC}{0.59 $\pm$ 0.02}
-\newcommand{\OtherPathologyFone}{0.59 $\pm$ 0.04}
+\newcommand{\OtherPathologyAUCMean}{0.69}
+\newcommand{\OtherPathologyAUCStd}{0.02}
+\newcommand{\OtherPathologyAUPRCMean}{0.59}
+\newcommand{\OtherPathologyAUPRCStd}{0.02}
+\newcommand{\OtherPathologyFoneMean}{0.59}
+\newcommand{\OtherPathologyFoneStd}{0.04}
 
 % Macros for ablation study table
 
-\newcommand{\FullModelAUC}{0.89 $\pm$ 0.01}
-\newcommand{\NoKeyframeAUC}{0.88 $\pm$ 0.02}
-\newcommand{\NoPathologyAUC}{0.88 $\pm$ 0.01}
-\newcommand{\UniformSamplingAUC}{0.87 $\pm$ 0.01}
+\newcommand{\FullModelAUCMean}{0.89}
+\newcommand{\FullModelAUCStd}{0.01}
+\newcommand{\NoKeyframeAUCMean}{0.88}
+\newcommand{\NoKeyframeAUCStd}{0.02}
+\newcommand{\NoPathologyAUCMean}{0.88}
+\newcommand{\NoPathologyAUCStd}{0.01}
+\newcommand{\UniformSamplingAUCMean}{0.87}
+\newcommand{\UniformSamplingAUCStd}{0.01}
 
 \newcommand{\AUCImprovementNoKeyframe}{0.01}
