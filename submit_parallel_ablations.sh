@@ -9,15 +9,15 @@ set -euo pipefail
 CONFIG_BASE_DIR="configs"
 
 declare -A ABLATIONS=(
- ## ["3d_cnn"]="3dcnn"
- ## ["cnn_lstm"]="cnnlstm"
- ## ["video_transformer"]="vivit"
+#  ["3d_cnn"]="3dcnn"
+#  ["cnn_lstm"]="cnnlstm"
+ ["video_transformer"]="vivit"
  ## ["original"]="original"
  ## ["original_noInitWeights"]="original_noInitWeights"
  ## ["attention_pool"]="attention_pool"
  ## ["attention_pool_noInitWeights"]="attention_pool_noInitWeights"
 #  ["mean_pool_extra3"]="mean_pool_extra3"
- ["single_task_extra3"]="singletask_extra3"
+#  ["single_task_extra3"]="singletask_extra3"
 #  ["uniform_extra3"]="uniform_extra3"
  ## ["no_rl_full_train"]="no_rl_full_train"
  # ["r2plus1d"]="r2plus1d"
@@ -31,7 +31,7 @@ declare -A ABLATIONS=(
 )
 
 # Which folds to run
-FOLDS=(1)
+FOLDS=(0 1 2 3 4)
 
 # SLURM runner that launches a *single* experiment on 1 node
 SLURM_SCRIPT="run_ablation_single_node.sh"
@@ -41,7 +41,7 @@ SUBMISSION_LOG_DIR="./ablation_results"
 mkdir -p "$SUBMISSION_LOG_DIR"
 
 # Cluster capacity model (edit to your cluster)
-TOTAL_NODES=8
+TOTAL_NODES=10
 GPUS_PER_NODE=4
 NODES_PER_EXPERIMENT=1
 GPUS_PER_EXPERIMENT=$GPUS_PER_NODE             # typically = GPUS_PER_NODE for 1 node/exp

@@ -37,11 +37,11 @@ task_weights:
 
 # Positive class weights for handling class imbalance
 task_pos_weights:
-  "TB Label": 1.4
+  "TB Label": 2.0  # FIXED: Increased from 1.4 to 2.0
 
 # Pathology prediction configuration
 use_pathology_loss: true
-pathology_weight: 0.9
+pathology_weight: 1.2  # FIXED: Increased from 0.9 to 1.2 (match working model)
 pathology_pos_weights: [1.0, 4.0, 15.0, 4.0]
 num_pathologies: 4
 pathology_classes:
@@ -65,7 +65,7 @@ video_folder: "LusBeninVideos"
 # Data loading parameters
 batch_size: 1  # Reduced for 3D CNN memory requirements
 num_workers: 6  # Reduced for 3D CNN
-frame_sampling: 16  # Reduced for 3D CNN - typically use fewer frames
+frame_sampling: 32  # FIXED: Increased to match working models
 depth_filter: "15"  # Options: 'all', '5', '15'
 
 # Image processing
@@ -91,13 +91,14 @@ model_name: "ablation_3d_cnn_tb_classifier_fold1"
 
 # Model dimensions
 hidden_dim: 512
-dropout_rate: 0.3
+dropout_rate: 0.2  # FIXED: Reduced from 0.3 to 0.2
 num_classes: 1  # Binary classification for each task
 classification_type: "binary"
 
 # 3D CNN backbone configuration
 backbone: "resnet3d"  # Using ResNet3D from torchvision
 freeze_backbone: false
+backbone_frozen: false  # FIXED: Explicitly unfreeze backbone
 pretrained: true
 
 # ==========================================
@@ -105,31 +106,31 @@ pretrained: true
 # ==========================================
 
 # Training schedule
-num_epochs: 25  # May need more epochs for 3D CNN
-accumulation_steps: 32  # Larger accumulation due to smaller batch size
+num_epochs: 100  # FIXED: Increased from 25 to 100 (was too short)
+accumulation_steps: 35  # FIXED: Match working model
 use_amp: true
 
-# Learning rates and weight decay - adjusted for 3D CNN
-learning_rate: 0.0001  # Higher LR for 3D CNN
-weight_decay: 0.0001
+# Learning rates and weight decay - FIXED: Much lower to prevent collapse
+learning_rate: 0.00003  # FIXED: Reduced from 0.0001 (was 3x too high)
+weight_decay: 0.00001  # FIXED: Reduced from 0.0001
 
-# Backbone parameters - 3D CNN specific
-backbone_lr: 0.0001  # Higher for 3D CNN
-backbone_weight_decay: 0.0001
-backbone_eta_min: 0.000001
+# Backbone parameters - FIXED: Critical - was 20x too high!
+backbone_lr: 0.000005  # FIXED: Reduced from 0.0001 (was causing collapse)
+backbone_weight_decay: 0.00001  # FIXED: Reduced from 0.0001
+backbone_eta_min: 0.0000005  # FIXED: Reduced from 0.000001
 
-# Pathology module parameters
-pathology_lr: 0.001  # Higher for simpler pathology modules
-pathology_weight_decay: 0.0001
-pathology_eta_min: 0.000001
+# Pathology module parameters - FIXED: Was way too high
+pathology_lr: 0.00001  # FIXED: Reduced from 0.001 (100x reduction!)
+pathology_weight_decay: 0.00001  # FIXED: Reduced from 0.0001
+pathology_eta_min: 0.0000005  # FIXED: Reduced from 0.000001
 
-# Patient pipeline parameters
-patient_pipeline_lr: 0.001  # Higher for patient pipeline
-patient_pipeline_weight_decay: 0.0001
-patient_pipeline_eta_min: 0.000001
+# Patient pipeline parameters - FIXED: Was way too high
+patient_pipeline_lr: 0.000012  # FIXED: Reduced from 0.001 (80x reduction!)
+patient_pipeline_weight_decay: 0.00001  # FIXED: Reduced from 0.0001
+patient_pipeline_eta_min: 0.0000005  # FIXED: Reduced from 0.000001
 
 # Loss configuration
-pos_weight: 1.4  # Default positive weight for binary classification
+pos_weight: 2.0  # FIXED: Increased from 1.4 to match working model
 
 # ==========================================
 # EVALUATION CONFIGURATION
@@ -138,7 +139,7 @@ pos_weight: 1.4  # Default positive weight for binary classification
 # Evaluation metrics and early stopping
 eval_metric: "auc"  # Primary metric for model selection
 eval_metric_goal: "max"  # 'max' or 'min'
-early_stopping_patience: 10  # Longer patience for 3D CNN
+early_stopping_patience: 30  # FIXED: Increased from 10 to 30 for slower learning
 
 # ==========================================
 # DIRECTORIES

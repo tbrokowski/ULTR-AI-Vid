@@ -36,11 +36,11 @@ task_weights:
 
 # Positive class weights for handling class imbalance
 task_pos_weights:
-  "TB Label": 1.4
+  "TB Label": 2.0
 
 # Pathology prediction configuration
 use_pathology_loss: true
-pathology_weight: 0.9
+pathology_weight: 1.2
 pathology_pos_weights: [1.0, 4.0, 15.0, 4.0]
 num_pathologies: 4
 pathology_classes:
@@ -64,7 +64,7 @@ video_folder: "LusBeninVideos"
 # Data loading parameters
 batch_size: 2
 num_workers: 6
-frame_sampling: 16  # CNN-LSTM can handle more frames
+frame_sampling: 32  # CNN-LSTM can handle more frames
 depth_filter: "15"  # Options: 'all', '5', '15'
 
 # Image processing
@@ -104,31 +104,31 @@ pretrained: true
 # ==========================================
 
 # Training schedule
-num_epochs: 20
-accumulation_steps: 8
+num_epochs: 200
+accumulation_steps: 35
 use_amp: true
 
 # Learning rates and weight decay
-learning_rate: 0.0001  # Slightly higher for CNN-LSTM
-weight_decay: 0.0001
+learning_rate: 0.00002
+weight_decay: 0.00001
 
 # Backbone parameters
-backbone_lr: 0.0001  # Higher for CNN-LSTM
-backbone_weight_decay: 0.0001
-backbone_eta_min: 0.000001
+backbone_lr: 0.000005
+backbone_weight_decay: 0.00001
+backbone_eta_min: 0.0000005
 
 # Pathology module parameters
-pathology_lr: 0.0001
+pathology_lr: 0.00001
 pathology_weight_decay: 0.00001
-pathology_eta_min: 0.000001
+pathology_eta_min: 0.0000005
 
 # Patient pipeline parameters
-patient_pipeline_lr: 0.001
+patient_pipeline_lr: 0.000012
 patient_pipeline_weight_decay: 0.00001
-patient_pipeline_eta_min: 0.000001
+patient_pipeline_eta_min: 0.0000005
 
 # Loss configuration
-pos_weight: 1.4  # Default positive weight for binary classification
+pos_weight: 2.0  # Default positive weight for binary classification
 
 # ==========================================
 # EVALUATION CONFIGURATION
@@ -137,7 +137,7 @@ pos_weight: 1.4  # Default positive weight for binary classification
 # Evaluation metrics and early stopping
 eval_metric: "auc"  # Primary metric for model selection
 eval_metric_goal: "max"  # 'max' or 'min'
-early_stopping_patience: 8
+early_stopping_patience: 50
 
 # ==========================================
 # DIRECTORIES

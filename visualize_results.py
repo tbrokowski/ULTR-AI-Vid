@@ -95,19 +95,16 @@ MODEL_COLORS = {
 }
 
 # Professional color palette for top models
-# HMV-MIL in dark blue, others in shades of yellow, orange, and red
-TOP_MODELS_COLORS = ['#00008B', '#FFD700', '#FFA500', '#FF8C00', '#FF6347', '#DC143C']  # Dark blue, Gold, Orange, Dark orange, Tomato, Crimson
+# HMV-MIL in black, others in distinct colors
+TOP_MODELS_COLORS = ['#000000', '#FFD700', '#FFA500', '#FF8C00', '#FF6347', '#DC143C']  # Black, Gold, Orange, Dark orange, Tomato, Crimson
 
 # Model-specific colors for ROC/PR curves
 MODEL_CURVE_COLORS = {
     'attention_pool_extra3': '#00008B',  # Dark blue for HMV-MIL
-    'mean_pool_extra3': '#FFD700',       # Gold
-    'singletask_extra3': '#FFA500',      # Orange
-    'uniform_extra3': '#FF8C00',         # Dark orange
-    'cnnlstm': '#FF6347',                # Tomato
-    '3dcnn': '#DC143C',                  # Crimson
-    'inception3d': '#FF4500',            # Orange red
-    'vivit': '#FF1493',                  # Deep pink
+    'cnnlstm': '#FFD700',                # Gold (yellow)
+    '3dcnn': '#FFA500',                  # Orange
+    'inception3d': '#FF8C00',            # Dark orange
+    'vivit': '#FF6347',                  # Tomato (red)
 }
 
 # Model display name mapping: internal name -> display name
@@ -117,8 +114,8 @@ MODEL_DISPLAY_NAMES = {
     'singletask_extra3': 'NoPathology',
     'uniform_extra3': 'UniformSampling',
     'cnnlstm': 'CNN-LSTM',
-    '3dcnn': '3D-ResNet',
-    'inception3d': 'Inception3D',
+    '3dcnn': '3D-ResNet-18',
+    'inception3d': '3D-Inception',
     'vivit': 'Video Transformer',
     'r2plus1d': 'R2Plus1D',
     'original': 'Original',
@@ -141,33 +138,6 @@ PATHOLOGY_DISPLAY_NAMES = {
 def get_pathology_display_name(internal_name: str) -> str:
     """Get the display name for a pathology, fallback to title case of internal name."""
     return PATHOLOGY_DISPLAY_NAMES.get(internal_name, internal_name.replace('_', ' ').title())
-
-
-def _find_model_in_metrics(metrics_df: pd.DataFrame, internal_name: str) -> Tuple[pd.DataFrame, Optional[str]]:
-    """Try to find a model in metrics_df using several common name variants.
-
-    Returns (model_data_df, resolved_name) where model_data_df may be empty if not found.
-    This helps handle inconsistent naming like 'cnn_lstm' vs 'cnnlstm' or '3d_cnn' vs '3dcnn'.
-    """
-    variants = [
-        internal_name,
-        internal_name.replace('_', ''),
-        internal_name.replace('_', '-'),
-        internal_name.replace('-', '_'),
-        internal_name.lower(),
-        internal_name.upper(),
-    ]
-
-    # Deduplicate while preserving order
-    seen = set()
-    variants = [v for v in variants if not (v in seen or seen.add(v))]
-
-    for v in variants:
-        model_data = metrics_df[metrics_df['model'] == v]
-        if len(model_data) > 0:
-            return model_data, v
-
-    return pd.DataFrame(), None
 
 # =============================================================================
 # DATA LOADING AND PROCESSING
@@ -573,24 +543,11 @@ def find_optimal_threshold_with_constraints(all_results: Dict, model_type: str,
     }
 
 def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str], 
-                                split: str = 'test', 
-                                model_thresholds: Optional[Dict[str, float]] = None) -> pd.DataFrame:
-    """
-    Aggregate metrics across folds for all models.
-    
-    Args:
-        all_results: Dictionary containing all model results
-        model_types: List of model types to analyze
-        split: Dataset split to analyze
-        model_thresholds: Optional dict mapping model_type -> optimal threshold.
-                         If provided, metrics will be computed using these thresholds
-                         instead of the default 0.5 or pre-computed predictions.
-    """
+                                split: str = 'test') -> pd.DataFrame:
+    """Aggregate metrics across folds for all models."""
     print(f"\n{'='*70}")
     print(f"CALCULATING CROSS-FOLD METRICS ({split.upper()} SPLIT)")
     print(f"{'='*70}")
-    if model_thresholds:
-        print(f"Using custom thresholds for models: {list(model_thresholds.keys())}")
     
     aggregated_results = []
     
@@ -603,8 +560,33 @@ def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str],
         
         # Collect metrics from all folds
         fold_metrics = []
+        optimal_thresholds = []
         
         for fold in all_results[model_type].keys():
+            # Find optimal threshold on validation set for this fold
+            optimal_threshold = 0.5  # Default
+            if 'val' in all_results[model_type][fold]:
+                val_data = all_results[model_type][fold]['val']
+                if 'patients' in val_data:
+                    val_patients_df = val_data['patients']
+                    if 'tb_label' in val_patients_df.columns and 'tb_prob' in val_patients_df.columns:
+                        val_valid_mask = val_patients_df['tb_label'] >= 0
+                        if val_valid_mask.sum() > 0:
+                            y_val_true = val_patients_df.loc[val_valid_mask, 'tb_label'].values
+                            y_val_prob = val_patients_df.loc[val_valid_mask, 'tb_prob'].values
+                            
+                            # Find threshold that maximizes F1 on validation set
+                            thresholds = np.linspace(0, 1, 101)
+                            best_f1 = 0
+                            for thresh in thresholds:
+                                y_val_pred = (y_val_prob >= thresh).astype(int)
+                                val_f1 = f1_score(y_val_true, y_val_pred, zero_division=0)
+                                if val_f1 > best_f1:
+                                    best_f1 = val_f1
+                                    optimal_threshold = thresh
+            
+            optimal_thresholds.append(optimal_threshold)
+            
             if split not in all_results[model_type][fold]:
                 continue
                 
@@ -625,28 +607,31 @@ def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str],
                 y_true = patients_df.loc[valid_mask, 'tb_label'].values
                 y_prob = patients_df.loc[valid_mask, 'tb_prob'].values
                 
-                # Use custom threshold if provided, otherwise use default behavior
-                if model_thresholds and model_type in model_thresholds:
-                    threshold = model_thresholds[model_type]
-                    y_pred = (y_prob >= threshold).astype(int)
-                    metrics = calculate_comprehensive_metrics(y_true, y_prob, y_pred, threshold)
-                else:
-                    y_pred = patients_df.loc[valid_mask, 'tb_pred'].values if 'tb_pred' in patients_df.columns else None
-                    metrics = calculate_comprehensive_metrics(y_true, y_prob, y_pred)
+                # Use optimal threshold found on validation set
+                y_pred = (y_prob >= optimal_threshold).astype(int)
                 
+                metrics = calculate_comprehensive_metrics(y_true, y_prob, y_pred, threshold=optimal_threshold)
                 metrics['fold'] = fold
                 metrics['n_patients'] = len(y_true)
+                metrics['optimal_threshold'] = optimal_threshold
                 fold_metrics.append(metrics)
         
         if not fold_metrics:
             print(f"  No valid data found for {model_type}")
             continue
+        
+        # Print optimal threshold info
+        if 'optimal_threshold' in fold_metrics[0]:
+            thresholds = [m['optimal_threshold'] for m in fold_metrics]
+            mean_threshold = np.mean(thresholds)
+            std_threshold = np.std(thresholds, ddof=1) if len(thresholds) > 1 else 0
+            print(f"  Optimal threshold: {mean_threshold:.3f} ± {std_threshold:.3f}")
             
         # Calculate statistics across folds
         metrics_df = pd.DataFrame(fold_metrics)
         
         for metric in metrics_df.columns:
-            if metric in ['fold', 'n_patients']:
+            if metric in ['fold', 'n_patients', 'optimal_threshold']:
                 continue
                 
             values = metrics_df[metric].values
@@ -776,12 +761,19 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
     print(f"CREATING ROC CURVES ({split.upper()})")
     print(f"{'='*50}")
     
-    # If top_n specified, select top performing models
-    if top_n is not None:
-        metrics_df = aggregate_cross_fold_metrics(all_results, model_types, split)
-        auc_metrics = metrics_df[metrics_df['metric'] == 'auc'].sort_values('mean', ascending=False)
-        model_types = auc_metrics.head(top_n)['model'].tolist()
-        print(f"Selected top {top_n} models: {model_types}")
+    # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
+    # HMV-MIL (attention_pool_extra3) in black, others in distinct colors
+    publication_models = [
+        'attention_pool_extra3',  # HMV-MIL (black)
+        'cnnlstm',                # CNN-LSTM
+        '3dcnn',                  # 3D-ResNet
+        'inception3d',            # Inception3D
+        'vivit'                   # Video Transformer
+    ]
+    
+    # Filter to only include models that exist in all_results
+    model_types = [m for m in publication_models if m in all_results]
+    print(f"Plotting models: {[get_model_display_name(m) for m in model_types]}")
     
     setup_publication_style()
     fig, ax = plt.subplots(figsize=(12, 10))
@@ -899,10 +891,19 @@ def create_pr_curves_with_ci(all_results: Dict, model_types: List[str],
     """Create precision-recall curves with confidence intervals."""
     print(f"\nCreating PR curves ({split})...")
     
-    if top_n is not None:
-        metrics_df = aggregate_cross_fold_metrics(all_results, model_types, split)
-        auprc_metrics = metrics_df[metrics_df['metric'] == 'auprc'].sort_values('mean', ascending=False)
-        model_types = auprc_metrics.head(top_n)['model'].tolist()
+    # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
+    # HMV-MIL (attention_pool_extra3) in black, others in distinct colors
+    publication_models = [
+        'attention_pool_extra3',  # HMV-MIL (black)
+        'cnnlstm',                # CNN-LSTM
+        '3dcnn',                  # 3D-ResNet
+        'inception3d',            # Inception3D
+        'vivit'                   # Video Transformer
+    ]
+    
+    # Filter to only include models that exist in all_results
+    model_types = [m for m in publication_models if m in all_results]
+    print(f"Plotting models: {[get_model_display_name(m) for m in model_types]}")
     
     setup_publication_style()
     fig, ax = plt.subplots(figsize=(12, 10))
@@ -1429,6 +1430,7 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                     # Calculate metrics
                     try:
                         fold_auc = roc_auc_score(y_test, y_pred_proba)
+                        fold_auprc = average_precision_score(y_test, y_pred_proba)
                         
                         # Use the optimal threshold found on training data
                         y_pred = (y_pred_proba >= best_threshold).astype(int)
@@ -1442,6 +1444,7 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                             'y_pred_proba': y_pred_proba,
                             'y_pred': y_pred,
                             'auc': fold_auc,
+                            'auprc': fold_auprc,
                             'f1': fold_f1,
                             'optimal_threshold': best_threshold,
                             'train_f1_at_threshold': best_f1
@@ -1461,6 +1464,11 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                     mean_f1 = np.mean(f1_scores)
                     std_f1 = np.std(f1_scores, ddof=1) if len(f1_scores) > 1 else 0
                     
+                    # Calculate AUPRC statistics
+                    auprc_scores = [pred['auprc'] for pred in fold_predictions]
+                    mean_auprc = np.mean(auprc_scores)
+                    std_auprc = np.std(auprc_scores, ddof=1) if len(auprc_scores) > 1 else 0
+                    
                     # Calculate optimal threshold statistics
                     optimal_thresholds = [pred['optimal_threshold'] for pred in fold_predictions]
                     mean_threshold = np.mean(optimal_thresholds)
@@ -1471,10 +1479,13 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                         'std_auc': std_auc,
                         'mean_f1': mean_f1,
                         'std_f1': std_f1,
+                        'mean_auprc': mean_auprc,
+                        'std_auprc': std_auprc,
                         'mean_threshold': mean_threshold,
                         'std_threshold': std_threshold,
                         'fold_scores': fold_scores,
                         'f1_scores': f1_scores,
+                        'auprc_scores': auprc_scores,
                         'optimal_thresholds': optimal_thresholds,
                         'fold_predictions': fold_predictions,
                         'feature_names': feature_cols,
@@ -1482,7 +1493,7 @@ def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                         'class_distribution': np.bincount(y).tolist()
                     }
                     
-                    print(f"          {ml_name}: AUC = {mean_auc:.3f} ± {std_auc:.3f}, F1 = {mean_f1:.3f} ± {std_f1:.3f}, Threshold = {mean_threshold:.3f} ± {std_threshold:.3f}")
+                    print(f"          {ml_name}: AUC = {mean_auc:.3f} ± {std_auc:.3f}, AUPRC = {mean_auprc:.3f} ± {std_auprc:.3f}, F1 = {mean_f1:.3f} ± {std_f1:.3f}, Threshold = {mean_threshold:.3f} ± {std_threshold:.3f}")
             
             if fold_results:
                 model_ensemble_results[pathology] = fold_results
@@ -2316,19 +2327,12 @@ def create_statistical_significance_table(statistical_results: Dict, output_dir:
 # Data for report
 # =============================================================================
 
-def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output_dir: str, split: str = 'test', threshold_results: Optional[Dict] = None) -> None:
+def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output_dir: str, split: str = 'test') -> None:
     """
     Create LaTeX macros file with all relevant numbers for the report.
     
     Generates a .tex file with \newcommand macros containing model performance metrics
     that can be directly imported into a LaTeX report.
-    
-    Args:
-        metrics_df: DataFrame with aggregated metrics across folds
-        ensemble_results: Dictionary with pathology ensemble results
-        output_dir: Directory to save the LaTeX file
-        split: Dataset split being analyzed
-        threshold_results: Optional dict with optimal threshold information
     """
     print(f"\n{'='*70}")
     print(f"CREATING LATEX MACROS FILE")
@@ -2338,21 +2342,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     latex_commands.append("% LaTeX macros for model performance metrics")
     latex_commands.append(f"% Generated on: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}")
     latex_commands.append(f"% Split: {split}")
-    if threshold_results:
-        latex_commands.append(f"% Using optimal threshold: {threshold_results['threshold']:.4f} for {threshold_results['model']}")
-        latex_commands.append(f"% Threshold found on: {threshold_results['split']} set")
-        latex_commands.append(f"% Constraints: Sensitivity >= {threshold_results['min_sensitivity_constraint']:.2f}, Specificity >= {threshold_results['min_specificity_constraint']:.2f}")
     latex_commands.append("")
-    
-    # Add optimal threshold information if available
-    if threshold_results:
-        latex_commands.append("% Optimal threshold information")
-        latex_commands.append(f"\\newcommand{{\\OptimalThreshold}}{{{threshold_results['threshold']:.4f}}}")
-        latex_commands.append(f"\\newcommand{{\\OptimalThresholdModel}}{{{get_model_display_name(threshold_results['model'])}}}")
-        latex_commands.append(f"\\newcommand{{\\OptimalThresholdSplit}}{{{threshold_results['split'].upper()}}}")
-        if 'youden_j' in threshold_results:
-            latex_commands.append(f"\\newcommand{{\\OptimalThresholdYoudenJ}}{{{threshold_results['youden_j']:.4f}}}")
-        latex_commands.append("")
     
     # Add convenience macros for the specific table in the user's request
     latex_commands.append("% Convenience macros for architecture comparison table")
@@ -2368,8 +2358,8 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     ]
     
     for internal_name, latex_name in table_models:
-        # Check if this model exists in the data; try common name variants
-        model_data, resolved_name = _find_model_in_metrics(metrics_df, internal_name)
+        # Check if this model exists in the data
+        model_data = metrics_df[metrics_df['model'] == internal_name]
         
         if len(model_data) > 0:
             # Get AUC
@@ -2382,6 +2372,17 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 )
             else:
                 latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
+            
+            # Get F1 Score (computed with optimal threshold)
+            f1_data = model_data[model_data['metric'] == 'f1']
+            if len(f1_data) > 0:
+                f1_mean = f1_data['mean'].iloc[0]
+                f1_std = f1_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}Fone}}{{{f1_mean:.2f} $\\pm$ {f1_std:.2f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Fone}}{{TBU $\\pm$ TBU}}")
             
             # Get Sensitivity
             sens_data = model_data[model_data['metric'] == 'sensitivity']
@@ -2407,6 +2408,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
         else:
             # Model not found, use TBU
             latex_commands.append(f"\\newcommand{{\\{latex_name}AUC}}{{TBU $\\pm$ TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Fone}}{{TBU $\\pm$ TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}Sensitivity}}{{TBU $\\pm$ TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}Specificity}}{{TBU $\\pm$ TBU}}")
         
@@ -2473,10 +2475,17 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                             latex_commands.append(
                                 f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.2f} $\\pm$ {f1_std:.2f}}}"
                             )
+                            
+                            # Get AUPRC mean and std
+                            auprc_mean = best_results.get('mean_auprc', 0.0)
+                            auprc_std = best_results.get('std_auprc', 0.0)
+                            latex_commands.append(
+                                f"\\newcommand{{\\{macro_name}AUPRC}}{{{auprc_mean:.2f} $\\pm$ {auprc_std:.2f}}}"
+                            )
                             latex_commands.append("")
                             
                             added_pathologies.add(macro_name)
-                            print(f"  ✓ {display_name}: Using {best_method} (AUC: {auc_mean:.2f})")
+                            print(f"  ✓ {display_name}: Using {best_method} (AUC: {auc_mean:.2f}, AUPRC: {auprc_mean:.2f})")
         except Exception as e:
             print(f"  ⚠ Warning: Could not load pathology JSON file: {e}")
     else:
@@ -2488,6 +2497,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
         if pathology_name not in added_pathologies:
             latex_commands.append(f"\\newcommand{{\\{pathology_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
             latex_commands.append(f"\\newcommand{{\\{pathology_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
+            latex_commands.append(f"\\newcommand{{\\{pathology_name}AUPRC}}{{[TBU] $\\pm$ [TBU]}}")
             latex_commands.append("")
 
     # Add macros for ablation study table
@@ -2503,10 +2513,10 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     }
     
     for macro_name, model_name in ablation_mapping.items():
-        # Try variants for robustness (e.g., 'mean_pool_extra3' vs 'meanpoolextra3')
-        model_data, resolved_name = _find_model_in_metrics(metrics_df, model_name)
+        model_data = metrics_df[metrics_df['model'] == model_name]
         
         if len(model_data) > 0:
+            # Get AUC
             auc_data = model_data[model_data['metric'] == 'auc']
             if len(auc_data) > 0:
                 auc_mean = auc_data['mean'].iloc[0]
@@ -2516,8 +2526,20 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 )
             else:
                 latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
+            
+            # Get F1 Score (computed with optimal threshold)
+            f1_data = model_data[model_data['metric'] == 'f1']
+            if len(f1_data) > 0:
+                f1_mean = f1_data['mean'].iloc[0]
+                f1_std = f1_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{macro_name}Fone}}{{{f1_mean:.2f} $\\pm$ {f1_std:.2f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{macro_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
         else:
             latex_commands.append(f"\\newcommand{{\\{macro_name}AUC}}{{[TBU] $\\pm$ [TBU]}}")
+            latex_commands.append(f"\\newcommand{{\\{macro_name}Fone}}{{[TBU] $\\pm$ [TBU]}}")
     
     latex_commands.append("")
 
@@ -2594,10 +2616,23 @@ def main():
         print("❌ No results found. Please check the results directory structure.")
         return
     
-    # Find optimal threshold for specified model on validation set FIRST
-    # This allows us to use it when computing test set metrics
+    # Calculate comprehensive metrics
+    metrics_df = aggregate_cross_fold_metrics(all_results, args.model_types, args.split)
+    
+    # Perform statistical analysis
+    statistical_results = perform_statistical_tests(all_results, args.model_types, args.split)
+    
+    # Select top performing models
+    auc_metrics = metrics_df[metrics_df['metric'] == 'auc'].sort_values('mean', ascending=False)
+    top_models = auc_metrics.head(args.top_n)['model'].tolist()
+    
+    print(f"\n🏆 Top {args.top_n} models by AUC:")
+    for i, model in enumerate(top_models, 1):
+        auc_data = auc_metrics[auc_metrics['model'] == model].iloc[0]
+        print(f"  {i}. {model}: {auc_data['mean']:.4f} (95% CI: {auc_data['ci_lower']:.4f}-{auc_data['ci_upper']:.4f})")
+    
+    # Find optimal threshold for specified model on validation set
     threshold_results = None
-    optimal_threshold = None
     if args.find_threshold_model in all_results:
         threshold_results = find_optimal_threshold_with_constraints(
             all_results, 
@@ -2608,8 +2643,6 @@ def main():
         )
         
         if threshold_results:
-            optimal_threshold = threshold_results['threshold']
-            
             # Save threshold results
             threshold_output_path = os.path.join(args.output_dir, f'{args.find_threshold_model}_optimal_threshold.json')
             with open(threshold_output_path, 'w') as f:
@@ -2633,34 +2666,12 @@ def main():
                 json.dump(serializable_results, f, indent=2)
             
             print(f"\n📄 Optimal threshold results saved to: {threshold_output_path}")
-            print(f"✅ Using optimal threshold {optimal_threshold:.4f} for {args.find_threshold_model} metrics on {args.split} set")
             
             # Create visualization
             visualize_optimal_threshold(all_results, args.find_threshold_model, 
                                        threshold_results, args.output_dir, args.threshold_split)
     else:
         print(f"\n⚠ Warning: {args.find_threshold_model} not found in results")
-    
-    # Prepare model thresholds dictionary for metrics calculation
-    model_thresholds = {}
-    if optimal_threshold is not None:
-        model_thresholds[args.find_threshold_model] = optimal_threshold
-    
-    # Calculate comprehensive metrics using optimal threshold if available
-    metrics_df = aggregate_cross_fold_metrics(all_results, args.model_types, args.split, 
-                                              model_thresholds=model_thresholds)
-    
-    # Perform statistical analysis
-    statistical_results = perform_statistical_tests(all_results, args.model_types, args.split)
-    
-    # Select top performing models
-    auc_metrics = metrics_df[metrics_df['metric'] == 'auc'].sort_values('mean', ascending=False)
-    top_models = auc_metrics.head(args.top_n)['model'].tolist()
-    
-    print(f"\n🏆 Top {args.top_n} models by AUC:")
-    for i, model in enumerate(top_models, 1):
-        auc_data = auc_metrics[auc_metrics['model'] == model].iloc[0]
-        print(f"  {i}. {model}: {auc_data['mean']:.4f} (95% CI: {auc_data['ci_lower']:.4f}-{auc_data['ci_upper']:.4f})")
     
     # Create visualizations
     print(f"\n{'='*70}")
@@ -2731,7 +2742,7 @@ def main():
     print(f"\n{'='*70}")
     print("GENERATING LATEX MACROS FOR REPORT")
     print(f"{'='*70}")
-    create_latex_macros(metrics_df, ensemble_results, args.output_dir, args.split, threshold_results)
+    create_latex_macros(metrics_df, ensemble_results, args.output_dir, args.split)
     
     # Save summary report
     summary_data = {
@@ -2766,9 +2777,6 @@ def main():
         print(f"   • Optimal threshold analysis for {args.find_threshold_model} ({args.threshold_split} set)")
     print(f"📄 LaTeX report file:")
     print(f"   • model_metrics_macros_{args.split}.tex (macro definitions)")
-    if threshold_results and args.find_threshold_model in top_models:
-        print(f"   ⚠️  NOTE: Metrics for {args.find_threshold_model} computed using optimal threshold {threshold_results['threshold']:.4f}")
-        print(f"          (found on {args.threshold_split} set, applied to {args.split} set)")
     print(f"🏆 Best performing model: {top_models[0]} (AUC: {auc_metrics.iloc[0]['mean']:.4f})")
     if ensemble_results:
         print(f"🔬 Pathology ensemble models trained for {len(ensemble_results)} neural network models")

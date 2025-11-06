@@ -31,7 +31,7 @@ MODEL_TYPES=(
     # "Efficientnet-RL"
     "original_noInitWeights"
     "original"
-    "original_test"
+    # "original_test"
     "vivit"
     
 )
