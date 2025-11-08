@@ -9,7 +9,7 @@ set -euo pipefail
 CONFIG_BASE_DIR="configs"
 
 declare -A ABLATIONS=(
-#  ["3d_cnn"]="3dcnn"
+#  ["3d_cnn_extra"]="3dcnn_extra"
 #  ["cnn_lstm"]="cnnlstm"
 #  ["video_transformer"]="vivit"
  ## ["original"]="original"
@@ -21,7 +21,7 @@ declare -A ABLATIONS=(
 #  ["uniform_extra3"]="uniform_extra3"
  ## ["no_rl_full_train"]="no_rl_full_train"
  # ["r2plus1d"]="r2plus1d"
- ## ["inception3d"]="inception3d"
+#  ["inception3d"]="inception3d"
  # ["Efficientnet_RL"]="Efficientnet-RL"
  ["LeViT_Attention"]="LeViT-Attention"
   # ["LeViT_RL"]="LeViT-RL"
@@ -41,7 +41,7 @@ SUBMISSION_LOG_DIR="./ablation_results"
 mkdir -p "$SUBMISSION_LOG_DIR"
 
 # Cluster capacity model (edit to your cluster)
-TOTAL_NODES=10
+TOTAL_NODES=15
 GPUS_PER_NODE=4
 NODES_PER_EXPERIMENT=1
 GPUS_PER_EXPERIMENT=$GPUS_PER_NODE             # typically = GPUS_PER_NODE for 1 node/exp
@@ -51,7 +51,7 @@ MAX_PARALLEL_JOBS="${MAX_PARALLEL_JOBS:-$MAX_PARALLEL_JOBS_DEFAULT}"
 
 # SLURM defaults
 CPUS_PER_TASK=32                               # 288 is overkill; tune if needed
-TIME_LIMIT="7:00:00"
+TIME_LIMIT="11:59:59"
 ACCOUNT="a127"
 RESERVATION=""                                  # e.g. "--reservation=sai-a127"
 

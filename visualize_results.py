@@ -353,20 +353,35 @@ def calculate_comprehensive_metrics(y_true: np.ndarray, y_prob: np.ndarray,
     
     # Performance at specific operating points
     fpr, tpr, thresholds = roc_curve(y_true, y_prob)
+    specificity = 1 - fpr
     
     # Sensitivity at 90% specificity
-    spec_90_idx = np.where(1 - fpr >= 0.9)[0]
+    spec_90_idx = np.where(specificity >= 0.9)[0]
     if len(spec_90_idx) > 0:
         metrics['sens_at_90_spec'] = tpr[spec_90_idx[-1]]
     else:
         metrics['sens_at_90_spec'] = 0
     
     # Sensitivity at 70% specificity  
-    spec_70_idx = np.where(1 - fpr >= 0.7)[0]
+    spec_70_idx = np.where(specificity >= 0.7)[0]
     if len(spec_70_idx) > 0:
         metrics['sens_at_70_spec'] = tpr[spec_70_idx[-1]]
     else:
         metrics['sens_at_70_spec'] = 0
+    
+    # Specificity at 90% sensitivity
+    sens_90_idx = np.where(tpr >= 0.9)[0]
+    if len(sens_90_idx) > 0:
+        metrics['spec_at_90_sens'] = specificity[sens_90_idx[0]]
+    else:
+        metrics['spec_at_90_sens'] = 0
+    
+    # Specificity at 70% sensitivity  
+    sens_70_idx = np.where(tpr >= 0.7)[0]
+    if len(sens_70_idx) > 0:
+        metrics['spec_at_70_sens'] = specificity[sens_70_idx[0]]
+    else:
+        metrics['spec_at_70_sens'] = 0
         
     return metrics
 
@@ -2372,7 +2387,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     # For each model in the table
     table_models = [
         ('attention_pool_extra3', "AttentionPoolBest"),
-        ('levit_attention', 'LeViTAttention'),
+        ('LeVit-Attention', 'LeViTAttention'),
         ('cnnlstm', 'CNNLSTM'),
         ('3dcnn', 'ThreeDResNet'),
         ('inception3d', 'InceptionThreeD'),
@@ -2435,6 +2450,26 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
             else:
                 latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityMean}}{{TBU}}")
                 latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityStd}}{{TBU}}")
+            
+            # Get Specificity at 90% Sensitivity
+            spec_at_90_sens_data = model_data[model_data['metric'] == 'spec_at_90_sens']
+            if len(spec_at_90_sens_data) > 0:
+                spec_at_90_sens_mean = spec_at_90_sens_data['mean'].iloc[0]
+                spec_at_90_sens_std = spec_at_90_sens_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{{spec_at_90_sens_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{{spec_at_90_sens_mean*100:.0f}\\%}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{{spec_at_90_sens_std:.2f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStdPercentage}}{{TBU}}")
         else:
             # Model not found, use TBU
             latex_commands.append(f"\\newcommand{{\\{latex_name}AUCMean}}{{TBU}}")
@@ -2443,6 +2478,10 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
             latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityStd}}{{TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityMean}}{{TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityStd}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStdPercentage}}{{TBU}}")
         
         latex_commands.append("")
     
