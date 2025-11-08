@@ -1,0 +1,123 @@
+experiment_name: ablation_LeViT-RL_tb_classifier_fold2
+experiment_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/LeViT-RL/fold2
+seed: 42
+device: cuda
+train: true
+evaluate_best_valid_model: true
+model_weights: null
+best_model_path: null
+resume_from_checkpoint: null
+reset_optimizers: false
+active_tasks:
+- TB Label
+task_weights:
+  TB Label: 1.0
+  Pneumonia Label: 1.0
+  Covid Label: 1.0
+task_pos_weights:
+  TB Label: 1.4
+  Pneumonia Label: 1.4
+  Covid Label: 6.0
+use_pathology_loss: true
+pathology_weight: 1.0
+pathology_pos_weights:
+- 1.0
+- 4.0
+- 15.0
+- 1.8
+num_pathologies: 4
+pathology_classes:
+- A-line
+- Large Consolidations
+- Pleural Effusion
+- Other Pathology
+selection_strategy: RL
+patient_weight: 1.0
+tb_weight: 1.0
+correct_factor: 1.5
+incorrect_factor: 3.0
+reward_scale: 1.0
+entropy_weight: 0.05
+rl_clamp_neg: -3.0
+rl_clamp_pos: 3.0
+rl_accumulation_steps: 8
+temperature: 0.9
+temperature_min: 0.1
+temperature_max: 3.0
+temperature_decay: 0.995
+rl_learning_rate: 5.0e-05
+actor_lr: 0.0005
+actor_weight_decay: 1.0e-05
+critic_lr: 0.001
+critic_weight_decay: 1.0e-05
+gamma_rl: 0.99
+gamma: 0.98
+gae_lambda: 0.95
+use_frame_history: true
+frame_selector_max_norm: 0.5
+root_dir: ./Data
+labels_csv: ./Data/labels/labels_multidiagnosis.csv
+file_metadata_csv: ./Data/processed_files_2.csv
+split_csv: ./Data/test_files/Fold_2.csv
+image_folder: images
+video_folder: /capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos
+batch_size: 2
+num_workers: 6
+frame_sampling: 32
+depth_filter: '15'
+target_height: 224
+target_width: 224
+in_channels: 3
+files_per_site: all
+site_order: null
+pad_missing_sites: true
+max_sites: null
+num_sites: 21
+mode: video
+pooling: attention
+model_type: original
+model_name: ablation_LeViT-RL_tb_classifier_fold2
+hidden_dim: 512
+dropout_rate: 0.3
+num_classes: 1
+classification_type: binary
+use_cross_site_attention: false
+cross_site_num_heads: 8
+use_site_positional_encoding: true
+backbone: levit_256
+freeze_backbone: false
+pretrained: true
+num_epochs: 100
+accumulation_steps: 8
+use_amp: true
+learning_rate: 1.0e-05
+weight_decay: 1.0e-05
+backbone_lr: 1.0e-05
+backbone_weight_decay: 1.0e-05
+backbone_T_0: 4
+backbone_T_mult: 2
+backbone_eta_min: 1.0e-06
+pathology_lr: 0.0001
+pathology_weight_decay: 1.0e-05
+pathology_T_0: 4
+pathology_T_mult: 2
+pathology_eta_min: 1.0e-06
+patient_pipeline_lr: 0.0001
+patient_pipeline_weight_decay: 1.0e-05
+patient_pipeline_T_0: 4
+patient_pipeline_T_mult: 2
+patient_pipeline_eta_min: 1.0e-06
+integration_lr: 0.0001
+integration_weight_decay: 1.0e-05
+classifier_lr: 0.001
+classifier_weight_decay: 2.0e-05
+pos_weight: 1.4
+eval_metric: auc
+eval_metric_goal: max
+early_stopping_patience: 20
+log_dir: "./ablation_results/logs"
+save_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/saves
+checkpoint_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/checkpoints
+pred_save_dir: /capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/predictions
+task: TB Label
+checkpoint_base_dir: /capstor/store/cscs/swissai/a127/ultr-ai

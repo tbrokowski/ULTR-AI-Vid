@@ -5,7 +5,7 @@
 # EXPERIMENT CONFIGURATION
 # ==========================================
 experiment_name: "ablation_mean_pool_tb_classifier_fold0"
-experiment_dir: "./checkpoints/mean_pool/ablation_mean_pool_tb_classifier_fold0"
+experiment_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/mean_pool/fold0"
 seed: 42
 device: "cuda"  # "cuda" or "cpu"
 
@@ -54,12 +54,12 @@ pathology_classes:
 # ==========================================
 
 # Dataset paths - UPDATE THESE FOR YOUR DATA
-root_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v3"
-labels_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v2/labels/labels_multidiagnosis.csv"
-file_metadata_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/cleaned_v3/processed_files_2.csv"
-split_csv: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Data/CLUSSTER-Benin/test_files/Fold_0.csv"
+root_dir: "./Data"
+labels_csv: "./Data/labels/labels_multidiagnosis.csv"
+file_metadata_csv: "./Data/processed_files_2.csv"
+split_csv: "./Data/test_files/Fold_0.csv"
 image_folder: "images"
-video_folder: "videos"
+video_folder: "LusBeninVideos"
 
 # Data loading parameters
 batch_size: 2
@@ -98,7 +98,7 @@ classification_type: "binary"
 backbone: "clip"  # Using CLIP vision encoder
 freeze_backbone: false
 pretrained: true
-local_weights_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights"
+local_weights_dir: "./NetworkArchitecture/CLIP_weights"
 
 # ==========================================
 # TRAINING CONFIGURATION
@@ -106,8 +106,8 @@ local_weights_dir: "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/Ne
 
 # Training schedule
 num_epochs: 20
-accumulation_steps: 8
-use_amp: true
+accumulation_steps: 16
+use_amp: false
 
 # Learning rates and weight decay
 learning_rate: 0.00001
@@ -119,12 +119,12 @@ backbone_weight_decay: 0.00001
 backbone_eta_min: 0.000001
 
 # Pathology module parameters
-pathology_lr: 0.0001
+pathology_lr: 0.000005
 pathology_weight_decay: 0.00001
 pathology_eta_min: 0.000001
 
 # Patient pipeline parameters
-patient_pipeline_lr: 0.0001
+patient_pipeline_lr: 0.000005
 patient_pipeline_weight_decay: 0.00001
 patient_pipeline_eta_min: 0.000001
 
@@ -143,12 +143,17 @@ early_stopping_patience: 8
 # ==========================================
 # DIRECTORIES
 # ==========================================
-log_dir: "logs"
-save_dir: "models"
-checkpoint_dir: "checkpoints"
-pred_save_dir: "predictions"
+log_dir: "./ablation_results/logs"
+save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/saves"
+checkpoint_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/checkpoints"
+pred_save_dir: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/predictions"
 
 # ==========================================
 # TASK SPECIFIC CONFIGURATION
 # ==========================================
 task: "TB Label"
+
+# ==========================================
+# CHECKPOINT CONFIGURATION
+# ==========================================
+checkpoint_base_dir: "/capstor/store/cscs/swissai/a127/ultr-ai"

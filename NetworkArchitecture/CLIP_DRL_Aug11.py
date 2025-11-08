@@ -1,3 +1,5 @@
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,10 +12,26 @@ from safetensors import safe_open
 import os
 import logging
 
+
 logger = logging.getLogger(__name__)
 
+# Common mobile-friendly backbones (for config documentation)
+MOBILE_BACKBONES = [
+    "mobilenetv3_large_100",
+    "efficientnet_lite0",
+    "ghostnetv2_100",
+    "regnety_400mf",
+    "levit_256",
+    "deit_tiny_distilled_patch16_224"
+]
 
-
+# Optional timm support
+try:
+    import timm
+    _HAS_TIMM = True
+except Exception:
+    timm = None
+    _HAS_TIMM = False
 
 class RewardNormalizer:
     """Tracks reward statistics and normalizes rewards."""
@@ -603,7 +621,7 @@ class SiteIntegrationModule(nn.Module):
     
     def __init__(self, 
                  feature_dim=512,
-                 site_embed_dim=64,
+                 site_embed_dim=256,
                  hidden_dim=512,
                  num_sites=15,
                  num_pathologies=5,
@@ -776,7 +794,7 @@ class MultiTaskModel(nn.Module):
         self.hidden_dim = getattr(config, 'hidden_dim', 512)
         self.dropout_rate = getattr(config, 'dropout_rate', 0.3)
         self.num_pathologies = getattr(config, 'num_pathologies', 4)
-        self.num_sites = getattr(config, 'num_sites', 15)
+        self.num_sites = getattr(config, 'num_sites', 21)
         self.device = getattr(config, 'device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
         
         # For compatibility with new training system
@@ -789,47 +807,15 @@ class MultiTaskModel(nn.Module):
         logger.info(f"Using pathology loss: {self.use_pathology_loss}")
         logger.info(f"Frame selection strategy: {self.selection_strategy}")
         
-        # CLIP Vision Encoder
-        self.vision_encoder = CLIPVisionModel.from_pretrained(
-            "openai/clip-vit-base-patch32",
-            torch_dtype=torch.float32
-        )
+        # Vision Backbone (mobile-friendly options supported)
+        self.backbone = getattr(config, 'backbone', 'clip')  # e.g., 'clip' or a timm model name like 'mobilenetv3_large_100'
+        self.backbone_model_name = getattr(config, 'backbone_model_name', 'openai/clip-vit-base-patch32')
+        self.freeze_backbone = getattr(config, 'freeze_backbone', False)
+        self.pretrained = getattr(config, 'pretrained', True)
+        self.backbone_image_size = getattr(config, 'backbone_image_size', 224)
 
+        self._init_vision_backbone()
         self.feature_noise_std = 0.05
-        
-        # Load local weights if available
-        local_weights_path = os.path.join(
-            getattr(config, 'local_weights_dir', '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights'),
-            'model.safetensors'
-        )
-        
-        if os.path.exists(local_weights_path):
-            logger.info(f"Loading weights from {local_weights_path}")
-            with safe_open(local_weights_path, framework='pt', device='cpu') as f:
-                all_keys = f.keys()
-                vision_state_dict = {}
-                model_state_dict = self.vision_encoder.state_dict()
-                matched_keys = 0
-                
-                for key in model_state_dict.keys():
-                    safetensors_key = f"vision_model.{key}"
-                    if safetensors_key in f.keys():
-                        tensor = f.get_tensor(safetensors_key)
-                        if tensor.shape == model_state_dict[key].shape:
-                            vision_state_dict[key] = tensor
-                            matched_keys += 1
-                
-                # Update model with matched weights
-                if matched_keys > 0:
-                    logger.info(f"Successfully matched {matched_keys}/{len(model_state_dict)} weights")
-                    self.vision_encoder.load_state_dict(vision_state_dict, strict=False)
-                else:
-                    logger.info("No weights could be matched from the safetensors file")
-
-        self._freeze_clip_except_last_layer()
-        
-        # Vision feature dimension
-        self.vision_dim = 768  # CLIP ViT-B/32 dimension
         
         # Enhanced RL-based frame selection (original architecture)
         self.frame_selector = FrameSelectionAgent(
@@ -844,7 +830,8 @@ class MultiTaskModel(nn.Module):
             use_frame_history=getattr(config, 'use_frame_history', True),
             device=self.device
         )
-        
+        # Freeze/unfreeze according to config
+        self._freeze_backbone(freeze=self.freeze_backbone)
         logger.info(f"Using original FrameSelectionAgent for {self.selection_strategy} strategy")
         
         # Pathology modules
@@ -871,7 +858,7 @@ class MultiTaskModel(nn.Module):
         if self.use_pathology_loss:
             self.site_integration = SiteIntegrationModule(
                 feature_dim=self.hidden_dim,
-                site_embed_dim=64,
+                site_embed_dim=256,
                 hidden_dim=self.hidden_dim,
                 num_sites=self.num_sites,
                 num_pathologies=self.num_pathologies,
@@ -915,43 +902,239 @@ class MultiTaskModel(nn.Module):
             nn.Linear(self.hidden_dim // 2, self.num_classes)
         )
 
-    def _freeze_clip_except_last_layer(self):
-        """Freeze all CLIP parameters except the last layer."""
-        # First freeze everything
-        for param in self.vision_encoder.parameters():
-            param.requires_grad = False
-        
-        # Then unfreeze the last layer (visual projection)
-        if hasattr(self.vision_encoder, 'visual_projection'):
-            for param in self.vision_encoder.visual_projection.parameters():
-                param.requires_grad = True
-        
-        # If no visual_projection, unfreeze the final transformer layer
-        elif hasattr(self.vision_encoder, 'vision_model') and hasattr(self.vision_encoder.vision_model, 'encoder'):
-            layers = self.vision_encoder.vision_model.encoder.layers
-            if len(layers) > 0:
-                for param in layers[-1].parameters():
-                    param.requires_grad = True
-    
-    def extract_clip_features(self, frames):
-        """Extract features using CLIP vision encoder."""
+    def _init_vision_backbone(self):
+        """
+        Initialize a vision backbone.
+        Supported:
+          - 'clip' (uses HuggingFace CLIPVisionModel with pooler_output)
+          - Any timm model name (e.g., 'mobilenetv3_large_100', 'efficientnet_lite0', 'ghostnetv2', 'levit_256', 'deit_tiny_distilled_patch16_224')
+        Sets:
+          - self.vision_encoder: callable/module that returns a tensor [B*T, D] or feature map
+          - self.vision_dim: output feature dimension D
+          - self._vision_kind: 'clip', 'timm_features', or 'timm_pooled'
+          - self.vision_pool / self.vision_proj if needed (for timm)
+        """
+        # Default outputs
+        self._vision_kind = 'clip'
+        # Use CLIP only when backbone explicitly requests 'clip'
+        if str(self.backbone).lower() == 'clip':
+            from transformers import CLIPVisionModel  # local import to avoid hard dep if using timm-only
+            self.vision_encoder = CLIPVisionModel.from_pretrained(
+                self.backbone_model_name,
+                dtype=torch.float32
+            )
+            # CLIP ViT-B/32 has 768-d pooler_output
+            self.vision_dim = getattr(self.vision_encoder.config, 'hidden_size', 768)
+            self._vision_kind = 'clip'
+            # Optional: local weights loading (kept from original)
+            local_weights_path = os.path.join(
+                getattr(self.config, 'local_weights_dir', 'NetworkArchitecture/CLIP_weights'),
+                'model.safetensors'
+            )
+            if os.path.exists(local_weights_path):
+                logger.info(f"Loading CLIP weights from {local_weights_path}")
+                try:
+                    from safetensors import safe_open as _safe_open
+                    with _safe_open(local_weights_path, framework='pt', device='cpu') as f:
+                        vision_state_dict = {}
+                        model_state_dict = self.vision_encoder.state_dict()
+                        matched_keys = 0
+                        for key in model_state_dict.keys():
+                            safetensors_key = f"vision_model.{key}"
+                            if safetensors_key in f.keys():
+                                tensor = f.get_tensor(safetensors_key)
+                                if tensor.shape == model_state_dict[key].shape:
+                                    vision_state_dict[key] = tensor
+                                    matched_keys += 1
+                        if matched_keys > 0:
+                            logger.info(f"Successfully matched {matched_keys}/{len(model_state_dict)} CLIP weights")
+                            self.vision_encoder.load_state_dict(vision_state_dict, strict=False)
+                        else:
+                            logger.info("No weights could be matched from the safetensors file")
+                except Exception as e:
+                    logger.warning(f"Failed to load local CLIP weights: {e}")
+            else:
+                logger.info("No local CLIP weights file found, using default pretrained weights")
+        else:
+            # Use a timm backbone
+            if not _HAS_TIMM:
+                raise ImportError("timm is not installed but a timm backbone was requested.")
+            self._vision_kind = 'timm'
+            model_name = str(self.backbone)
+            logger.info(f"Initializing timm backbone: {model_name} (pretrained={self.pretrained})")
+
+            # ---- HANDLE LEVIT FIRST (avoid features_only and filter_fn assert) ----
+            if 'levit' in model_name.lower():
+                try:
+                    # Load with classifier intact so pretrained weights can map
+                    self.vision_encoder = timm.create_model(
+                        model_name,
+                        pretrained=self.pretrained
+                    )
+                except Exception as e:
+                    logger.warning(f"LeViT pretrained load failed ({e}); retrying with pretrained=False to bypass filter.")
+                    self.vision_encoder = timm.create_model(
+                        model_name,
+                        pretrained=False
+                    )
+
+                # Determine feature dim
+                self.vision_dim = getattr(self.vision_encoder, 'num_features', None)
+                if not isinstance(self.vision_dim, int) or self.vision_dim <= 0:
+                    dummy = torch.zeros(1, 3, self.backbone_image_size, self.backbone_image_size)
+                    with torch.no_grad():
+                        if hasattr(self.vision_encoder, 'forward_features'):
+                            feat_vec = self.vision_encoder.forward_features(dummy)
+                        else:
+                            feat_vec = self.vision_encoder(dummy)
+                    self.vision_dim = int(feat_vec.shape[1])
+
+                # Remove classifier; enforce global pooling for features
+                if hasattr(self.vision_encoder, 'reset_classifier'):
+                    self.vision_encoder.reset_classifier(0, global_pool='avg')
+
+                self.vision_pool = None
+                self.vision_proj = None
+                self._vision_kind = 'timm_pooled'
+                logger.info(f"Vision backbone: kind=timm_pooled(levit), name={model_name}, vision_dim={self.vision_dim}")
+                return
+            # ---- END LEVIT EARLY RETURN ----
+
+            # Identify non-convolutional transformer-like models
+            nonconv_keys = ['vit', 'deit', 'swin', 'maxvit', 'eva', 'beit', 'convnextv2']
+            is_nonconv = any(k in model_name.lower() for k in nonconv_keys)
+
+            if not is_nonconv:
+                # Prefer features_only path for CNNs
+                try:
+                    self.vision_encoder = timm.create_model(
+                        model_name,
+                        pretrained=self.pretrained,
+                        features_only=True,
+                        out_indices=[-1]
+                    )
+                    try:
+                        self.vision_dim = int(self.vision_encoder.feature_info[-1]['num_chs'])
+                    except Exception:
+                        dummy = torch.zeros(1, 3, self.backbone_image_size, self.backbone_image_size)
+                        with torch.no_grad():
+                            feat = self.vision_encoder(dummy)[0]
+                        self.vision_dim = feat.shape[1]
+                    self.vision_pool = nn.AdaptiveAvgPool2d(1)
+                    self.vision_proj = None
+                    self._vision_kind = 'timm_features'
+                    logger.info(f"Vision backbone: kind=timm_features, name={model_name}, vision_dim={self.vision_dim}")
+                except Exception as e:
+                    logger.info(f"features_only path unavailable for {model_name} ({e}). Falling back to pooled forward.")
+                    try:
+                        self.vision_encoder = timm.create_model(
+                            model_name,
+                            pretrained=self.pretrained,
+                            num_classes=0,
+                            global_pool='avg'
+                        )
+                    except Exception as e2:
+                        logger.warning(f"Pooled forward with pretrained=True failed for {model_name} ({e2}). Retrying with pretrained=False.")
+                        self.vision_encoder = timm.create_model(
+                            model_name,
+                            pretrained=False,
+                            num_classes=0,
+                            global_pool='avg'
+                        )
+                    self.vision_dim = getattr(self.vision_encoder, 'num_features', None)
+                    if not isinstance(self.vision_dim, int) or self.vision_dim <= 0:
+                        dummy = torch.zeros(1, 3, self.backbone_image_size, self.backbone_image_size)
+                        with torch.no_grad():
+                            feat_vec = self.vision_encoder(dummy)
+                        self.vision_dim = int(feat_vec.shape[1])
+                    self.vision_pool = None
+                    self.vision_proj = None
+                    self._vision_kind = 'timm_pooled'
+                    logger.info(f"Vision backbone: kind=timm_pooled, name={model_name}, vision_dim={self.vision_dim}")
+            else:
+                # Transformer-like models: pooled forward
+                try:
+                    self.vision_encoder = timm.create_model(
+                        model_name,
+                        pretrained=self.pretrained,
+                        num_classes=0,
+                        global_pool='avg'
+                    )
+                except Exception as e:
+                    logger.warning(f"Transformer pooled forward with pretrained=True failed for {model_name} ({e}). Retrying with pretrained=False.")
+                    self.vision_encoder = timm.create_model(
+                        model_name,
+                        pretrained=False,
+                        num_classes=0,
+                        global_pool='avg'
+                    )
+                self.vision_dim = getattr(self.vision_encoder, 'num_features', None)
+                if not isinstance(self.vision_dim, int) or self.vision_dim <= 0:
+                    dummy = torch.zeros(1, 3, self.backbone_image_size, self.backbone_image_size)
+                    with torch.no_grad():
+                        feat_vec = self.vision_encoder(dummy)
+                    self.vision_dim = int(feat_vec.shape[1])
+                self.vision_pool = None
+                self.vision_proj = None
+                self._vision_kind = 'timm_pooled'
+                logger.info(f"Vision backbone: kind=timm_pooled, name={model_name}, vision_dim={self.vision_dim}")
+                
+                
+    def _freeze_backbone(self, freeze: bool = True):
+        """
+        Freeze or unfreeze the vision backbone. If using CLIP and freeze=False,
+        we still keep most of CLIP frozen by default, except the last block or visual projection.
+        """
+        if self._vision_kind == 'clip':
+            # Start by freezing all
+            for p in self.vision_encoder.parameters():
+                p.requires_grad = not freeze
+            if not freeze:
+                # Unfreeze only the last block by default (safer for fine-tuning on device)
+                if hasattr(self.vision_encoder, 'visual_projection'):
+                    for p in self.vision_encoder.visual_projection.parameters():
+                        p.requires_grad = True
+                elif hasattr(self.vision_encoder, 'vision_model') and hasattr(self.vision_encoder.vision_model, 'encoder'):
+                    layers = self.vision_encoder.vision_model.encoder.layers
+                    if len(layers) > 0:
+                        for p in layers[-1].parameters():
+                            p.requires_grad = True
+        else:
+            # timm backbone
+            for p in self.vision_encoder.parameters():
+                p.requires_grad = not freeze
+
+    def _extract_vision_features(self, frames):
+        """
+        Generic feature extractor → returns [B, T, D] where D=self.vision_dim.
+        For CLIP, uses pooler_output.
+        For timm, supports both features_only and pooled models.
+        """
         batch_size, num_frames, channels, height, width = frames.shape
-        
-        # Reshape for CLIP input
-        frames_flat = frames.view(-1, channels, height, width)
-        
-        # Extract features
-        with torch.no_grad() if not self.vision_encoder.training else torch.enable_grad():
-            outputs = self.vision_encoder(frames_flat)
-            
-            # Get features from the last hidden state
-            # Shape: [batch_size * num_frames, vision_dim]
-            features = outputs.pooler_output
-            
-            # Reshape back to [batch_size, num_frames, vision_dim]
-            features = features.view(batch_size, num_frames, -1)
-        
-        return features
+        x = frames.view(-1, channels, height, width)  # [B*T, C, H, W]
+
+        if self._vision_kind == 'clip':
+            with torch.no_grad() if not self.vision_encoder.training else torch.enable_grad():
+                outputs = self.vision_encoder(x)
+                feats = outputs.pooler_output  # [B*T, D]
+        elif self._vision_kind == 'timm_features':
+            with torch.no_grad() if not self.vision_encoder.training else torch.enable_grad():
+                feat_maps = self.vision_encoder(x)[0]  # [B*T, C, h, w]
+                pooled = self.vision_pool(feat_maps)   # [B*T, C, 1, 1]
+                feats = pooled.flatten(1)              # [B*T, C]
+                if self.vision_proj is not None:
+                    feats = self.vision_proj(feats)
+        elif self._vision_kind == 'timm_pooled':
+            with torch.no_grad() if not self.vision_encoder.training else torch.enable_grad():
+                feats = self.vision_encoder(x)         # [B*T, D] already pooled
+        else:
+            raise RuntimeError(f"Unknown vision kind: {self._vision_kind}")
+
+        return feats.view(batch_size, num_frames, -1)
+
+    def extract_clip_features(self, frames):
+        # Backward compatibility: keep method name but delegate to generic extractor
+        return self._extract_vision_features(frames)
     
     def process_site(self, video, site_idx, mask=None, batch_idx=None, site_pos=None):
         """
@@ -964,8 +1147,8 @@ class MultiTaskModel(nn.Module):
             batch_idx: Batch index for tracking
             site_pos: Site position for tracking
         """
-        # Extract CLIP features
-        clip_features = self.extract_clip_features(video)  # [1, T, vision_dim]
+        # Extract vision features (CLIP or timm)
+        clip_features = self._extract_vision_features(video)  # [1, T, vision_dim]
         
         # Select key frames using enhanced frame selector
         action_logits, state_values, enhanced_features = self.frame_selector(
@@ -1191,6 +1374,7 @@ class MultiTaskModel(nn.Module):
         output = {
             'task_logits': task_logits,  # NEW: Dict of task_name -> logits
             'patient_pathology_scores': patient_pathology_scores,
+            'patient_features': patient_features,
             'pathology_scores': pathology_scores,
             'mil_attention': mil_attention,
             'site_features': site_features,

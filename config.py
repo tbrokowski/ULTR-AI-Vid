@@ -22,6 +22,7 @@ class MultiTaskConfig:
     # Experiment settings
     experiment_name: str = "multitask_experiment"
     experiment_dir: str = "./experiments/multitask"
+    checkpoint_base_dir: str = "/capstor/store/cscs/swissai/a127/ultr-ai"  # External storage for checkpoints
     seed: int = 42
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -83,12 +84,12 @@ class MultiTaskConfig:
     # ==========================================
     
     # Dataset paths
-    root_dir: str = "/path/to/data"
-    labels_csv: str = "/path/to/labels.csv"
-    file_metadata_csv: str = "/path/to/metadata.csv"
+    root_dir: str = "./Data"
+    labels_csv: str = "./Data/labels/labels.csv"
+    file_metadata_csv: str = "./Data/metadata.csv"
     split_csv: Optional[str] = None
     image_folder: str = "images"
-    video_folder: str = "videos"
+    video_folder: str = "./Data/LusBeninVideos"
     
     # Data loading
     batch_size: int = 8
@@ -121,7 +122,7 @@ class MultiTaskConfig:
     backbone: str = "clip"
     freeze_backbone: bool = True
     pretrained: bool = True
-    local_weights_dir: str = "/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights"
+    local_weights_dir: str = "./NetworkArchitecture/CLIP_weights"
     
     # ==========================================
     # TRAINING CONFIGURATION
@@ -270,8 +271,12 @@ class MultiTaskConfig:
                 self.task_pos_weights[task] = 2.0
                 logger.warning(f"No positive weight specified for {task}, using default 2.0")
         
-        # Ensure experiment directory exists
-        os.makedirs(self.experiment_dir, exist_ok=True)
+        # Ensure experiment directory exists (in external storage for checkpoints)
+        # Note: This only creates the local experiment_dir if it's set to a local path
+        # The train_ablation_distributed.py will handle creating directories in checkpoint_base_dir
+        if not self.experiment_dir.startswith('/capstor'):
+            # Only create local experiment dir if it's not already pointing to external storage
+            os.makedirs(self.experiment_dir, exist_ok=True)
         
         # Set device
         if self.device == "cuda" and not torch.cuda.is_available():
