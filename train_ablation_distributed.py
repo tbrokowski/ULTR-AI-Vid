@@ -241,6 +241,9 @@ class Config:
         self.use_pathology_loss = True
         self.task_weights = {'TB Label': 1.0}
         
+        # Attention settings
+        self.attention_temperature = 0.5  # Temperature for soft attention (lower = sharper)
+        
         # Dataset parameters
         self.files_per_site = 1
         self.site_order = None
@@ -758,6 +761,8 @@ class AblationTrainer:
         running_losses = {
             'total': 0.0,
             'tb_loss': 0.0,
+            'attention_entropy': 0.0,
+            'attention_entropy_penalty': 0.0,
         }
         
         if self.use_pathology_loss:
@@ -984,6 +989,10 @@ class AblationTrainer:
                             
                             if 'TB Label_loss' in loss_dict:
                                 running_losses['tb_loss'] += loss_dict['TB Label_loss']
+                            if 'attention_entropy' in loss_dict:
+                                running_losses['attention_entropy'] += loss_dict['attention_entropy']
+                            if 'attention_entropy_penalty' in loss_dict:
+                                running_losses['attention_entropy_penalty'] += loss_dict['attention_entropy_penalty']
                             
                             self.patient_pipeline_scaler.scale(total_loss).backward()
                     elif self.patient_pipeline_optimizer:
@@ -995,11 +1004,47 @@ class AblationTrainer:
                         
                         if 'TB Label_loss' in loss_dict:
                             running_losses['tb_loss'] += loss_dict['TB Label_loss']
+                        if 'attention_entropy' in loss_dict:
+                            running_losses['attention_entropy'] += loss_dict['attention_entropy']
+                        if 'attention_entropy_penalty' in loss_dict:
+                            running_losses['attention_entropy_penalty'] += loss_dict['attention_entropy_penalty']
+                        
+                        # Log attention score statistics
+                        if is_main_process() and 'action_logits' in outputs:
+                            action_logits = outputs['action_logits']
+                            if action_logits is not None:
+                                logit_std = action_logits.std().item()
+                                logit_min = action_logits.min().item()
+                                logit_max = action_logits.max().item()
+                                logger.info(f"[Epoch {epoch}, Batch {batch_idx}] Attention logits - "
+                                          f"std: {logit_std:.4f}, min: {logit_min:.4f}, max: {logit_max:.4f}")
+                                
+                                if logit_std < 0.01:
+                                    logger.warning(f"⚠️  Attention logits have very low variance: {logit_std:.6f}")
                         
                         total_loss.backward()
                 
                 # Update optimizer at end of accumulation
                 if should_sync and self.patient_pipeline_optimizer:
+                    # Log gradients for frame_selector (attention mechanism)
+                    if is_main_process():
+                        frame_selector_grad_norm = 0.0
+                        frame_selector_param_count = 0
+                        for name, param in self.model_without_ddp.named_parameters():
+                            if 'frame_selector' in name and param.grad is not None:
+                                frame_selector_grad_norm += param.grad.norm().item() ** 2
+                                frame_selector_param_count += 1
+                        
+                        if frame_selector_param_count > 0:
+                            frame_selector_grad_norm = (frame_selector_grad_norm ** 0.5)
+                            logger.info(f"[Epoch {epoch}, Batch {batch_idx}] Frame selector gradient norm: {frame_selector_grad_norm:.6f}")
+                            
+                            # Warning if gradients are too small
+                            if frame_selector_grad_norm < 1e-6:
+                                logger.warning(f"⚠️  Frame selector gradients very small: {frame_selector_grad_norm:.2e}")
+                        else:
+                            logger.warning(f"⚠️  No gradients found for frame_selector!")
+                    
                     if self.use_amp:
                         self.patient_pipeline_scaler.unscale_(self.patient_pipeline_optimizer)
                         torch.nn.utils.clip_grad_norm_(
@@ -1161,6 +1206,11 @@ class AblationTrainer:
                     if self.use_pathology_loss and 'pathology' in running_losses:
                         progress_dict['path_loss'] = to_scalar(running_losses['pathology'] / max(1, batch_idx + 1))
                     
+                    # Add attention entropy metrics to progress display
+                    if running_losses['attention_entropy'] > 0:
+                        progress_dict['attn_entropy'] = to_scalar(running_losses['attention_entropy'] / max(1, batch_idx + 1))
+                        progress_dict['attn_penalty'] = to_scalar(running_losses['attention_entropy_penalty'] / max(1, batch_idx + 1))
+                    
                     progress_bar.set_postfix(progress_dict)
             
             except RuntimeError as e:
@@ -1257,6 +1307,13 @@ class AblationTrainer:
         
         # Log metrics (only on main process)
         if is_main_process():
+            # Log attention entropy metrics
+            avg_entropy = running_losses['attention_entropy'] / max(1, num_batches)
+            avg_penalty = running_losses['attention_entropy_penalty'] / max(1, num_batches)
+            if avg_entropy > 0:
+                logger.info(f"Train Attention metrics:")
+                logger.info(f"  Entropy: {avg_entropy:.4f} | Penalty: {avg_penalty:.4f}")
+            
             logger.info(f"Train TB metrics:")
             tb_metrics = {k.replace('TB Label_', ''): v for k, v in all_metrics.items()
                          if k.startswith('TB Label_')}

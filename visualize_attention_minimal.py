@@ -3,6 +3,10 @@ Simple Script to Visualize Top-3 Frames Selected by Attention
 ==============================================================
 
 Shows the 3 ultrasound frames with HIGHEST attention scores.
+
+NOTE: The model uses Gumbel-Softmax during TRAINING for differentiable frame selection,
+but during INFERENCE (eval mode) it uses deterministic torch.topk() for hard selection.
+This script uses eval mode, so it visualizes the actual frames selected by topk.
 """
 
 import os
@@ -52,7 +56,15 @@ def load_and_preprocess_video(video_path, target_size=(224, 224), max_frames=Non
 
 
 def get_top_k_frames(model, frames, device, k=3):
-    """Get the k frames with HIGHEST attention scores (matching model's process_site logic)."""
+    """
+    Get the k frames with HIGHEST attention scores.
+    
+    This matches the model's inference behavior:
+    - During TRAINING: model uses Gumbel-Softmax (soft, differentiable selection)
+    - During INFERENCE: model uses torch.topk (hard, deterministic selection)
+    
+    Since we call model.eval(), we get the deterministic topk behavior.
+    """
     # Normalize and convert to tensor
     video = torch.from_numpy(frames).float() / 255.0
     video = video.unsqueeze(0).to(device)  # [1, T, C, H, W]
@@ -67,8 +79,8 @@ def get_top_k_frames(model, frames, device, k=3):
         # Get attention logits from attention pooling selector
         attention_logits, _, _ = model.frame_selector(features, mask)
         
-        # EXACTLY match what process_site does (line 1186 in CLIP_DRL_Aug11.py):
-        # Get top 3 indices directly from logits (NO softmax)
+        # EXACTLY match what process_site does during INFERENCE (line 1200 in CLIP_DRL_Aug11.py):
+        # Use torch.topk for hard selection (this is what model does in eval mode)
         k = min(k, attention_logits.shape[1])
         scores, indices = torch.topk(attention_logits[0], k=k)
         
@@ -115,7 +127,7 @@ def main():
                        default='/capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos/25-731_QPIG_15_1.mp4',
                        help='Path to video file (default: first video found)')
     parser.add_argument('--checkpoint', type=str,
-                       default='/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3/fold0/checkpoint_best_metric_0.9123.pth')
+                       default='/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3_full_train/fold3/checkpoint_best.pth')
     parser.add_argument('--output', type=str, default='visualization_outputs/top3_attention_frames.png',
                        help='Output filename')
     parser.add_argument('--device', type=str, default='cuda')
@@ -130,6 +142,7 @@ def main():
     
     print("="*70)
     print(f"Video: {Path(args.video).name}")
+    print(f"NOTE: Model uses Gumbel-Softmax during training, torch.topk during inference")
     
     # Load video
     print("Loading video...")

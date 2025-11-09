@@ -795,7 +795,7 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
     # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
     # HMV-MIL (attention_pool_extra3) in dark blue, others in yellow/orange/red shades
     publication_models = [
-        'attention_pool_extra3',  # HMV-MIL (dark blue)
+        'attention_pool_extra3_full_train',  # HMV-MIL (dark blue)
         'cnnlstm',                # CNN-LSTM
         '3dcnn',                  # 3D-ResNet-18
         'inception3d',            # 3D-Inception

@@ -157,7 +157,7 @@ class MeanPoolSelector(nn.Module):
 class AttentionPoolSelector(nn.Module):
     """Attention-pool baseline: Learned attention over frames without RL."""
     
-    def __init__(self, feature_dim=768, hidden_dim=512, output_dim=512, num_heads=8, **kwargs):
+    def __init__(self, feature_dim=768, hidden_dim=512, output_dim=512, num_heads=8, temperature=1.0, **kwargs):
         super().__init__()
         self.feature_dim = feature_dim
         self.hidden_dim = hidden_dim
@@ -191,7 +191,9 @@ class AttentionPoolSelector(nn.Module):
         
         # Compatibility attributes
         self.saved_actions = []
-        self.temperature = 1.0
+        # NOTE: Temperature is stored for compatibility but not used in this selector
+        # The actual temperature scaling is applied in the main model's process_site() method
+        self.temperature = temperature
     
     def get_temperature(self):
         return self.temperature
@@ -230,23 +232,36 @@ class AttentionPoolSelector(nn.Module):
             
             attention_scores = attention_scores.masked_fill(~mask, mask_value)
         
+        # Compute softmax for differentiable selection
+        # NOTE: Temperature is applied in the main model's process_site() method, not here
+        # This frame selector outputs raw attention logits
+        attention_weights = F.softmax(attention_scores, dim=-1)  # [B, T]
         
-        output_features = self.output_projection(attended)
+        # Apply soft attention to get weighted features
+        # This allows gradient to flow through the attention mechanism
+        weighted_attended = attention_weights.unsqueeze(-1) * attended  # [B, T, hidden_dim]
+        
+        output_features = self.output_projection(weighted_attended)
         state_values = torch.zeros(batch_size, 1, device=device, requires_grad=True)
         
         return attention_scores, state_values, output_features
     
     def select_action(self, logits, state_values=None, encoded_features=None, batch_idx=None, site_idx=None):
+        """
+        Select action using soft attention over all frames (single aggregated vector approach).
+        
+        NOTE: This method outputs raw logits and dummy actions for API compatibility.
+        The actual temperature-scaled attention is computed in the main model's process_site() method.
+        The frame selector just provides the raw attention scores.
+        """
         batch_size = logits.shape[0]
         device = logits.device
         
-        k = 3
-        if logits.shape[1] >= k:
-            _, top_indices = torch.topk(logits, k=k, dim=1)
-            actions = top_indices[:, 0]
-        else:
-            actions = torch.zeros(batch_size, dtype=torch.long, device=device)
+        # For backward compatibility, return dummy "actions" (not actually used downstream)
+        # The actual frame aggregation happens via soft attention in process_site()
+        actions = torch.zeros(batch_size, dtype=torch.long, device=device)
         
+        # Compute log probabilities (for potential RL integration)
         log_probs = F.log_softmax(logits, dim=1)
         action_log_probs = log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
         
@@ -334,13 +349,17 @@ class AttentionPoolMultiTaskModel(MultiTaskModel):
         config.selection_strategy = 'attention_pool'
         super().__init__(config)
         
+        # Get temperature from config (default 0.5 if not specified)
+        temperature = getattr(config, 'attention_temperature', 0.5)
+        
         self.frame_selector = AttentionPoolSelector(
             feature_dim=self.vision_dim,
             hidden_dim=1024,
             output_dim=self.hidden_dim,
-            num_heads=8
+            num_heads=8,
+            temperature=temperature
         )
-        logger.info("Using AttentionPoolSelector for attention-pool ablation")
+        logger.info(f"Using AttentionPoolSelector for attention-pool ablation (temperature={temperature})")
 
 
 class SingleTaskMultiTaskModel(MultiTaskModel):
@@ -1922,16 +1941,22 @@ class CNNLSTMMultiTaskModel(nn.Module):
                 # Extract frame-level features using CNN-LSTM
                 frame_features = self.process_video_cnn_lstm(video)  # [1, T, hidden_dim]
                 
-                # Select key frames using attention
-                _, _, selected_features = self.frame_selector(frame_features)
+                # Select key frames using attention with soft selection
+                attention_scores, _, selected_features = self.frame_selector(frame_features)
                 
-                # Get top-3 frames (or fewer if not enough frames)
-                num_frames = min(3, frame_features.shape[1])
+                # Use soft attention pooling instead of hard top-k selection
+                # This allows gradients to flow back to attention_scores
+                num_frames = frame_features.shape[1]
                 if num_frames > 0:
-                    # Use attention scores to select frames
-                    attention_scores, _, _ = self.frame_selector(frame_features)
-                    _, top_indices = torch.topk(attention_scores[0], k=num_frames)
-                    selected = selected_features[0, top_indices].mean(dim=0, keepdim=True)  # [1, hidden_dim]
+                    # Compute attention weights using softmax (already done in forward)
+                    attention_weights = F.softmax(attention_scores[0], dim=0)  # [T]
+                    
+                    # Weighted sum of features (soft selection - differentiable!)
+                    selected = torch.sum(
+                        attention_weights.unsqueeze(-1) * selected_features[0],  # [T, hidden_dim]
+                        dim=0,
+                        keepdim=True
+                    )  # [1, hidden_dim]
                 else:
                     selected = selected_features[0, :1]  # First frame
                 
@@ -2331,14 +2356,22 @@ class VideoTransformerMultiTaskModel(nn.Module):
                     # Extract features using ViViT
                     frame_features = self.process_video_vivit(video)  # [1, T, hidden_dim]
                     
-                    # Select key frames using attention
+                    # Select key frames using attention with soft selection
                     attention_scores, _, selected_features = self.frame_selector(frame_features)
                     
-                    # Get top-3 frames
-                    num_frames = min(3, frame_features.shape[1])
+                    # Use soft attention pooling instead of hard top-k selection
+                    # This allows gradients to flow back to attention_scores
+                    num_frames = frame_features.shape[1]
                     if num_frames > 0:
-                        _, top_indices = torch.topk(attention_scores[0], k=num_frames)
-                        selected = selected_features[0, top_indices].mean(dim=0, keepdim=True)
+                        # Compute attention weights using softmax
+                        attention_weights = F.softmax(attention_scores[0], dim=0)  # [T]
+                        
+                        # Weighted sum of features (soft selection - differentiable!)
+                        selected = torch.sum(
+                            attention_weights.unsqueeze(-1) * selected_features[0],  # [T, hidden_dim]
+                            dim=0,
+                            keepdim=True
+                        )  # [1, hidden_dim]
                     else:
                         selected = selected_features[0, :1]
                     

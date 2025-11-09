@@ -807,6 +807,12 @@ class MultiTaskModel(nn.Module):
         logger.info(f"Using pathology loss: {self.use_pathology_loss}")
         logger.info(f"Frame selection strategy: {self.selection_strategy}")
         
+        # Log attention parameters for debugging
+        attention_temp = getattr(config, 'attention_temperature', 0.5)
+        entropy_w = getattr(config, 'entropy_weight', 0.001)
+        logger.info(f"Attention temperature: {attention_temp} (lower=sharper, higher=softer)")
+        logger.info(f"Entropy regularization weight: {entropy_w}")
+        
         # Vision Backbone (mobile-friendly options supported)
         self.backbone = getattr(config, 'backbone', 'clip')  # e.g., 'clip' or a timm model name like 'mobilenetv3_large_100'
         self.backbone_model_name = getattr(config, 'backbone_model_name', 'openai/clip-vit-base-patch32')
@@ -1138,7 +1144,7 @@ class MultiTaskModel(nn.Module):
     
     def process_site(self, video, site_idx, mask=None, batch_idx=None, site_pos=None):
         """
-        Process a single site's video.
+        Process a single site's video using soft attention aggregation.
         
         Args:
             video: Video frames [1, T, C, H, W]
@@ -1146,6 +1152,19 @@ class MultiTaskModel(nn.Module):
             mask: Frame mask [1, T]
             batch_idx: Batch index for tracking
             site_pos: Site position for tracking
+            
+        Returns:
+            Dictionary with:
+                - selected_features: Aggregated site features [1, hidden_dim]
+                - pathology_scores: Pathology predictions [1, num_pathologies] if enabled
+                - action_logits: Frame attention logits [1, T]
+                - state_values: Value estimates for RL
+                
+        Note:
+            Uses temperature-controlled soft attention to aggregate frame features.
+            Temperature is controlled by config.attention_temperature (default 0.5).
+            Lower temperature = sharper attention (more peaked).
+            Higher temperature = softer attention (more uniform).
         """
         # Extract vision features (CLIP or timm)
         clip_features = self._extract_vision_features(video)  # [1, T, vision_dim]
@@ -1155,44 +1174,47 @@ class MultiTaskModel(nn.Module):
             clip_features, mask, batch_idx, site_pos
         )
         
-        # Sample actions (frame indices)
+        # Sample actions (frame indices) - kept for RL compatibility but not used for selection
         actions, _ = self.frame_selector.select_action(
             action_logits, state_values, enhanced_features, batch_idx, site_pos
         )
         
-        # Get indices of 3 highest-scoring frames
+        # Use SOFT attention-based selection with temperature-controlled sharpness
+        # This allows gradients to flow back to the attention logits
+        tau = getattr(self.config, 'attention_temperature', 0.5)  # Temperature hyperparameter
+        
         if mask is not None:
-            # Apply mask to get valid logits
+            # Apply mask to logits
             valid_mask = mask[0]
-            valid_logits = action_logits[0, valid_mask]
-            valid_indices = torch.where(valid_mask)[0]
+            masked_logits = action_logits[0].clone()
+            # Use a safe mask value that works with both FP16 and FP32
+            mask_value = -65000.0 if masked_logits.dtype == torch.float16 else -1e9
+            masked_logits[~valid_mask] = mask_value
             
-            if valid_indices.numel() > 0:
-                if valid_indices.numel() >= 3:
-                    # Get top 3 indices
-                    _, top_local_indices = torch.topk(valid_logits, k=3)
-                    selected_indices = valid_indices[top_local_indices]
-                else:
-                    # Not enough valid frames, repeat the valid ones
-                    selected_indices = valid_indices.repeat((3 + valid_indices.numel() - 1) // valid_indices.numel())
-                    selected_indices = selected_indices[:3]
-            else:
-                # No valid frames
-                selected_indices = torch.zeros(3, dtype=torch.long, device=video.device)
+            # Compute attention weights with temperature
+            attention_weights = F.softmax(masked_logits / tau, dim=0)
+            
+            # Renormalize after masking
+            attention_weights = attention_weights * valid_mask.float()
+            attention_weights = attention_weights / (attention_weights.sum() + 1e-9)
         else:
-            # Get top 3 indices directly
-            _, selected_indices = torch.topk(action_logits[0], k=3)
+            attention_weights = F.softmax(action_logits[0] / tau, dim=0)
         
-        # Get features for selected frames
-        selected_features = torch.stack([
-            enhanced_features[0, idx] for idx in selected_indices
-        ])
+        # Weighted sum of features (differentiable)
+        selected_features = torch.sum(
+            attention_weights.unsqueeze(-1) * enhanced_features[0],  # [T, hidden_dim]
+            dim=0
+        )  # [hidden_dim]
         
-        # Add batch dimension
-        selected_features = selected_features.unsqueeze(0)  # [1, 3, hidden_dim]
+        # Add batch dimension: [1, hidden_dim]
+        selected_features = selected_features.unsqueeze(0)
         
-        # Create mask for selected features
-        selected_mask = torch.ones(1, 3, dtype=torch.bool, device=video.device)
+        # Add sequence dimension for pathology modules: [1, 1, hidden_dim]
+        # PathologyModule expects [B, k, hidden_dim] where k is the number of frames
+        selected_features_with_seq = selected_features.unsqueeze(1)
+        
+        # Mask for single aggregated feature
+        selected_mask = torch.ones(1, 1, dtype=torch.bool, device=video.device)
         
         # Process pathologies (if enabled)
         pathology_scores = None
@@ -1202,7 +1224,7 @@ class MultiTaskModel(nn.Module):
             pathology_features = []
             
             for module in self.pathology_modules:
-                score, attention, features = module(selected_features, selected_mask)
+                score, attention, features = module(selected_features_with_seq, selected_mask)
                 pathology_scores.append(score)
                 pathology_attentions.append(attention)
                 pathology_features.append(features)
@@ -1211,9 +1233,11 @@ class MultiTaskModel(nn.Module):
             pathology_scores = torch.cat(pathology_scores, dim=1)  # [1, num_pathologies]
         
         # Return comprehensive output
+        # Note: selected_indices is kept for backward compatibility but not used
+        # The soft selection doesn't use discrete indices
         return {
             'selected_features': selected_features,
-            'selected_indices': selected_indices.unsqueeze(0),  # [1, 3]
+            'selected_indices': None,  # No longer using hard indices
             'pathology_scores': pathology_scores,
             'action_logits': action_logits,
             'state_values': state_values,
@@ -1234,13 +1258,13 @@ class MultiTaskModel(nn.Module):
         
         all_site_features = []
         all_pathology_scores = []
-        all_site_rl_data = []
+        all_site_metadata = []
         
         # Process each patient
         for b in range(batch_size):
             site_features = []
             site_pathology_scores = []
-            site_rl_data = []
+            site_metadata = []
             
             # Process each valid site
             valid_sites = site_masks[b].sum().item()
@@ -1257,15 +1281,15 @@ class MultiTaskModel(nn.Module):
                     video, site_idx, frame_mask, batch_idx=b, site_pos=n
                 )
                 
-                # Get selected features and pathology scores
-                selected_features = site_output['selected_features'].mean(dim=1)  # [1, hidden_dim]
+                # Get selected features (now already a single vector per site)
+                selected_features = site_output['selected_features']  # [1, hidden_dim]
                 site_features.append(selected_features)
                 
                 if self.use_pathology_loss and site_output['pathology_scores'] is not None:
                     site_pathology_scores.append(site_output['pathology_scores'])
                 
-                # Store RL data
-                site_rl_data.append({
+                # Store site metadata (action logits, state values, etc. for all selection strategies)
+                site_metadata.append({
                     'batch_idx': b,
                     'site_idx': n,
                     'selected_indices': site_output['selected_indices'],
@@ -1291,13 +1315,13 @@ class MultiTaskModel(nn.Module):
                     else:
                         all_pathology_scores.append(torch.zeros(max_sites, self.num_pathologies, device=site_videos.device))
                 
-                all_site_rl_data.append(site_rl_data)
+                all_site_metadata.append(site_metadata)
             else:
                 # No valid sites
                 all_site_features.append(torch.zeros(max_sites, self.hidden_dim, device=site_videos.device))
                 if self.use_pathology_loss:
                     all_pathology_scores.append(torch.zeros(max_sites, self.num_pathologies, device=site_videos.device))
-                all_site_rl_data.append([])
+                all_site_metadata.append([])
         
         # Stack across batch
         all_site_features = torch.stack(all_site_features)  # [B, N, hidden_dim]
@@ -1307,7 +1331,7 @@ class MultiTaskModel(nn.Module):
         else:
             all_pathology_scores = None
         
-        return all_site_features, all_pathology_scores, all_site_rl_data
+        return all_site_features, all_pathology_scores, all_site_metadata
     
     def forward(self, inputs):
         """
@@ -1325,7 +1349,7 @@ class MultiTaskModel(nn.Module):
         site_masks = inputs['site_masks']
         
         # Process all sites for all patients
-        site_features, pathology_scores, site_rl_data = self.process_patient(
+        site_features, pathology_scores, site_metadata = self.process_patient(
             site_videos, site_indices, site_masks
         )
         
@@ -1370,6 +1394,12 @@ class MultiTaskModel(nn.Module):
                 pathology_scores  # [B, N, num_pathologies]
             ).squeeze(1)  # [B, num_pathologies]
         
+        # Flatten site_metadata into site_outputs for entropy loss computation
+        # Each element in site_metadata is a list of dicts for one patient
+        site_outputs = []
+        for patient_sites in site_metadata:
+            site_outputs.extend(patient_sites)
+        
         # Return comprehensive output (compatible with new training system)
         output = {
             'task_logits': task_logits,  # NEW: Dict of task_name -> logits
@@ -1378,7 +1408,8 @@ class MultiTaskModel(nn.Module):
             'pathology_scores': pathology_scores,
             'mil_attention': mil_attention,
             'site_features': site_features,
-            'site_rl_data': site_rl_data
+            'site_metadata': site_metadata,  # Metadata for all frame selection strategies
+            'site_outputs': site_outputs  # Flattened version for entropy loss computation
         }
         
         # Keep backward compatibility - also include tb_logits
@@ -1433,6 +1464,49 @@ class MultiTaskModel(nn.Module):
                 
                 loss_dict[f'{task_name}_loss'] = task_loss.item()
                 total_loss += weighted_task_loss
+        
+        # Add entropy regularization to encourage discriminative attention
+        # This incentivizes the model to NOT have uniform attention weights
+        if 'site_outputs' in outputs and self.training:
+            entropy_loss = 0.0
+            num_sites = 0
+            
+            # Get temperature from config (same as used in process_site())
+            tau = getattr(self.config, 'attention_temperature', 0.5)
+            
+            for site_output in outputs['site_outputs']:
+                if 'action_logits' in site_output and site_output['action_logits'] is not None:
+                    action_logits = site_output['action_logits']
+                    
+                    # Apply temperature scaling (same as in process_site())
+                    # This ensures entropy is computed on the ACTUAL distribution used for selection
+                    scaled_logits = action_logits / tau
+                    
+                    # Compute attention weights (probabilities) with temperature
+                    attention_probs = F.softmax(scaled_logits, dim=-1)
+                    
+                    # Compute entropy: H = -sum(p * log(p))
+                    # High entropy = uniform distribution (bad - all frames equally weighted)
+                    # Low entropy = peaked distribution (good - focuses on few frames)
+                    log_probs = F.log_softmax(scaled_logits, dim=-1)
+                    entropy = -torch.sum(attention_probs * log_probs, dim=-1).mean()
+                    
+                    entropy_loss += entropy
+                    num_sites += 1
+            
+            if num_sites > 0:
+                # Average entropy across sites
+                avg_entropy = entropy_loss / num_sites
+                
+                # We want to MINIMIZE entropy (encourage peaked distributions)
+                # Use entropy_weight from config (default 0.001)
+                entropy_weight = getattr(self.config, 'entropy_weight', 0.001)
+                entropy_penalty = entropy_weight * avg_entropy
+                total_loss += entropy_penalty
+                
+                # Log both raw entropy and weighted penalty for monitoring
+                loss_dict['attention_entropy'] = avg_entropy.item()
+                loss_dict['attention_entropy_penalty'] = entropy_penalty.item()
         
         # FIXED: Pathology detection loss
         if self.use_pathology_loss and 'pathology_scores' in outputs and outputs['pathology_scores'] is not None:
