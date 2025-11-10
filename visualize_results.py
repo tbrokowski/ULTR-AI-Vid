@@ -793,9 +793,9 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
     print(f"{'='*50}")
     
     # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
-    # HMV-MIL (attention_pool_extra3) in dark blue, others in yellow/orange/red shades
+    # HMV-MIL (attention_pool_extra3_full_train1) in dark blue, others in yellow/orange/red shades
     publication_models = [
-        'attention_pool_extra3_full_train',  # HMV-MIL (dark blue)
+        'attention_pool_extra3_full_train1',  # HMV-MIL (dark blue)
         'cnnlstm',                # CNN-LSTM
         '3dcnn',                  # 3D-ResNet-18
         'inception3d',            # 3D-Inception
@@ -923,9 +923,9 @@ def create_pr_curves_with_ci(all_results: Dict, model_types: List[str],
     print(f"\nCreating PR curves ({split})...")
     
     # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
-    # HMV-MIL (attention_pool_extra3) in dark blue, others in yellow/orange/red shades
+    # HMV-MIL in dark blue, others in yellow/orange/red shades
     publication_models = [
-        'attention_pool_extra3',  # HMV-MIL (dark blue)
+        'attention_pool_extra3_full_train1',  # HMV-MIL (dark blue)
         'cnnlstm',                # CNN-LSTM
         '3dcnn',                  # 3D-ResNet-18
         'inception3d',            # 3D-Inception

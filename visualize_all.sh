@@ -33,7 +33,7 @@ MODEL_TYPES=(
     # "original"
     # # "original_test"
     # "vivit"
-    "attention_pool_extra3_full_train"
+    "attention_pool_extra3_full_train1"
 )
 
 echo "==============================================="

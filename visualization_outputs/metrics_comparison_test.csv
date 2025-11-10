@@ -1,2 +1,0 @@
-Model,AUC,AUPRC,Accuracy,Sensitivity,Specificity,F1,Ppv,Npv,Sens At 90 Spec,Sens At 70 Spec
-Attention Pool Extra3 Full Train,0.889 (0.879-0.899),0.873 (0.852-0.894),0.822 (0.781-0.863),0.647 (0.460-0.835),0.929 (0.865-0.993),0.727 (0.632-0.822),0.860 (0.791-0.928),0.817 (0.738-0.897),0.816 (0.783-0.848),0.884 (0.866-0.902)
