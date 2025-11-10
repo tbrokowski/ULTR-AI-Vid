@@ -224,6 +224,10 @@ def batch_process_video(video_path, model_base_path, folds, output_dir, csv_path
         # Print results
         print(f"  Top-3 frames: {top_indices.tolist()}")
         print(f"  Scores: [{top_scores[0]:.4f}, {top_scores[1]:.4f}, {top_scores[2]:.4f}]")
+        print(f"  Mean attention: {all_scores.mean():.4f}")
+        print(f"  Std attention: {all_scores.std():.4f}")
+        print(f"  Min attention: {all_scores.min():.4f}")
+        print(f"  Max attention: {all_scores.max():.4f}")
         
         # Save visualization
         output_path = os.path.join(output_dir, f"{video_name}_fold{fold}.png")
