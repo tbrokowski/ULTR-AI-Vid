@@ -73,59 +73,30 @@ class UniformFrameSelector(nn.Module):
         state_values = torch.zeros(batch_size, 1, device=device, requires_grad=True)
         return action_logits, state_values, encoded_features
     
-    def hard_topk_mask_st(self, logits, k=3, tau=0.1):
-        """
-        logits: [B, T] (frame scores)
-        Returns:
-        mask_st: [B, T]  (hard top-k in forward, soft in backward)
-        topk_idx: [B, k] (hard indices, for logging/visualization)
-        """
-        B, T = logits.shape
-        k = min(k, T)
-        #Soft distribution over frames
-        probs = F.softmax(logits / tau, dim=-1)  # [B, T]
-        #Hard top-k indices
-        topk_idx = torch.topk(probs, k=k, dim=-1).indices  # [B, k]
-        #Hard 0/1 mask over frames
-        hard_mask = torch.zeros_like(probs)                # [B, T]
-        hard_mask.scatter_(1, topk_idx, 1.0)               # put 1 where selected
-        # Normalize so each row sums to 1 (average over selected frames)
-        hard_mask = hard_mask / hard_mask.sum(dim=-1, keepdim=True).clamp_min(1e-8)
-        # 4) Straight-through: forward uses hard_mask, backward uses probs
-        mask_st = hard_mask + (probs - probs.detach())
-        return mask_st, topk_idx
-
-    def select_action(
-            self,
-            logits,               # [B, T] attention_scores
-            state_values=None,
-            encoded_features=None,  # [B, T, D] (enhanced_features/output_features)
-            batch_idx=None,
-            site_idx=None,
-            k=3,
-            tau=0.1,
-        ):
-        """
-        Differentiable hard top-k frame selection.
-        Returns:
-          selected_repr:  [B, D] pooled representation of selected frames
-          action_logp:    [B] scalar per example (optional; heurstic 'log prob')
-          topk_idx:       [B, k] hard indices for logging/visualization
-          mask_st:        [B, T] selection mask (hard forward, soft backward)
-        """
-        assert encoded_features is not None, "Need encoded_features for pooling"
-        B, T = logits.shape
+    def select_action(self, logits, state_values=None, encoded_features=None, batch_idx=None, site_idx=None):
+        batch_size, seq_len = logits.shape
         device = logits.device
-        # 1) Get straight-through hard top-k mask over frames
-        mask_st, topk_idx = self.hard_topk_mask_st(logits, k=k, tau=tau)  # [B, T], [B, k]
-        # 2) Use the mask to pool frame features
-        #    Forward: exactly k frames averaged (0/1 mask)
-        #    Backward: gradients via softmax(probs)
-        selected_repr = torch.sum(mask_st.unsqueeze(-1) * encoded_features, dim=1)  # [B, D]
-        probs = F.softmax(logits / tau, dim=-1)            # [B, T]
-        log_probs = torch.log(probs.clamp_min(1e-8))       # [B, T]
-        action_logp = (mask_st * log_probs).sum(dim=-1)    # [B]
-        return selected_repr, action_logp, topk_idx, mask_st
+        
+        actions = []
+        for b in range(batch_size):
+            valid_indices = torch.where(logits[b] > -1e8)[0]
+            
+            if len(valid_indices) == 0:
+                action = torch.tensor(0, device=device)
+            elif len(valid_indices) <= self.k_frames:
+                selected = valid_indices.repeat((self.k_frames + len(valid_indices) - 1) // len(valid_indices))
+                action = selected[0]
+            else:
+                step = len(valid_indices) // self.k_frames
+                uniform_indices = torch.arange(0, len(valid_indices), step, device=device)[:self.k_frames]
+                selected_indices = valid_indices[uniform_indices]
+                action = selected_indices[0]
+            
+            actions.append(action)
+        
+        actions = torch.stack(actions)
+        log_probs = torch.zeros_like(actions, dtype=torch.float)
+        return actions, log_probs
 
 
 class MeanPoolSelector(nn.Module):
@@ -280,6 +251,60 @@ class AttentionPoolSelector(nn.Module):
         action_log_probs = log_probs.gather(1, actions.unsqueeze(1)).squeeze(1)
         
         return actions, action_log_probs
+    
+    def hard_topk_mask_st(self, logits, k=3, tau=0.1):
+        """
+        logits: [B, T] (frame scores)
+        Returns:
+        mask_st: [B, T]  (hard top-k in forward, soft in backward)
+        topk_idx: [B, k] (hard indices, for logging/visualization)
+        """
+        B, T = logits.shape
+        k = min(k, T)
+        #Soft distribution over frames
+        probs = F.softmax(logits / tau, dim=-1)  # [B, T]
+        #Hard top-k indices
+        topk_idx = torch.topk(probs, k=k, dim=-1).indices  # [B, k]
+        #Hard 0/1 mask over frames
+        hard_mask = torch.zeros_like(probs)                # [B, T]
+        hard_mask.scatter_(1, topk_idx, 1.0)               # put 1 where selected
+        # Normalize so each row sums to 1 (average over selected frames)
+        hard_mask = hard_mask / hard_mask.sum(dim=-1, keepdim=True).clamp_min(1e-8)
+        # 4) Straight-through: forward uses hard_mask, backward uses probs
+        mask_st = hard_mask + (probs - probs.detach())
+        return mask_st, topk_idx
+    
+    def select_action(
+            self,
+            logits,               # [B, T] attention_scores
+            state_values=None,
+            encoded_features=None,  # [B, T, D] (enhanced_features/output_features)
+            batch_idx=None,
+            site_idx=None,
+            k=3,
+            tau=0.1,
+        ):
+        """
+        Differentiable hard top-k frame selection.
+        Returns:
+          selected_repr:  [B, D] pooled representation of selected frames
+          action_logp:    [B] scalar per example (optional; heurstic 'log prob')
+          topk_idx:       [B, k] hard indices for logging/visualization
+          mask_st:        [B, T] selection mask (hard forward, soft backward)
+        """
+        assert encoded_features is not None, "Need encoded_features for pooling"
+        B, T = logits.shape
+        device = logits.device
+        # 1) Get straight-through hard top-k mask over frames
+        mask_st, topk_idx = self.hard_topk_mask_st(logits, k=k, tau=tau)  # [B, T], [B, k]
+        # 2) Use the mask to pool frame features
+        #    Forward: exactly k frames averaged (0/1 mask)
+        #    Backward: gradients via softmax(probs)
+        selected_repr = torch.sum(mask_st.unsqueeze(-1) * encoded_features, dim=1)  # [B, D]
+        probs = F.softmax(logits / tau, dim=-1)            # [B, T]
+        log_probs = torch.log(probs.clamp_min(1e-8))       # [B, T]
+        action_logp = (mask_st * log_probs).sum(dim=-1)    # [B]
+        return selected_repr, action_logp, topk_idx, mask_st
 
 
 # =============================================================================
