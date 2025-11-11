@@ -2858,10 +2858,10 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
         for metric_key, latex_name in metric_latex_names.items():
             if metric_key in inter_video_data:
                 data = inter_video_data[metric_key]
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Mean}}{{{data['mean']:.2f}}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Std}}{{{data['std']:.2f}}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Min}}{{{data['min']:.2f}}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}Max}}{{{data['max']:.2f}}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Mean}}{{{data['mean']:.6f}}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Std}}{{{data['std']:.6f}}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Min}}{{{data['min']:.6f}}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Max}}{{{data['max']:.6f}}}")
             else:
                 latex_commands.append(f"\\newcommand{{\\{latex_name}Mean}}{{TBU}}")
                 latex_commands.append(f"\\newcommand{{\\{latex_name}Std}}{{TBU}}")
