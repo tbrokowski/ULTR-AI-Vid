@@ -2387,7 +2387,6 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     # For each model in the table
     table_models = [
         ('attention_pool_extra3_full_train2', "AttentionPoolBest"),
-        ('LeVit-Attention', 'LeViTAttention'),
         ('cnnlstm', 'CNNLSTM'),
         ('3dcnn', 'ThreeDResNet'),
         ('inception3d', 'InceptionThreeD'),
@@ -2470,6 +2469,63 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{TBU}}")
                 latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{TBU}}")
                 latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStdPercentage}}{{TBU}}")
+            
+            # Get Sensitivity at 70% Specificity
+            sens_at_70_spec_data = model_data[model_data['metric'] == 'sens_at_70_spec']
+            if len(sens_at_70_spec_data) > 0:
+                sens_at_70_spec_mean = sens_at_70_spec_data['mean'].iloc[0]
+                sens_at_70_spec_std = sens_at_70_spec_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{{sens_at_70_spec_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{{sens_at_70_spec_mean*100:.0f}\\%}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{{sens_at_70_spec_std:.2f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{TBU}}")
+            
+            # Get Sensitivity at 90% Specificity
+            sens_at_90_spec_data = model_data[model_data['metric'] == 'sens_at_90_spec']
+            if len(sens_at_90_spec_data) > 0:
+                sens_at_90_spec_mean = sens_at_90_spec_data['mean'].iloc[0]
+                sens_at_90_spec_std = sens_at_90_spec_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{{sens_at_90_spec_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{{sens_at_90_spec_mean*100:.0f}\\%}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{{sens_at_90_spec_std:.2f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{TBU}}")
+            
+            # Get Specificity at 70% Sensitivity
+            spec_at_70_sens_data = model_data[model_data['metric'] == 'spec_at_70_sens']
+            if len(spec_at_70_sens_data) > 0:
+                spec_at_70_sens_mean = spec_at_70_sens_data['mean'].iloc[0]
+                spec_at_70_sens_std = spec_at_70_sens_data['std'].iloc[0]
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{{spec_at_70_sens_mean:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{{spec_at_70_sens_mean*100:.0f}\\%}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{{spec_at_70_sens_std:.2f}}}"
+                )
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{TBU}}")
         else:
             # Model not found, use TBU
             latex_commands.append(f"\\newcommand{{\\{latex_name}AUCMean}}{{TBU}}")
@@ -2482,6 +2538,15 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
             latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStdPercentage}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{TBU}}")
         
         latex_commands.append("")
     
@@ -2590,9 +2655,15 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     # Ablation study mapping: Configuration -> Model name in metrics_df
     ablation_mapping = {
         'FullModel': 'attention_pool_extra3_full_train2',
-        'NoKeyframe': 'mean_pool_extra3',
-        'NoPathology': 'singletask_extra3',
+        'levit': 'LeVit-Attention',
+        'NoPreTraining': "attention_pool_noInitWeights",
         'UniformSampling': 'uniform_extra3',
+        'MeanPool': 'mean_pool_extra3',
+        'kEqualOneSelection': 'attention_pool_extra4_k1',
+        'kEqualEightSelection': 'attention_pool_extra4_k8',
+        'NoPathology': 'singletask_extra3',
+        'NoMIL': 'attention_pool_cxr'
+
     }
     
     for macro_name, model_name in ablation_mapping.items():
@@ -2623,10 +2694,68 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     auc_nokeyframe = metrics_df[(metrics_df['model'] == 'mean_pool_extra3') & (metrics_df['metric'] == 'auc')]['mean'].values
     if len(auc_mean_best) == 1 and len(auc_nokeyframe) == 1:
         improvement = auc_mean_best[0] - auc_nokeyframe[0]
-        latex_commands.append(f"\\newcommand{{\\AUCImprovementNoKeyframe}}{{{improvement:.2f}}}")
+        latex_commands.append(f"\\newcommand{{\\AUCImprovementMeanPool}}{{{improvement:.2f}}}")
     else:
         print(auc_mean_best, auc_nokeyframe)
         raise ValueError("Required models for AUC improvement calculation not found.")
+
+    # Add attention metrics macros
+    latex_commands.append("")
+    latex_commands.append("% Attention weights statistics")
+    latex_commands.append("")
+    
+    attention_metrics_path = os.path.join(output_dir, 'attention_weights_test', 'attention_metrics_all_folds_summary.csv')
+    if os.path.exists(attention_metrics_path):
+        # Read the inter-video statistics section
+        with open(attention_metrics_path, 'r') as f:
+            lines = f.readlines()
+        
+        # Parse inter-video statistics (first section)
+        inter_video_data = {}
+        for i, line in enumerate(lines):
+            if line.startswith('INTER-VIDEO STATISTICS'):
+                # Skip header line and read data rows
+                for j in range(i+2, min(i+7, len(lines))):  # Read up to 5 data rows
+                    if lines[j].strip() and not lines[j].startswith('PER-VIDEO'):
+                        parts = lines[j].strip().split(',')
+                        if len(parts) >= 5:
+                            metric_name = parts[0]
+                            inter_video_data[metric_name] = {
+                                'mean': float(parts[1]),
+                                'std': float(parts[2]),
+                                'min': float(parts[3]),
+                                'max': float(parts[4])
+                            }
+                break
+        
+        # Generate LaTeX macros for each metric
+        metric_latex_names = {
+            'intra_video_mean': 'IntraVideoMean',
+            'intra_video_std': 'IntraVideoStd',
+            'intra_video_min': 'IntraVideoMin',
+            'intra_video_max': 'IntraVideoMax'
+        }
+        
+        for metric_key, latex_name in metric_latex_names.items():
+            if metric_key in inter_video_data:
+                data = inter_video_data[metric_key]
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Mean}}{{{data['mean']:.6f}}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Std}}{{{data['std']:.6f}}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Min}}{{{data['min']:.6f}}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Max}}{{{data['max']:.6f}}}")
+            else:
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Mean}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Std}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Min}}{{TBU}}")
+                latex_commands.append(f"\\newcommand{{\\{latex_name}Max}}{{TBU}}")
+    else:
+        print(f"Warning: Attention metrics file not found at {attention_metrics_path}")
+        # Add TBU placeholders
+        for latex_name in ['IntraVideoMean', 'IntraVideoStd', 'IntraVideoMin', 'IntraVideoMax']:
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Mean}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Std}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Min}}{{TBU}}")
+            latex_commands.append(f"\\newcommand{{\\{latex_name}Max}}{{TBU}}")
 
     # Write to file
     output_path = os.path.join(output_dir, f'model_metrics_macros_{split}.tex')

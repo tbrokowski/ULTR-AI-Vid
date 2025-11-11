@@ -34,6 +34,8 @@ MODEL_TYPES=(
     # "original_test"
     "vivit"
     "attention_pool_extra3_full_train2"
+    "attention_pool_extra4_k1"
+    "attention_pool_extra4_k8"
 )
 
 echo "==============================================="

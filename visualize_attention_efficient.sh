@@ -3,7 +3,7 @@
 # Processes each video once across all folds instead of loading it 5 times
 
 # Base model path (will append fold number)
-MODEL_BASE_PATH="/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3_hardsoft"
+MODEL_BASE_PATH="/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3_full_train3"
 
 # Output directory
 OUTPUT_DIR="./visualization_outputs/attention_weights_test"
