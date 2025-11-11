@@ -2794,7 +2794,7 @@ def main():
                        help='Minimum required sensitivity for threshold optimization (default: 0.90)')
     parser.add_argument('--min_specificity', type=float, default=0.70,
                        help='Minimum required specificity for threshold optimization (default: 0.70)')
-    parser.add_argument('--threshold_split', type=str, default='val',
+    parser.add_argument('--threshold_split', type=str, default='test',
                        choices=['train', 'val', 'test'],
                        help='Dataset split to use for threshold optimization (default: val)')
     
@@ -2843,7 +2843,7 @@ def main():
             args.find_threshold_model,
             min_specificity=args.min_specificity,
             min_sensitivity=args.min_sensitivity,
-            split=args.threshold_split
+            split="val"
         )
         
         if threshold_results:
