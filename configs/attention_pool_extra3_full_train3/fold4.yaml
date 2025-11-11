@@ -131,7 +131,7 @@ patient_pipeline_eta_min: 0.0000005
 
 # Attention mechanism parameters
 attention_temperature: 0.2  # Temperature for soft attention (lower = sharper, higher = softer)
-entropy_weight: 0.01  # Weight for attention entropy regularization
+entropy_weight: 1  # Weight for attention entropy regularization
 
 # Loss configuration
 pos_weight: 2.0  # Default positive weight for binary classification

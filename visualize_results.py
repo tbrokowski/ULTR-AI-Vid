@@ -356,32 +356,20 @@ def calculate_comprehensive_metrics(y_true: np.ndarray, y_prob: np.ndarray,
     specificity = 1 - fpr
     
     # Sensitivity at 90% specificity
-    spec_90_idx = np.where(specificity >= 0.9)[0]
-    if len(spec_90_idx) > 0:
-        metrics['sens_at_90_spec'] = tpr[spec_90_idx[-1]]
-    else:
-        metrics['sens_at_90_spec'] = 0
-    
-    # Sensitivity at 70% specificity  
-    spec_70_idx = np.where(specificity >= 0.7)[0]
-    if len(spec_70_idx) > 0:
-        metrics['sens_at_70_spec'] = tpr[spec_70_idx[-1]]
-    else:
-        metrics['sens_at_70_spec'] = 0
-    
+    closest_idx = np.argmin(np.abs(specificity - 0.9))
+    metrics['sens_at_90_spec'] = tpr[closest_idx]
+
+    # Sensitivity at 70% specificity
+    closest_idx = np.argmin(np.abs(specificity - 0.7))
+    metrics['sens_at_70_spec'] = tpr[closest_idx]
+
     # Specificity at 90% sensitivity
-    sens_90_idx = np.where(tpr >= 0.9)[0]
-    if len(sens_90_idx) > 0:
-        metrics['spec_at_90_sens'] = specificity[sens_90_idx[0]]
-    else:
-        metrics['spec_at_90_sens'] = 0
-    
-    # Specificity at 70% sensitivity  
-    sens_70_idx = np.where(tpr >= 0.7)[0]
-    if len(sens_70_idx) > 0:
-        metrics['spec_at_70_sens'] = specificity[sens_70_idx[0]]
-    else:
-        metrics['spec_at_70_sens'] = 0
+    closest_idx = np.argmin(np.abs(tpr - 0.9))
+    metrics['spec_at_90_sens'] = specificity[closest_idx]
+
+    # Specificity at 70% sensitivity
+    closest_idx = np.argmin(np.abs(tpr - 0.7))
+    metrics['spec_at_70_sens'] = specificity[closest_idx]
         
     return metrics
 
@@ -560,6 +548,102 @@ def find_optimal_threshold_with_constraints(all_results: Dict, model_type: str,
         'split': split,
         'min_sensitivity_constraint': min_sensitivity,
         'min_specificity_constraint': min_specificity
+    }
+
+def apply_optimal_threshold_to_test(all_results: Dict, model_type: str, 
+                                   optimal_threshold: float, 
+                                   split: str = 'test') -> Dict:
+    """
+    Apply the optimal threshold found on validation set to the test set.
+    
+    Args:
+        all_results: Dictionary containing all model results
+        model_type: The model to analyze
+        optimal_threshold: The threshold value to apply (found on validation set)
+        split: Dataset split to evaluate (default: 'test')
+    
+    Returns:
+        Dictionary with per-fold and aggregate performance metrics on test set
+    """
+    print(f"\n{'='*70}")
+    print(f"APPLYING OPTIMAL THRESHOLD TO {split.upper()} SET")
+    print(f"{'='*70}")
+    print(f"Model: {model_type}")
+    print(f"Optimal Threshold (from validation): {optimal_threshold:.4f}")
+    
+    if model_type not in all_results:
+        print(f"❌ Model {model_type} not found in results")
+        return None
+    
+    fold_performances = []
+    
+    for fold in all_results[model_type].keys():
+        if split not in all_results[model_type][fold]:
+            continue
+        
+        fold_data = all_results[model_type][fold][split]
+        if 'patients' not in fold_data:
+            continue
+        
+        patients_df = fold_data['patients']
+        
+        if 'tb_label' in patients_df.columns and 'tb_prob' in patients_df.columns:
+            valid_mask = patients_df['tb_label'] >= 0
+            if valid_mask.sum() == 0:
+                continue
+            
+            y_true = patients_df.loc[valid_mask, 'tb_label'].values
+            y_prob = patients_df.loc[valid_mask, 'tb_prob'].values
+            
+            # Apply optimal threshold
+            y_pred = (y_prob >= optimal_threshold).astype(int)
+            
+            # Calculate metrics
+            tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+            sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+            specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+            
+            fold_performances.append({
+                'fold': fold,
+                'sensitivity': sensitivity,
+                'specificity': specificity,
+                'n_samples': len(y_true),
+                'tp': int(tp),
+                'tn': int(tn),
+                'fp': int(fp),
+                'fn': int(fn)
+            })
+            
+            print(f"  Fold {fold}: Sens={sensitivity:.4f}, Spec={specificity:.4f}, N={len(y_true)}")
+    
+    if not fold_performances:
+        print(f"❌ No valid data found for {model_type} on {split} split")
+        return None
+    
+    # Calculate mean and std across folds
+    sensitivities = [f['sensitivity'] for f in fold_performances]
+    specificities = [f['specificity'] for f in fold_performances]
+    
+    mean_sens = np.mean(sensitivities)
+    std_sens = np.std(sensitivities, ddof=1) if len(sensitivities) > 1 else 0
+    mean_spec = np.mean(specificities)
+    std_spec = np.std(specificities, ddof=1) if len(specificities) > 1 else 0
+    
+    print(f"\n✅ {split.upper()} SET PERFORMANCE AT OPTIMAL THRESHOLD:")
+    print(f"   Sensitivity: {mean_sens:.4f} ± {std_sens:.4f}")
+    print(f"   Specificity: {mean_spec:.4f} ± {std_spec:.4f}")
+    print(f"   Number of folds: {len(fold_performances)}")
+    
+    return {
+        'model': model_type,
+        'threshold': optimal_threshold,
+        'split': split,
+        'mean_sensitivity': mean_sens,
+        'std_sensitivity': std_sens,
+        'mean_specificity': mean_spec,
+        'std_specificity': std_spec,
+        'fold_performances': fold_performances,
+        'n_folds': len(fold_performances)
     }
 
 def aggregate_cross_fold_metrics(all_results: Dict, model_types: List[str], 
@@ -1147,10 +1231,11 @@ def visualize_optimal_threshold(all_results: Dict, model_type: str, threshold_re
     specificity = 1 - fpr
     roc_auc = auc(fpr, tpr)
     
-    # Get optimal threshold info
+    # Get optimal threshold info - handle both formats
     opt_threshold = threshold_results['threshold']
-    opt_sensitivity = threshold_results['sensitivity']
-    opt_specificity = threshold_results['specificity']
+    # Test set results use 'mean_sensitivity', validation results use 'sensitivity'
+    opt_sensitivity = threshold_results.get('mean_sensitivity', threshold_results.get('sensitivity', 0))
+    opt_specificity = threshold_results.get('mean_specificity', threshold_results.get('specificity', 0))
     
     # Setup plot
     setup_publication_style()
@@ -2363,7 +2448,7 @@ def create_statistical_significance_table(statistical_results: Dict, output_dir:
 # Data for report
 # =============================================================================
 
-def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output_dir: str, split: str = 'test') -> None:
+def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output_dir: str, split: str = 'test', threshold_results: dict = None) -> None:
     """
     Create LaTeX macros file with all relevant numbers for the report.
     
@@ -2413,119 +2498,151 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
                 latex_commands.append(f"\\newcommand{{\\{latex_name}AUCMean}}{{TBU}}")
                 latex_commands.append(f"\\newcommand{{\\{latex_name}AUCStd}}{{TBU}}")
             
-            # Get Sensitivity
-            sens_data = model_data[model_data['metric'] == 'sensitivity']
-            if len(sens_data) > 0:
-                sens_mean = sens_data['mean'].iloc[0]
-                sens_std = sens_data['std'].iloc[0]
+            # Check if we have optimal threshold results for this model
+            # If yes, use those for sensitivity and specificity (instead of 0.5 threshold)
+            # If no, fall back to the default metrics from metrics_df
+            if threshold_results and internal_name == threshold_results.get('model'):
+                # Use optimal threshold-based metrics from test set
+                opt_sens = threshold_results.get('mean_sensitivity', threshold_results.get('sensitivity', 0))
+                opt_sens_std = threshold_results.get('std_sensitivity', 0)
+                opt_spec = threshold_results.get('mean_specificity', threshold_results.get('specificity', 0))
+                opt_spec_std = threshold_results.get('std_specificity', 0)
+                opt_threshold = threshold_results['threshold']
+                
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensitivityMean}}{{{sens_mean:.2f}}}"
+                    f"\\newcommand{{\\{latex_name}SensitivityMean}}{{{opt_sens:.2f}}}"
                 )
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensitivityMeanPercentage}}{{{sens_mean*100:.0f}\\%}}"
+                    f"\\newcommand{{\\{latex_name}SensitivityMeanPercentage}}{{{opt_sens*100:.0f}\\%}}"
                 )
                 latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensitivityStd}}{{{sens_std:.2f}}}"
+                    f"\\newcommand{{\\{latex_name}SensitivityStd}}{{{opt_sens_std:.2f}}}"
                 )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecificityMean}}{{{opt_spec:.2f}}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecificityMeanPercentage}}{{{opt_spec*100:.0f}\\%}}"
+                )
+                latex_commands.append(
+                    f"\\newcommand{{\\{latex_name}SpecificityStd}}{{{opt_spec_std:.2f}}}"
+                )
+                latex_commands.append(f"\\newcommand{{\\{latex_name}OptimalThreshold}}{{{opt_threshold:.4f}}}")
             else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityMean}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityMeanPercentage}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityStd}}{{TBU}}")
+                # Use default 0.5 threshold metrics from metrics_df
+                # Get Sensitivity
+                sens_data = model_data[model_data['metric'] == 'sensitivity']
+                if len(sens_data) > 0:
+                    sens_mean = sens_data['mean'].iloc[0]
+                    sens_std = sens_data['std'].iloc[0]
+                    latex_commands.append(
+                        f"\\newcommand{{\\{latex_name}SensitivityMean}}{{{sens_mean:.2f}}}"
+                    )
+                    latex_commands.append(
+                        f"\\newcommand{{\\{latex_name}SensitivityMeanPercentage}}{{{sens_mean*100:.0f}\\%}}"
+                    )
+                    latex_commands.append(
+                        f"\\newcommand{{\\{latex_name}SensitivityStd}}{{{sens_std:.2f}}}"
+                    )
+                else:
+                    latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityMean}}{{TBU}}")
+                    latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityMeanPercentage}}{{TBU}}")
+                    latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityStd}}{{TBU}}")
+                
+                # Get Specificity
+                spec_data = model_data[model_data['metric'] == 'specificity']
+                if len(spec_data) > 0:
+                    spec_mean = spec_data['mean'].iloc[0]
+                    spec_std = spec_data['std'].iloc[0]
+                    latex_commands.append(
+                        f"\\newcommand{{\\{latex_name}SpecificityMean}}{{{spec_mean:.2f}}}"
+                    )
+                    latex_commands.append(
+                        f"\\newcommand{{\\{latex_name}SpecificityMeanPercentage}}{{{spec_mean*100:.0f}\\%}}"
+                    )
+                    latex_commands.append(
+                        f"\\newcommand{{\\{latex_name}SpecificityStd}}{{{spec_std:.2f}}}"
+                    )
+                else:
+                    latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityMean}}{{TBU}}")
+                    latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityStd}}{{TBU}}")
             
-            # Get Specificity
-            spec_data = model_data[model_data['metric'] == 'specificity']
-            if len(spec_data) > 0:
-                spec_mean = spec_data['mean'].iloc[0]
-                spec_std = spec_data['std'].iloc[0]
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecificityMean}}{{{spec_mean:.2f}}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecificityMeanPercentage}}{{{spec_mean*100:.0f}\\%}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecificityStd}}{{{spec_std:.2f}}}"
-                )
-            else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityMean}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityStd}}{{TBU}}")
+            # # Get Specificity at 90% Sensitivity
+            # spec_at_90_sens_data = model_data[model_data['metric'] == 'spec_at_90_sens']
+            # if len(spec_at_90_sens_data) > 0:
+            #     spec_at_90_sens_mean = spec_at_90_sens_data['mean'].iloc[0]
+            #     spec_at_90_sens_std = spec_at_90_sens_data['std'].iloc[0]
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{{spec_at_90_sens_mean:.2f}}}"
+            #     )
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{{spec_at_90_sens_mean*100:.0f}\\%}}"
+            #     )
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{{spec_at_90_sens_std:.2f}}}"
+            #     )
+            # else:
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStdPercentage}}{{TBU}}")
             
-            # Get Specificity at 90% Sensitivity
-            spec_at_90_sens_data = model_data[model_data['metric'] == 'spec_at_90_sens']
-            if len(spec_at_90_sens_data) > 0:
-                spec_at_90_sens_mean = spec_at_90_sens_data['mean'].iloc[0]
-                spec_at_90_sens_std = spec_at_90_sens_data['std'].iloc[0]
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{{spec_at_90_sens_mean:.2f}}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{{spec_at_90_sens_mean*100:.0f}\\%}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{{spec_at_90_sens_std:.2f}}}"
-                )
-            else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStdPercentage}}{{TBU}}")
+            # # Get Sensitivity at 70% Specificity
+            # sens_at_70_spec_data = model_data[model_data['metric'] == 'sens_at_70_spec']
+            # if len(sens_at_70_spec_data) > 0:
+            #     sens_at_70_spec_mean = sens_at_70_spec_data['mean'].iloc[0]
+            #     sens_at_70_spec_std = sens_at_70_spec_data['std'].iloc[0]
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{{sens_at_70_spec_mean:.2f}}}"
+            #     )
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{{sens_at_70_spec_mean*100:.0f}\\%}}"
+            #     )
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{{sens_at_70_spec_std:.2f}}}"
+            #     )
+            # else:
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{TBU}}")
             
-            # Get Sensitivity at 70% Specificity
-            sens_at_70_spec_data = model_data[model_data['metric'] == 'sens_at_70_spec']
-            if len(sens_at_70_spec_data) > 0:
-                sens_at_70_spec_mean = sens_at_70_spec_data['mean'].iloc[0]
-                sens_at_70_spec_std = sens_at_70_spec_data['std'].iloc[0]
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{{sens_at_70_spec_mean:.2f}}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{{sens_at_70_spec_mean*100:.0f}\\%}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{{sens_at_70_spec_std:.2f}}}"
-                )
-            else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{TBU}}")
+            # # Get Sensitivity at 90% Specificity
+            # sens_at_90_spec_data = model_data[model_data['metric'] == 'sens_at_90_spec']
+            # if len(sens_at_90_spec_data) > 0:
+            #     sens_at_90_spec_mean = sens_at_90_spec_data['mean'].iloc[0]
+            #     sens_at_90_spec_std = sens_at_90_spec_data['std'].iloc[0]
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{{sens_at_90_spec_mean:.2f}}}"
+            #     )
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{{sens_at_90_spec_mean*100:.0f}\\%}}"
+            #     )
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{{sens_at_90_spec_std:.2f}}}"
+            #     )
+            # else:
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{TBU}}")
             
-            # Get Sensitivity at 90% Specificity
-            sens_at_90_spec_data = model_data[model_data['metric'] == 'sens_at_90_spec']
-            if len(sens_at_90_spec_data) > 0:
-                sens_at_90_spec_mean = sens_at_90_spec_data['mean'].iloc[0]
-                sens_at_90_spec_std = sens_at_90_spec_data['std'].iloc[0]
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{{sens_at_90_spec_mean:.2f}}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{{sens_at_90_spec_mean*100:.0f}\\%}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{{sens_at_90_spec_std:.2f}}}"
-                )
-            else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{TBU}}")
-            
-            # Get Specificity at 70% Sensitivity
-            spec_at_70_sens_data = model_data[model_data['metric'] == 'spec_at_70_sens']
-            if len(spec_at_70_sens_data) > 0:
-                spec_at_70_sens_mean = spec_at_70_sens_data['mean'].iloc[0]
-                spec_at_70_sens_std = spec_at_70_sens_data['std'].iloc[0]
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{{spec_at_70_sens_mean:.2f}}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{{spec_at_70_sens_mean*100:.0f}\\%}}"
-                )
-                latex_commands.append(
-                    f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{{spec_at_70_sens_std:.2f}}}"
-                )
-            else:
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{TBU}}")
-                latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{TBU}}")
+            # # Get Specificity at 70% Sensitivity
+            # spec_at_70_sens_data = model_data[model_data['metric'] == 'spec_at_70_sens']
+            # if len(spec_at_70_sens_data) > 0:
+            #     spec_at_70_sens_mean = spec_at_70_sens_data['mean'].iloc[0]
+            #     spec_at_70_sens_std = spec_at_70_sens_data['std'].iloc[0]
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{{spec_at_70_sens_mean:.2f}}}"
+            #     )
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{{spec_at_70_sens_mean*100:.0f}\\%}}"
+            #     )
+            #     latex_commands.append(
+            #         f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{{spec_at_70_sens_std:.2f}}}"
+            #     )
+            # else:
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{TBU}}")
+            #     latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{TBU}}")
         else:
             # Model not found, use TBU
             latex_commands.append(f"\\newcommand{{\\{latex_name}AUCMean}}{{TBU}}")
@@ -2534,19 +2651,19 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
             latex_commands.append(f"\\newcommand{{\\{latex_name}SensitivityStd}}{{TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityMean}}{{TBU}}")
             latex_commands.append(f"\\newcommand{{\\{latex_name}SpecificityStd}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStdPercentage}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{TBU}}")
-            latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMean}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensMeanPercentage}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStd}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtNinetySensStdPercentage}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMean}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecMeanPercentage}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtSeventySpecStd}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMean}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecMeanPercentage}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SensAtNinetySpecStd}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMean}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensMeanPercentage}}{{TBU}}")
+            # latex_commands.append(f"\\newcommand{{\\{latex_name}SpecAtSeventySensStd}}{{TBU}}")
         
         latex_commands.append("")
     
@@ -2696,8 +2813,10 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
         improvement = auc_mean_best[0] - auc_nokeyframe[0]
         latex_commands.append(f"\\newcommand{{\\AUCImprovementMeanPool}}{{{improvement:.2f}}}")
     else:
-        print(auc_mean_best, auc_nokeyframe)
-        raise ValueError("Required models for AUC improvement calculation not found.")
+        print(f"⚠️  Warning: Could not calculate AUC improvement - models not found")
+        print(f"   attention_pool_extra3_full_train2 found: {len(auc_mean_best) == 1}")
+        print(f"   mean_pool_extra3 found: {len(auc_nokeyframe) == 1}")
+        latex_commands.append(f"\\newcommand{{\\AUCImprovementMeanPool}}{{TBU}}")
 
     # Add attention metrics macros
     latex_commands.append("")
@@ -2871,7 +2990,38 @@ def main():
             
             print(f"\n📄 Optimal threshold results saved to: {threshold_output_path}")
             
-            # Create visualization
+            # Apply the optimal threshold to the test set
+            test_threshold_results = apply_optimal_threshold_to_test(
+                all_results,
+                args.find_threshold_model,
+                threshold_results['threshold'],
+                split=args.split  # Use the split from command line args (usually 'test')
+            )
+            
+            # Save test set threshold results
+            if test_threshold_results:
+                test_threshold_output_path = os.path.join(args.output_dir, 
+                    f'{args.find_threshold_model}_optimal_threshold_{args.split}.json')
+                with open(test_threshold_output_path, 'w') as f:
+                    serializable_test_results = {}
+                    for key, value in test_threshold_results.items():
+                        if key == 'fold_performances':
+                            serializable_test_results[key] = [
+                                {k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
+                                 for k, v in fold_perf.items()}
+                                for fold_perf in value
+                            ]
+                        elif isinstance(value, (np.floating, np.integer)):
+                            serializable_test_results[key] = float(value)
+                        else:
+                            serializable_test_results[key] = value
+                    json.dump(serializable_test_results, f, indent=2)
+                print(f"📄 Test set threshold results saved to: {test_threshold_output_path}")
+                
+                # Replace threshold_results with test_threshold_results for LaTeX macros
+                threshold_results = test_threshold_results
+            
+            # Create visualization using validation set results
             visualize_optimal_threshold(all_results, args.find_threshold_model, 
                                        threshold_results, args.output_dir, args.threshold_split)
     else:
@@ -2946,7 +3096,7 @@ def main():
     print(f"\n{'='*70}")
     print("GENERATING LATEX MACROS FOR REPORT")
     print(f"{'='*70}")
-    create_latex_macros(metrics_df, ensemble_results, args.output_dir, args.split)
+    create_latex_macros(metrics_df, ensemble_results, args.output_dir, args.split, threshold_results)
     
     # Save summary report
     summary_data = {
@@ -2985,13 +3135,19 @@ def main():
     if ensemble_results:
         print(f"🔬 Pathology ensemble models trained for {len(ensemble_results)} neural network models")
     if threshold_results and threshold_results.get('constraints_met'):
+        # Handle both validation results and test results format
+        sens = threshold_results.get('mean_sensitivity', threshold_results.get('sensitivity', 0))
+        spec = threshold_results.get('mean_specificity', threshold_results.get('specificity', 0))
         print(f"🎯 Optimal threshold for {args.find_threshold_model}: {threshold_results['threshold']:.4f}")
-        print(f"   - Sensitivity: {threshold_results['sensitivity']:.3f} (≥{args.min_sensitivity:.2f} ✓)")
-        print(f"   - Specificity: {threshold_results['specificity']:.3f} (≥{args.min_specificity:.2f} ✓)")
+        print(f"   - Sensitivity: {sens:.3f} (≥{args.min_sensitivity:.2f} ✓)")
+        print(f"   - Specificity: {spec:.3f} (≥{args.min_specificity:.2f} ✓)")
     elif threshold_results and not threshold_results.get('constraints_met'):
+        # Handle both validation results and test results format
+        sens = threshold_results.get('mean_sensitivity', threshold_results.get('sensitivity', 0))
+        spec = threshold_results.get('mean_specificity', threshold_results.get('specificity', 0))
         print(f"⚠️  Best compromise threshold for {args.find_threshold_model}: {threshold_results['threshold']:.4f}")
-        print(f"   - Sensitivity: {threshold_results['sensitivity']:.3f} (target: ≥{args.min_sensitivity:.2f})")
-        print(f"   - Specificity: {threshold_results['specificity']:.3f} (target: ≥{args.min_specificity:.2f})")
+        print(f"   - Sensitivity: {sens:.3f} (target: ≥{args.min_sensitivity:.2f})")
+        print(f"   - Specificity: {spec:.3f} (target: ≥{args.min_specificity:.2f})")
     print(f"{'='*70}")
 
 if __name__ == "__main__":
