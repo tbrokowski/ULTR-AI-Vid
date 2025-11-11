@@ -100,7 +100,7 @@ TOP_MODELS_COLORS = ['#00008B', '#FFD700', '#FFA500', '#FF8C00', '#FF6347', '#DC
 
 # Model-specific colors for ROC/PR curves
 MODEL_CURVE_COLORS = {
-    'attention_pool_extra3': '#00008B',  # Dark blue for HMV-MIL
+    'attention_pool_extra3_full_train2': '#00008B',  # Dark blue for HMV-MIL
     'mean_pool_extra3': '#FFD700',       # Gold
     'singletask_extra3': '#FFA500',      # Orange
     'uniform_extra3': '#FF8C00',         # Dark orange
@@ -113,7 +113,7 @@ MODEL_CURVE_COLORS = {
 
 # Model display name mapping: internal name -> display name
 MODEL_DISPLAY_NAMES = {
-    'attention_pool_extra3': 'HMV-MIL',
+    'attention_pool_extra3_full_train2': 'HMV-MIL',
     'mean_pool_extra3': 'NoKeyframe',
     'singletask_extra3': 'NoPathology',
     'uniform_extra3': 'UniformSampling',
@@ -394,7 +394,7 @@ def find_optimal_threshold_with_constraints(all_results: Dict, model_type: str,
     
     Args:
         all_results: Dictionary containing all model results
-        model_type: The model to analyze (e.g., 'attention_pool_extra3')
+        model_type: The model to analyze (e.g., 'attention_pool_extra3_full_train2')
         min_specificity: Minimum required specificity (default: 0.70)
         min_sensitivity: Minimum required sensitivity (default: 0.90)
         split: Dataset split to use for finding threshold (default: 'val')
@@ -793,7 +793,7 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
     print(f"{'='*50}")
     
     # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
-    # HMV-MIL (attention_pool_extra3_full_train1) in dark blue, others in yellow/orange/red shades
+    # HMV-MIL (attention_pool_extra3_full_train2) in dark blue, others in yellow/orange/red shades
     publication_models = [
         'attention_pool_extra3_full_train2',  # HMV-MIL (dark blue)
         'cnnlstm',                # CNN-LSTM
@@ -925,7 +925,7 @@ def create_pr_curves_with_ci(all_results: Dict, model_types: List[str],
     # Use specific models for publication: HMV-MIL, CNN-LSTM, 3D-ResNet, Inception3D, Video Transformer
     # HMV-MIL in dark blue, others in yellow/orange/red shades
     publication_models = [
-        'attention_pool_extra3_full_train1',  # HMV-MIL (dark blue)
+        'attention_pool_extra3_full_train2',  # HMV-MIL (dark blue)
         'cnnlstm',                # CNN-LSTM
         '3dcnn',                  # 3D-ResNet-18
         'inception3d',            # 3D-Inception
@@ -2386,7 +2386,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     
     # For each model in the table
     table_models = [
-        ('attention_pool_extra3', "AttentionPoolBest"),
+        ('attention_pool_extra3_full_train2', "AttentionPoolBest"),
         ('LeVit-Attention', 'LeViTAttention'),
         ('cnnlstm', 'CNNLSTM'),
         ('3dcnn', 'ThreeDResNet'),
@@ -2486,7 +2486,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
         latex_commands.append("")
     
     # Add macros for pathology ensemble results (only for best model)
-    latex_commands.append("% Macros for pathology-specific metrics (best model: attention_pool_extra3)")
+    latex_commands.append("% Macros for pathology-specific metrics (best model: attention_pool_extra3_full_train2)")
     latex_commands.append("")
     
     # Load pathology results from JSON file
@@ -2509,9 +2509,9 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
             with open(pathology_json_path, 'r') as f:
                 pathology_data = json.load(f)
             
-            # Get data for best model (attention_pool_extra3)
-            if 'attention_pool_extra3' in pathology_data:
-                best_model_data = pathology_data['attention_pool_extra3']
+            # Get data for best model (attention_pool_extra3_full_train2)
+            if 'attention_pool_extra3_full_train2' in pathology_data:
+                best_model_data = pathology_data['attention_pool_extra3_full_train2']
                 
                 # Process each pathology
                 for json_key, (macro_name, display_name) in pathology_mapping.items():
@@ -2589,7 +2589,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     
     # Ablation study mapping: Configuration -> Model name in metrics_df
     ablation_mapping = {
-        'FullModel': 'attention_pool_extra3',
+        'FullModel': 'attention_pool_extra3_full_train2',
         'NoKeyframe': 'mean_pool_extra3',
         'NoPathology': 'singletask_extra3',
         'UniformSampling': 'uniform_extra3',
@@ -2619,7 +2619,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     latex_commands.append("")
 
     # Some computations for the report
-    auc_mean_best = metrics_df[(metrics_df['model'] == 'attention_pool_extra3') & (metrics_df['metric'] == 'auc')]['mean'].values
+    auc_mean_best = metrics_df[(metrics_df['model'] == 'attention_pool_extra3_full_train2') & (metrics_df['metric'] == 'auc')]['mean'].values
     auc_nokeyframe = metrics_df[(metrics_df['model'] == 'mean_pool_extra3') & (metrics_df['metric'] == 'auc')]['mean'].values
     if len(auc_mean_best) == 1 and len(auc_nokeyframe) == 1:
         improvement = auc_mean_best[0] - auc_nokeyframe[0]
@@ -2659,8 +2659,8 @@ def main():
                        help='Dataset split to analyze')
     parser.add_argument('--top_n', type=int, default=6,
                        help='Number of top models to include in detailed analysis')
-    parser.add_argument('--find_threshold_model', type=str, default='attention_pool_extra3',
-                       help='Model for which to find optimal threshold (default: attention_pool_extra3)')
+    parser.add_argument('--find_threshold_model', type=str, default='attention_pool_extra3_full_train2',
+                       help='Model for which to find optimal threshold (default: attention_pool_extra3_full_train2)')
     parser.add_argument('--min_sensitivity', type=float, default=0.90,
                        help='Minimum required sensitivity for threshold optimization (default: 0.90)')
     parser.add_argument('--min_specificity', type=float, default=0.70,

@@ -125,6 +125,169 @@ def visualize_top_3_frames(frames, indices, scores, save_path):
     return fig
 
 
+def compute_average_metrics(csv_path):
+    """
+    Compute average metrics across all videos in the CSV.
+    
+    Process:
+    1. For each video, average across folds to get per-video statistics
+    2. Then compute inter-video statistics (mean, std, min, max across videos)
+    
+    Returns:
+        dict: Contains inter-video statistics and per-video data
+    """
+    if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
+        return None
+    
+    # Read all data and group by video
+    from collections import defaultdict
+    video_fold_data = defaultdict(list)
+    
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            video_name = row['video_name']
+            fold_stats = {
+                'mean': float(row['mean_attention']),
+                'std': float(row['std_attention']),
+                'min': float(row['min_attention']),
+                'max': float(row['max_attention'])
+            }
+            video_fold_data[video_name].append(fold_stats)
+    
+    if not video_fold_data:
+        return None
+    
+    # Step 1: Average across folds for each video
+    intra_video_stats = {}
+    for video, fold_stats in video_fold_data.items():
+        # Average across folds for this video
+        video_stats = {k: np.mean([fs[k] for fs in fold_stats]) for k in fold_stats[0]}
+        intra_video_stats[video] = video_stats
+    
+    # Step 2: Compute inter-video statistics (with min and max)
+    inter_video_stats = {
+        metric: {
+            "mean": np.mean([v[metric] for v in intra_video_stats.values()]),
+            "std": np.std([v[metric] for v in intra_video_stats.values()]),
+            "min": np.min([v[metric] for v in intra_video_stats.values()]),
+            "max": np.max([v[metric] for v in intra_video_stats.values()])
+        }
+        for metric in ["mean", "min", "max", "std"]
+    }
+    
+    return {
+        'num_videos': len(intra_video_stats),
+        'inter_video_stats': inter_video_stats,
+        'intra_video_stats': intra_video_stats  # Include per-video data
+    }
+
+
+def save_summary_metrics(csv_path, summary_path):
+    """
+    Compute and save summary metrics to a separate file.
+    Combines inter-video statistics and per-video metrics in one CSV.
+    
+    Args:
+        csv_path: Path to the detailed CSV file
+        summary_path: Path to save the summary metrics
+    """
+    metrics = compute_average_metrics(csv_path)
+    if not metrics:
+        print("⚠️  No data available for summary metrics")
+        return
+    
+    # Create output directory if needed
+    os.makedirs(os.path.dirname(summary_path), exist_ok=True)
+    
+    with open(summary_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        
+        # Section 1: Inter-video statistics
+        writer.writerow(['INTER-VIDEO STATISTICS (across all videos)'])
+        writer.writerow(['metric', 'mean', 'std', 'min', 'max'])
+        
+        stats = metrics['inter_video_stats']
+        for metric in ['mean', 'std', 'min', 'max']:
+            writer.writerow([
+                f'intra_video_{metric}',
+                f"{stats[metric]['mean']:.6f}",
+                f"{stats[metric]['std']:.6f}",
+                f"{stats[metric]['min']:.6f}",
+                f"{stats[metric]['max']:.6f}"
+            ])
+        
+        # Blank line separator
+        writer.writerow([])
+        
+        # Section 2: Per-video statistics (averaged across folds)
+        writer.writerow(['PER-VIDEO STATISTICS (averaged across folds)'])
+        writer.writerow(['video_name', 'mean', 'std', 'min', 'max'])
+        
+        for video, video_stats in sorted(metrics['intra_video_stats'].items()):
+            writer.writerow([
+                video,
+                f"{video_stats['mean']:.6f}",
+                f"{video_stats['std']:.6f}",
+                f"{video_stats['min']:.6f}",
+                f"{video_stats['max']:.6f}"
+            ])
+    
+    print(f"✅ Summary metrics saved: {summary_path}")
+
+
+def save_per_video_metrics(csv_path, per_video_path):
+    """
+    Save per-video metrics (averaged across folds) to a separate CSV.
+    
+    Args:
+        csv_path: Path to the detailed CSV file
+        per_video_path: Path to save the per-video metrics
+    """
+    if not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0:
+        return
+    
+    # Read all data and group by video
+    from collections import defaultdict
+    video_fold_data = defaultdict(list)
+    
+    with open(csv_path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            video_name = row['video_name']
+            fold_stats = {
+                'mean': float(row['mean_attention']),
+                'std': float(row['std_attention']),
+                'min': float(row['min_attention']),
+                'max': float(row['max_attention'])
+            }
+            video_fold_data[video_name].append(fold_stats)
+    
+    if not video_fold_data:
+        return
+    
+    # Average across folds for each video and save
+    os.makedirs(os.path.dirname(per_video_path), exist_ok=True)
+    
+    with open(per_video_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['video_name', 'mean', 'std', 'min', 'max'])
+        
+        for video, fold_stats in sorted(video_fold_data.items()):
+            # Average across folds for this video
+            video_stats = {k: np.mean([fs[k] for fs in fold_stats]) for k in fold_stats[0]}
+            
+            writer.writerow([
+                video,
+                f"{video_stats['mean']:.6f}",
+                f"{video_stats['std']:.6f}",
+                f"{video_stats['min']:.6f}",
+                f"{video_stats['max']:.6f}"
+            ])
+    
+    print(f"✅ Per-video metrics saved: {per_video_path}")
+
+
 def save_attention_csv(csv_path, video_name, fold, top_indices, top_scores, all_scores, mode='a'):
     """
     Save attention metrics to CSV file.
@@ -242,6 +405,27 @@ def batch_process_video(video_path, model_base_path, folds, output_dir, csv_path
         torch.cuda.empty_cache()
     
     print(f"\n✅ Completed all folds for {video_name}")
+    
+    # Compute and display average metrics
+    print("\n" + "="*70)
+    print("INTER-VIDEO STATISTICS (averaged across videos):")
+    print("="*70)
+    metrics = compute_average_metrics(csv_path)
+    if metrics:
+        print(f"Number of videos: {metrics['num_videos']}\n")
+        
+        stats = metrics['inter_video_stats']
+        print(f"Intra-video mean:  {stats['mean']['mean']:.6f} ± {stats['mean']['std']:.6f}  [{stats['mean']['min']:.6f}, {stats['mean']['max']:.6f}]")
+        print(f"Intra-video std:   {stats['std']['mean']:.6f} ± {stats['std']['std']:.6f}  [{stats['std']['min']:.6f}, {stats['std']['max']:.6f}]")
+        print(f"Intra-video min:   {stats['min']['mean']:.6f} ± {stats['min']['std']:.6f}  [{stats['min']['min']:.6f}, {stats['min']['max']:.6f}]")
+        print(f"Intra-video max:   {stats['max']['mean']:.6f} ± {stats['max']['std']:.6f}  [{stats['max']['min']:.6f}, {stats['max']['max']:.6f}]")
+        
+        # Save summary to file
+        summary_path = csv_path.replace('.csv', '_summary.csv')
+        save_summary_metrics(csv_path, summary_path)
+    else:
+        print("No metrics available yet.")
+    print("="*70)
 
 
 def main():
@@ -342,6 +526,26 @@ def main():
     # Visualize
     print(f"\nCreating visualization...")
     visualize_top_3_frames(frames, top_indices, top_scores, output_path)
+    
+    # Compute and display aggregate metrics
+    print("\n" + "="*70)
+    print("INTER-VIDEO STATISTICS (averaged across videos):")
+    print("="*70)
+    metrics = compute_average_metrics(args.csv)
+    if metrics:
+        print(f"Number of videos: {metrics['num_videos']}\n")
+        
+        stats = metrics['inter_video_stats']
+        print(f"Intra-video mean:  {stats['mean']['mean']:.6f} ± {stats['mean']['std']:.6f}  [{stats['mean']['min']:.6f}, {stats['mean']['max']:.6f}]")
+        print(f"Intra-video std:   {stats['std']['mean']:.6f} ± {stats['std']['std']:.6f}  [{stats['std']['min']:.6f}, {stats['std']['max']:.6f}]")
+        print(f"Intra-video min:   {stats['min']['mean']:.6f} ± {stats['min']['std']:.6f}  [{stats['min']['min']:.6f}, {stats['min']['max']:.6f}]")
+        print(f"Intra-video max:   {stats['max']['mean']:.6f} ± {stats['max']['std']:.6f}  [{stats['max']['min']:.6f}, {stats['max']['max']:.6f}]")
+        
+        # Save summary to file
+        summary_path = args.csv.replace('.csv', '_summary.csv')
+        save_summary_metrics(args.csv, summary_path)
+    else:
+        print("No metrics available yet.")
     
     print("="*70)
     print("✅ DONE!")

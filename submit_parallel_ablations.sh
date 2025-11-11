@@ -28,7 +28,7 @@ declare -A ABLATIONS=(
   # ["original_test"]="original_test"
   # ["attention_pool_extra"]="attention_pool_extra"
   # ["attention_pool_extra3"]="attention_pool_extra3"
-  ["attention_pool_extra3_full_train2"]="attention_pool_extra3_full_train2"
+  ["attention_pool_extra3_full_train3"]="attention_pool_extra3_full_train3"
 )
 
 # Which folds to run
