@@ -23,11 +23,12 @@ declare -A ABLATIONS=(
  # ["r2plus1d"]="r2plus1d"
 #  ["inception3d"]="inception3d"
  # ["Efficientnet_RL"]="Efficientnet-RL"
- ["LeViT_Attention"]="LeViT-Attention"
+#  ["LeViT_Attention"]="LeViT-Attention"
   # ["LeViT_RL"]="LeViT-RL"
   # ["original_test"]="original_test"
   # ["attention_pool_extra"]="attention_pool_extra"
   # ["attention_pool_extra3"]="attention_pool_extra3"
+  ["attention_pool_extra3_hardsoft"]="attention_pool_extra3_hardsoft"
 )
 
 # Which folds to run

@@ -1168,6 +1168,8 @@ class MultiTaskModel(nn.Module):
             k=3,
             tau=0.1,
         )
+        # selected_repr is [1, D] - pooled representation
+        # For pathology modules, we need [1, 1, D] (batch, seq_len=1, features)
         selected_features = selected_repr.unsqueeze(1)  # [1, 1, D]
         selected_mask = torch.ones(1, 1, dtype=torch.bool, device=video.device)
         selected_indices = topk_idx  # [1, 3] —
@@ -1233,8 +1235,9 @@ class MultiTaskModel(nn.Module):
                     video, site_idx, frame_mask, batch_idx=b, site_pos=n
                 )
                 
-                # Get selected features (now already a single vector per site)
-                selected_features = site_output['selected_features']  # [1, hidden_dim]
+                # Get selected features and squeeze out sequence dimension
+                # selected_features is [1, 1, D], we need [1, D]
+                selected_features = site_output['selected_features'].squeeze(1)  # [1, D]
                 site_features.append(selected_features)
                 
                 if self.use_pathology_loss and site_output['pathology_scores'] is not None:
