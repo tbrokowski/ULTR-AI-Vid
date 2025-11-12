@@ -6,7 +6,7 @@
 MODEL_BASE_PATH="/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3_full_train2"
 
 # Output directory
-OUTPUT_DIR="./visualization_outputs/attention_weights_test"
+OUTPUT_DIR="./visualization_outputs"
 VIDEO_DIR="/capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos"
 CSV_FILE="$OUTPUT_DIR/attention_metrics_all_folds.csv"
 mkdir -p "$OUTPUT_DIR"

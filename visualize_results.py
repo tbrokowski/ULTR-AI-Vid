@@ -40,7 +40,7 @@ warnings.filterwarnings('ignore')
 # PLOTTING CONFIGURATION
 # =============================================================================
 
-def setup_publication_style(font_size=14, font_family='STIXGeneral'):
+def setup_publication_style(font_size=16, font_family='STIXGeneral'):
     """Set up publication-quality matplotlib styling."""
     plt.style.use('default')  # Reset to default first
     
@@ -956,7 +956,7 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
         
         # Plot mean curve
         display_name = get_model_display_name(model_type)
-        label = f'{display_name} (AUC = {mean_auc:.3f}, 95% CI [{ci_lower_auc:.3f}-{ci_upper_auc:.3f}])'
+        label = f'{display_name} (AUC = {mean_auc:.2f}, 95% CI [{ci_lower_auc:.2f}-{ci_upper_auc:.2f}])'
         ax.plot(mean_fpr, mean_tpr, color=colors[i], lw=3, label=label)
         
         # Fill confidence interval
@@ -981,14 +981,14 @@ def create_roc_curves_with_ci(all_results: Dict, model_types: List[str],
     ax.set_xticks(xticks)
     ax.set_xticklabels(xtick_labels)
     
-    ax.set_xlabel('Specificity', fontsize=18, fontweight='bold')
-    ax.set_ylabel('Sensitivity (Recall)', fontsize=18, fontweight='bold')
+    ax.set_xlabel('Specificity', fontsize=22, fontweight='bold')
+    ax.set_ylabel('Sensitivity (Recall)', fontsize=22, fontweight='bold')
     title_suffix = suffix.replace("_", " ").title() if suffix else ""
     ax.set_title(f'ROC Curves with 95% Confidence Intervals ({split.title()} Set){title_suffix}', 
-                fontsize=20, fontweight='bold', pad=20)
+                fontsize=25, fontweight='bold', pad=20)
     
     # Legend
-    ax.legend(loc='lower left', fontsize=12, frameon=True, fancybox=True, shadow=True)
+    ax.legend(loc='lower right', fontsize=16, frameon=True, fancybox=True, shadow=True)
     
     plt.tight_layout()
     
@@ -1088,12 +1088,12 @@ def create_pr_curves_with_ci(all_results: Dict, model_types: List[str],
     
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
-    ax.set_xlabel('Recall (Sensitivity)', fontsize=18, fontweight='bold')
-    ax.set_ylabel('Precision', fontsize=18, fontweight='bold')
+    ax.set_xlabel('Recall (Sensitivity)', fontsize=22, fontweight='bold')
+    ax.set_ylabel('Precision', fontsize=22, fontweight='bold')
     ax.set_title(f'Precision-Recall Curves with 95% Confidence Intervals ({split.title()} Set)', 
-                fontsize=20, fontweight='bold', pad=20)
-    ax.legend(loc='lower left', fontsize=12, frameon=True, fancybox=True, shadow=True)
-    
+                fontsize=25, fontweight='bold', pad=20)
+    ax.legend(loc='lower right', fontsize=16, frameon=True, fancybox=True, shadow=True)
+
     plt.tight_layout()
     
     output_path = os.path.join(output_dir, f'pr_curves_{split}_with_ci.pdf')
@@ -1370,6 +1370,83 @@ def create_performance_vs_complexity_plot(all_results: Dict, model_types: List[s
 # =============================================================================
 # PATHOLOGY ENSEMBLE MODELING
 # =============================================================================
+
+def load_ensemble_results_from_csv(output_dir: str, split: str = 'test') -> Dict:
+    """
+    Load pre-computed ensemble results from CSV file.
+    This is much faster than retraining for visualization tweaks.
+    
+    Returns:
+        Dictionary with structure: {model_type: {pathology: {ml_algorithm: results}}}
+    """
+    csv_path = os.path.join(output_dir, f'pathology_ensemble_summary_{split}.csv')
+    
+    if not os.path.exists(csv_path):
+        print(f"  No cached results found at {csv_path}")
+        return None
+    
+    print(f"\n{'='*70}")
+    print(f"LOADING CACHED ENSEMBLE RESULTS FROM CSV")
+    print(f"{'='*70}")
+    print(f"Reading from: {csv_path}")
+    
+    # Read CSV
+    df = pd.read_csv(csv_path)
+    
+    # Reverse the display name mappings to get internal names
+    display_to_internal_model = {v: k for k, v in MODEL_DISPLAY_NAMES.items()}
+    display_to_internal_pathology = {v: k for k, v in PATHOLOGY_DISPLAY_NAMES.items()}
+    
+    # Reconstruct ensemble_results dictionary
+    ensemble_results = {}
+    
+    for _, row in df.iterrows():
+        # Convert display names back to internal names
+        model_display = row['Neural Network Model']
+        pathology_display = row['Pathology']
+        
+        model_type = display_to_internal_model.get(model_display, model_display.lower().replace(' ', '_').replace('-', '_'))
+        pathology = display_to_internal_pathology.get(pathology_display, pathology_display.lower().replace(' ', '_').replace('-', '_'))
+        ml_algorithm = row['ML Algorithm']
+        
+        # Initialize nested dictionaries if needed
+        if model_type not in ensemble_results:
+            ensemble_results[model_type] = {}
+        if pathology not in ensemble_results[model_type]:
+            ensemble_results[model_type][pathology] = {}
+        
+        # Parse values from CSV
+        auc_mean = float(row['AUC Mean'])
+        auc_std = float(row['AUC Std'])
+        f1_mean = float(row['F1 Mean'])
+        f1_std = float(row['F1 Std'])
+        n_samples = int(row['Samples'])
+        positive_rate = float(row['Positive Rate'])
+        
+        # Reconstruct class distribution from positive rate
+        n_positive = int(n_samples * positive_rate)
+        n_negative = n_samples - n_positive
+        class_dist = [n_negative, n_positive]
+        
+        # Store results
+        ensemble_results[model_type][pathology][ml_algorithm] = {
+            'mean_auc': auc_mean,
+            'std_auc': auc_std,
+            'mean_f1': f1_mean,
+            'std_f1': f1_std,
+            'mean_threshold': float(row['Optimal Threshold']),
+            'std_threshold': float(row['Threshold Std']),
+            'n_samples': n_samples,
+            'class_distribution': class_dist,
+            'fold_scores': [auc_mean] * int(row['Cross-Val Folds']),  # Approximate
+        }
+    
+    print(f"✓ Loaded ensemble results for {len(ensemble_results)} models")
+    for model_type in ensemble_results:
+        n_pathologies = len(ensemble_results[model_type])
+        print(f"  - {model_type}: {n_pathologies} pathologies")
+    
+    return ensemble_results
 
 def train_pathology_ml_models(all_results: Dict, top_models: List[str],
                              output_dir: str, split: str = 'test') -> Dict:
@@ -1731,8 +1808,8 @@ def compare_neural_vs_ml_pathology_predictions(ensemble_results: Dict, output_di
         # Add value labels on bars
         for bar, auc_val, std_val in zip(bars, pathology_data['ml_auc'], pathology_data['ml_auc_std']):
             height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height + std_val + 0.01,
-                   f'{auc_val:.3f}', ha='center', va='bottom', fontsize=10)
+            ax.text(bar.get_x() + bar.get_width()/2., height + std_val + 0.03,
+                   f'{auc_val:.3f}', ha='center', va='bottom', fontsize=15)
         
         # Add horizontal line at 0.5 (random performance)
         ax.axhline(y=0.5, color='red', linestyle='--', alpha=0.7, label='Random')
@@ -1911,13 +1988,13 @@ def create_nn_vs_best_ml_pathology_comparison(all_results: Dict, ensemble_result
                    color=colors_dark, alpha=0.9, edgecolor='black', linewidth=1.5)
     
     # Customize plot
-    ax.set_xlabel('Pathology Type', fontsize=16, fontweight='bold')
-    ax.set_ylabel('AUC Score', fontsize=16, fontweight='bold')
+    ax.set_xlabel('Pathology Type', fontsize=22, fontweight='bold')
+    ax.set_ylabel('AUC Score', fontsize=22, fontweight='bold')
     display_name = get_model_display_name(model_type)
     ax.set_title(f'Neural Network vs. ML Ensemble Pathology Prediction\n{display_name} Model ({split.title()} Set)', 
-                fontsize=18, fontweight='bold', pad=20)
+                fontsize=25, fontweight='bold', pad=20)
     ax.set_xticks(x)
-    ax.set_xticklabels(pathology_labels, fontsize=14)
+    ax.set_xticklabels(pathology_labels, fontsize=18)
     ax.set_ylim([0, 1.05])
     
     # Add horizontal line at 0.5 (random performance)
@@ -1928,22 +2005,22 @@ def create_nn_vs_best_ml_pathology_comparison(all_results: Dict, ensemble_result
         if auc_val > 0:
             height = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
-                   f'{auc_val:.3f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
+                   f'{auc_val:.3f}', ha='center', va='bottom', fontsize=18, fontweight='bold')
     
-    for bar, auc_val, ml_data in zip(bars2, ml_aucs, 
+    for bar, auc_val, std_val, ml_data in zip(bars2, ml_aucs, ml_stds,
                                       [ml_performance.get(p, {}) for p in pathology_names if p in nn_performance or p in ml_performance]):
         if auc_val > 0:
             height = bar.get_height()
             ml_name = ml_data.get('algorithm', 'ML')
             # Abbreviate algorithm names
             ml_abbrev = {'Random Forest': 'RF', 'Logistic Regression': 'LR', 'XGBoost': 'XGB'}.get(ml_name, ml_name)
-            ax.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+            ax.text(bar.get_x() + bar.get_width()/2., height + std_val + 0.03,
                    f'{auc_val:.3f}\n({ml_abbrev})', ha='center', va='bottom', 
-                   fontsize=10, fontweight='bold')
+                   fontsize=18, fontweight='bold')
     
     # Legend
-    ax.legend(loc='lower right', fontsize=13, frameon=True, fancybox=True, shadow=True)
-    
+    ax.legend(loc='upper right', fontsize=18, frameon=True, fancybox=True, shadow=True)
+
     # Grid
     ax.grid(True, alpha=0.3, axis='y')
     ax.set_axisbelow(True)
@@ -2004,7 +2081,7 @@ def create_pathology_ensemble_summary_table(ensemble_results: Dict, output_dir: 
                     'Optimal Threshold': f"{mean_threshold:.3f}",
                     'Threshold Std': f"{std_threshold:.3f}",
                     'Samples': n_samples,
-                    'Positive Rate': f"{class_dist[1]/(class_dist[0]+class_dist[1]):.3f}" if len(class_dist) > 1 else "N/A",
+                    'Positive Rate': f"{class_dist[1]/(class_dist[0]+class_dist[1]):.3f}" if len(class_dist) > 1 and (class_dist[0]+class_dist[1]) > 0 else "N/A",
                     'Cross-Val Folds': n_folds
                 })
     
@@ -2916,6 +2993,8 @@ def main():
     parser.add_argument('--threshold_split', type=str, default='test',
                        choices=['train', 'val', 'test'],
                        help='Dataset split to use for threshold optimization (default: val)')
+    parser.add_argument('--retrain_ensemble', action='store_true',
+                       help='Force retraining of pathology ensemble models (ignore cached results)')
     
     args = parser.parse_args()
     
@@ -3077,7 +3156,20 @@ def main():
     print("PATHOLOGY ENSEMBLE MODELING")
     print(f"{'='*70}")
     
-    ensemble_results = train_pathology_ml_models(all_results, top_models[:3], args.output_dir, args.split)
+    # Try to load cached results first (much faster for visualization tweaks)
+    if args.retrain_ensemble:
+        print("--retrain_ensemble flag set. Training ML models from scratch...")
+        ensemble_results = train_pathology_ml_models(all_results, top_models[:3], args.output_dir, args.split)
+    else:
+        ensemble_results = load_ensemble_results_from_csv(args.output_dir, args.split)
+        
+        # If no cached results, train from scratch
+        if ensemble_results is None:
+            print("No cached results found. Training ML models from scratch...")
+            ensemble_results = train_pathology_ml_models(all_results, top_models[:3], args.output_dir, args.split)
+        else:
+            print("✓ Using cached ensemble results (skipping training)")
+            print("   To retrain, use --retrain_ensemble flag")
     
     if ensemble_results:
         # Create pathology ensemble comparison plots

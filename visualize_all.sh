@@ -57,7 +57,8 @@ echo "Running comprehensive visualization and analysis..."
     --model_types "${MODEL_TYPES[@]}" \
     --num_folds 5 \
     --split test \
-    --top_n 6
+    --top_n 6 \
+    --retrain_ensemble
 
 echo ""
 echo "==============================================="

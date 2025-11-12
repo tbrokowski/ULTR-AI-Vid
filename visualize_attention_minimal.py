@@ -115,12 +115,14 @@ def visualize_top_3_frames(frames, indices, scores, save_path):
         
         ax.imshow(img)
         ax.set_title(f'Rank #{i+1}\nFrame {idx} | Score: {score:.4f}', 
-                    fontsize=14, fontweight='bold')
+                    fontsize=22, fontweight='bold')
         ax.axis('off')
     
     plt.tight_layout()
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"✅ Saved: {save_path}")
+    # Specify which image to save avoiding too many images
+    if "25-12_QPID_15_1_fold4" in save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"✅ Saved: {save_path}")
     
     return fig
 
