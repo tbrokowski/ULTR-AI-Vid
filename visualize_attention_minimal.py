@@ -28,6 +28,41 @@ sys.path.insert(0, ".")
 from config import load_config
 from NetworkArchitecture.ablation_models import create_ablation_model
 
+def setup_publication_style(font_size=16, font_family='STIXGeneral'):
+    """Set up publication-quality matplotlib styling."""
+    plt.style.use('default')  # Reset to default first
+    
+    # Font and text settings
+    plt.rcParams['font.family'] = font_family
+    plt.rcParams['font.size'] = font_size
+    plt.rcParams['axes.labelsize'] = font_size + 2
+    plt.rcParams['axes.titlesize'] = font_size + 4
+    plt.rcParams['xtick.labelsize'] = font_size
+    plt.rcParams['ytick.labelsize'] = font_size
+    plt.rcParams['legend.fontsize'] = font_size
+    plt.rcParams['figure.titlesize'] = font_size + 6
+    
+    # Weight settings
+    plt.rcParams['axes.labelweight'] = 'bold'
+    plt.rcParams['axes.titleweight'] = 'bold'
+    plt.rcParams['figure.titleweight'] = 'bold'
+    
+    # Colors
+    plt.rcParams['axes.labelcolor'] = 'black'
+    plt.rcParams['axes.titlecolor'] = 'black'
+    plt.rcParams['xtick.color'] = 'black'
+    plt.rcParams['ytick.color'] = 'black'
+    
+    # Grid and spines
+    plt.rcParams['axes.grid'] = True
+    plt.rcParams['grid.alpha'] = 0.3
+    plt.rcParams['axes.axisbelow'] = True
+    
+    # Figure settings
+    plt.rcParams['figure.dpi'] = 300
+    plt.rcParams['savefig.dpi'] = 300
+    plt.rcParams['savefig.bbox'] = 'tight'
+    plt.rcParams['savefig.transparent'] = False
 
 def load_and_preprocess_video(video_path, target_size=(224, 224), max_frames=None):
     """Load video and preprocess for model input."""
@@ -100,6 +135,7 @@ def visualize_top_3_frames(frames, indices, scores, save_path):
     # Create output directory if needed
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     
+    setup_publication_style()
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     
     for i, (idx, score) in enumerate(zip(indices, scores)):
