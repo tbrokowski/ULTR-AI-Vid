@@ -2900,7 +2900,7 @@ def create_latex_macros(metrics_df: pd.DataFrame, ensemble_results: dict, output
     latex_commands.append("% Attention weights statistics")
     latex_commands.append("")
     
-    attention_metrics_path = os.path.join(output_dir, 'attention_weights_test', 'attention_metrics_all_folds_summary.csv')
+    attention_metrics_path = os.path.join(output_dir, 'attention_metrics_all_folds_summary.csv')
     if os.path.exists(attention_metrics_path):
         # Read the inter-video statistics section
         with open(attention_metrics_path, 'r') as f:
