@@ -36,6 +36,14 @@ from sklearn.linear_model import LogisticRegression
 
 warnings.filterwarnings('ignore')
 
+# Optional torch import for reading checkpoints and computing parameter counts
+try:
+    import torch
+    _HAS_TORCH = True
+except Exception:
+    torch = None
+    _HAS_TORCH = False
+
 # =============================================================================
 # PLOTTING CONFIGURATION
 # =============================================================================
@@ -252,6 +260,262 @@ def load_model_results(results_base_dir: str, model_types: List[str],
             print(f"✗ No data found for {model_type}")
     
     return all_results
+
+
+def _find_checkpoint_files_for_model(results_base_dir: str, model_type: str, max_per_model: int = 5) -> List[str]:
+    """Search common locations for checkpoint files for a given model type.
+
+    This looks for typical checkpoint filename patterns under the model directory
+    and in fold subdirectories. Returns a list of found checkpoint paths (may be empty).
+    """
+    model_dir = os.path.join(results_base_dir, model_type)
+    patterns = [
+        '**/checkpoint_best.pth',
+        '**/checkpoint_best.pth.tar',
+        '**/checkpoint.pth',
+        '**/checkpoint*.pth',
+        '**/*best*.pth',
+        '**/*best*.pt',
+        '**/*.pth',
+        '**/*.pt',
+        '**/*.ckpt'
+    ]
+
+    found = []
+    if not os.path.exists(model_dir):
+        return found
+
+    for pat in patterns:
+        glob_path = os.path.join(model_dir, pat)
+        matches = glob.glob(glob_path, recursive=True)
+        for m in matches:
+            if os.path.isfile(m):
+                found.append(m)
+                if len(found) >= max_per_model:
+                    return found
+
+    return found
+
+
+def _param_counts_from_state_dict(state_dict: Dict) -> Dict[str, int]:
+    """Estimate total, trainable and non-trainable parameter counts from a state_dict.
+
+    Note: Saved state_dict tensors do not normally include requires_grad information.
+    We heuristically classify parameters vs buffers based on key names (e.g. running_mean).
+    """
+    total = 0
+    trainable = 0
+    non_trainable = 0
+
+    for k, v in state_dict.items():
+        # v may be a numpy array or torch tensor
+        try:
+            if hasattr(v, 'numel'):
+                n = int(v.numel())
+            else:
+                # numpy array
+                n = int(np.prod(v.shape))
+        except Exception:
+            # fallback: skip
+            continue
+
+        total += n
+
+        key_lower = k.lower()
+        # Heuristic: these names are buffers/non-trainable
+        if 'running_mean' in key_lower or 'running_var' in key_lower or 'num_batches_tracked' in key_lower or ('bn' in key_lower and ('running' in key_lower or 'tracked' in key_lower)):
+            non_trainable += n
+        elif 'weight' in key_lower or 'bias' in key_lower or 'kernel' in key_lower or 'gamma' in key_lower or 'beta' in key_lower:
+            trainable += n
+        else:
+            # Unknown: assume trainable (conservative)
+            trainable += n
+
+    # Ensure consistency
+    non_trainable = max(0, total - trainable) if total >= trainable else non_trainable
+
+    return {
+        'total_params': int(total),
+        'trainable_params': int(trainable),
+        'non_trainable_params': int(non_trainable)
+    }
+
+
+def compute_model_param_counts(results_base_dir: str, model_types: List[str]) -> Dict[str, Dict]:
+    """Compute parameter counts for each model_type by inspecting checkpoint files.
+
+    Returns a dict: {model_type: {total_params, trainable_params, non_trainable_params, checkpoint_path}}
+    """
+    print('\n' + '='*60)
+    print('COMPUTING MODEL PARAMETER COUNTS')
+    print('='*60)
+
+    results = {}
+
+    for model in model_types:
+        counts = {
+            'total_params': None,
+            'trainable_params': None,
+            'non_trainable_params': None,
+            'checkpoint_path': None,
+            'note': None
+        }
+
+        ckpts = _find_checkpoint_files_for_model(results_base_dir, model, max_per_model=3)
+        if not ckpts:
+            counts['note'] = 'no_checkpoint_found'
+            results[model] = counts
+            print(f"  - {model}: no checkpoint found under {os.path.join(results_base_dir, model)}")
+            continue
+
+        # Prefer checkpoint_best if present
+        chosen = None
+        for c in ckpts:
+            if 'best' in os.path.basename(c).lower():
+                chosen = c
+                break
+        if chosen is None:
+            chosen = ckpts[0]
+
+        counts['checkpoint_path'] = chosen
+
+        if not _HAS_TORCH:
+            # Without torch we can still try to infer via numpy load if file is simple
+            try:
+                # attempt to load with numpy for .npz style
+                if chosen.endswith('.npz'):
+                    data = np.load(chosen, allow_pickle=True)
+                    state = {k: data[k] for k in data.files}
+                    pc = _param_counts_from_state_dict(state)
+                    counts.update(pc)
+                    counts['note'] = 'loaded_with_numpy'
+                    print(f"  - {model}: computed params from {chosen} (numpy)")
+                else:
+                    counts['note'] = 'torch_not_available'
+                    print(f"  - {model}: torch not available, cannot inspect {chosen}")
+            except Exception:
+                counts['note'] = 'unable_to_load_without_torch'
+                print(f"  - {model}: failed to inspect {chosen} without torch")
+
+            results[model] = counts
+            continue
+
+        # If torch is available, try loading the checkpoint
+        try:
+            ckpt = torch.load(chosen, map_location='cpu')
+
+            # Determine structure
+            state_dict = None
+            if isinstance(ckpt, dict):
+                # Common keys: 'state_dict', 'model_state_dict', 'model'
+                if 'state_dict' in ckpt and isinstance(ckpt['state_dict'], dict):
+                    state_dict = ckpt['state_dict']
+                elif 'model_state_dict' in ckpt and isinstance(ckpt['model_state_dict'], dict):
+                    state_dict = ckpt['model_state_dict']
+                else:
+                    # Maybe the dict itself is a state_dict
+                    # Heuristic: keys are strings mapping to tensors
+                    if all(isinstance(k, str) for k in ckpt.keys()):
+                        state_dict = ckpt
+
+            # If the checkpoint contains a full model object, try to extract its parameters
+            if state_dict is None:
+                # try attributes
+                try:
+                    # ckpt could be an nn.Module saved directly
+                    if hasattr(ckpt, 'state_dict'):
+                        state_dict = ckpt.state_dict()
+                except Exception:
+                    state_dict = None
+
+            if state_dict is None:
+                counts['note'] = 'no_state_dict_found'
+                print(f"  - {model}: loaded {chosen} but no state_dict found")
+                results[model] = counts
+                continue
+
+            pc = _param_counts_from_state_dict(state_dict)
+            counts.update(pc)
+            counts['note'] = 'computed_from_state_dict'
+            print(f"  - {model}: total={pc['total_params']:,}, trainable~={pc['trainable_params']:,} (heuristic) from {chosen}")
+
+        except Exception as e:
+            # Try fallbacks for PyTorch 2.6 safe loading issues (weights_only / safe_globals)
+            fallback_note = None
+            loaded = False
+            try:
+                msg = str(e)
+                # Attempt to use safe_globals context manager if available
+                np_scalar = None
+                try:
+                    import numpy as _np
+                    np_scalar = _np.core.multiarray.scalar
+                except Exception:
+                    np_scalar = None
+
+                if hasattr(torch.serialization, 'safe_globals') and np_scalar is not None:
+                    try:
+                        with torch.serialization.safe_globals([np_scalar]):
+                            ckpt = torch.load(chosen, map_location='cpu', weights_only=False)
+                            loaded = True
+                            fallback_note = 'loaded_with_safe_globals_weights_only_false'
+                    except Exception:
+                        loaded = False
+
+                # If still not loaded, try torch.load with weights_only=False (warning: arbitrary code execution)
+                if not loaded:
+                    try:
+                        ckpt = torch.load(chosen, map_location='cpu', weights_only=False)
+                        loaded = True
+                        fallback_note = 'loaded_with_weights_only_false'
+                    except Exception as e2:
+                        loaded = False
+                        fallback_note = f'fallback_failed: {e2}'
+
+            except Exception as e3:
+                fallback_note = f'fallback_exception: {e3}'
+
+            if not loaded:
+                counts['note'] = f'load_error: {e}; {fallback_note}'
+                print(f"  - {model}: failed to load checkpoint {chosen}: {e}")
+            else:
+                # proceed with ckpt loaded via fallback
+                counts['note'] = fallback_note
+                print(f"  - {model}: loaded checkpoint {chosen} via fallback ({fallback_note})")
+                # Try to extract state_dict and compute parameter counts as in the main path
+                try:
+                    state_dict = None
+                    if isinstance(ckpt, dict):
+                        if 'state_dict' in ckpt and isinstance(ckpt['state_dict'], dict):
+                            state_dict = ckpt['state_dict']
+                        elif 'model_state_dict' in ckpt and isinstance(ckpt['model_state_dict'], dict):
+                            state_dict = ckpt['model_state_dict']
+                        else:
+                            if all(isinstance(k, str) for k in ckpt.keys()):
+                                state_dict = ckpt
+
+                    if state_dict is None:
+                        try:
+                            if hasattr(ckpt, 'state_dict'):
+                                state_dict = ckpt.state_dict()
+                        except Exception:
+                            state_dict = None
+
+                    if state_dict is None:
+                        counts['note'] = counts.get('note', '') + '; no_state_dict_found_after_fallback'
+                        print(f"  - {model}: loaded {chosen} via fallback but no state_dict found")
+                    else:
+                        pc = _param_counts_from_state_dict(state_dict)
+                        counts.update(pc)
+                        counts['note'] = 'computed_from_state_dict_after_fallback'
+                        print(f"  - {model}: total={pc['total_params']:,}, trainable~={pc['trainable_params']:,} (heuristic) from {chosen} (fallback)")
+                except Exception as e_fb:
+                    counts['note'] = counts.get('note', '') + f'; compute_after_fallback_failed: {e_fb}'
+                    print(f"  - {model}: failed to compute params after fallback load: {e_fb}")
+
+        results[model] = counts
+
+    return results
 
 def load_complex_data(hdf5_path: str) -> Dict:
     """Load complex data from HDF5 file."""
@@ -3017,6 +3281,18 @@ def main():
     if not all_results:
         print("❌ No results found. Please check the results directory structure.")
         return
+
+    # Compute parameter counts for available models (best-effort)
+    param_counts = compute_model_param_counts(args.results_dir, args.model_types)
+    print('\nModel parameter summary:')
+    for m, pc in param_counts.items():
+        tp = pc.get('total_params')
+        if tp is None:
+            print(f"  - {m}: {pc.get('note')} (checkpoint: {pc.get('checkpoint_path')})")
+        else:
+            train = pc.get('trainable_params')
+            non_train = pc.get('non_trainable_params')
+            print(f"  - {m}: total={tp:,}, trainable~={train:,}, non_trainable~={non_train:,}  ({os.path.basename(pc.get('checkpoint_path') or '')})")
     
     # Calculate comprehensive metrics
     metrics_df = aggregate_cross_fold_metrics(all_results, args.model_types, args.split)
@@ -3201,6 +3477,12 @@ def main():
         'statistical_tests_performed': len(statistical_results.get('pairwise_tests', [])),
         'bonferroni_alpha': statistical_results.get('bonferroni_alpha')
     }
+
+    # Include model parameter counts (if computed)
+    try:
+        summary_data['model_param_counts'] = param_counts
+    except Exception:
+        summary_data['model_param_counts'] = None
     
     with open(os.path.join(args.output_dir, 'analysis_summary.json'), 'w') as f:
         json.dump(summary_data, f, indent=2)
