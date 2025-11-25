@@ -51,7 +51,7 @@ mkdir -p "$OUTPUT_DIR"
 
 # Run comprehensive analysis
 echo "Running comprehensive visualization and analysis..."
-"$PYTHON_BIN" visualize_results.py \
+"$PYTHON_BIN" ultr_ai/plot/visualize_results.py \
     --results_dir "$RESULTS_BASE" \
     --output_dir "$OUTPUT_DIR" \
     --model_types "${MODEL_TYPES[@]}" \

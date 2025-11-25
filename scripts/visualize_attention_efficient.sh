@@ -57,7 +57,7 @@ echo ""
 video_count=1
 for video in "${TB_POSITIVE[@]}"; do
     echo "[$video_count/10] Processing TB+ patient: $video"
-    python visualize_attention_minimal.py \
+    python ultr_ai/plot/visualize_attention_minimal.py \
         --video "$VIDEO_DIR/$video" \
         --batch-mode \
         --model-base-path "$MODEL_BASE_PATH" \
@@ -76,7 +76,7 @@ echo ""
 
 for video in "${TB_NEGATIVE[@]}"; do
     echo "[$video_count/10] Processing TB- patient: $video"
-    python visualize_attention_minimal.py \
+    python ultr_ai/plot/visualize_attention_minimal.py \
         --video "$VIDEO_DIR/$video" \
         --batch-mode \
         --model-base-path "$MODEL_BASE_PATH" \

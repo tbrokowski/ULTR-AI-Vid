@@ -66,7 +66,7 @@ export MASTER_ADDR=127.0.0.1
 export MASTER_PORT=$((10000 + RANDOM % 50000))
 
 CMD="torchrun --standalone --nproc_per_node ${GPUS_PER_NODE} --max_restarts 0 --tee 3 \
-  train_ablation_distributed.py --config ${CONFIG_FILE} ${EXTRA_ARGS}"
+  ultr_ai/train/train_ablation_distributed.py --config ${CONFIG_FILE} ${EXTRA_ARGS}"
 echo "$CMD"
 $CMD
 
@@ -100,7 +100,7 @@ if [[ "${RUN_EVAL_AFTER_TRAIN:-0}" == "1" ]]; then
   if [[ -z "$MODEL_TYPE" || -z "$BASE_DIR" || -z "$FOLD_NUM" ]]; then
     echo "[WARN] Could not infer evaluation parameters from $CONFIG_FILE; skipping evaluation."
   else
-    python3 evaluate_downstream.py --model-type "$MODEL_TYPE" --config "$CONFIG_FILE" \
+    python3 ultr_ai/eval/evaluate_downstream.py --model-type "$MODEL_TYPE" --config "$CONFIG_FILE" \
       --model "$MODEL_CKPT" --fold "$FOLD_NUM" --output-dir "$OUT_DIR" \
       --video_folder "$VIDEO_FOLDER_OVERRIDE" \
       || echo "[WARN] Evaluation failed."

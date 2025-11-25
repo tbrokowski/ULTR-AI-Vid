@@ -64,9 +64,9 @@ main() {
       fi
       
       # Run evaluation
-      log_info "Running: python evaluate_downstream.py --model-type $MODEL_TYPE --config $CONFIG_FILE --model $MODEL_FILE --fold $fold --output-dir $OUTPUT_DIR --video_folder $VIDEO_FOLDER"
+      log_info "Running: python ultr_ai/eval/evaluate_downstream.py --model-type $MODEL_TYPE --config $CONFIG_FILE --model $MODEL_FILE --fold $fold --output-dir $OUTPUT_DIR --video_folder $VIDEO_FOLDER"
       
-      if python evaluate_downstream.py \
+      if python ultr_ai/eval/evaluate_downstream.py \
         --model-type "$MODEL_TYPE" \
         --config "$CONFIG_FILE" \
         --model "$MODEL_FILE" \
