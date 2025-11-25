@@ -9,17 +9,15 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import roc_auc_score, average_precision_score, balanced_accuracy_score
 from sklearn.calibration import calibration_curve
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 import warnings
 import logging
-from typing import Dict, List, Tuple, Any
 
 warnings.filterwarnings('ignore')
 
 # Import our custom modules
 from ultr_ai.dataset.multimodal import create_dataloaders, analyze_dataset_distribution
-from models import create_model, MCDropoutModel, DeepEnsemble
+from ultr_ai.multimodal_uncertainty import create_model
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
