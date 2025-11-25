@@ -24,7 +24,7 @@ sys.path.append('.')
 sys.path.append('./ULTR-CLIP/multimodal_uncertainty')
 
 try:
-    from dataset import MultimodalTBDataset, create_dataloaders, analyze_dataset_distribution, load_fold_split_robust
+    from ultr_ai.dataset.multimodal import MultimodalTBDataset, create_dataloaders, analyze_dataset_distribution, load_fold_split_robust
     from models import DomainAwareClinicalEncoder, SimpleClinicalEncoder, create_model
     print("✅ Successfully imported custom modules")
 except ImportError as e:

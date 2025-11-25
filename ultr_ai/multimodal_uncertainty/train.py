@@ -18,7 +18,7 @@ from typing import Dict, List, Tuple, Any
 warnings.filterwarnings('ignore')
 
 # Import our custom modules
-from dataset import create_dataloaders, analyze_dataset_distribution
+from ultr_ai.dataset.multimodal import create_dataloaders, analyze_dataset_distribution
 from models import create_model, MCDropoutModel, DeepEnsemble
 
 # Set up logging

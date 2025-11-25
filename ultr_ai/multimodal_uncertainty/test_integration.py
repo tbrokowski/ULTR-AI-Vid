@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.append('.')
 
 try:
-    from dataset import MultimodalTBDataset, create_dataloaders, custom_collate_fn, analyze_dataset_distribution
+    from ultr_ai.dataset.multimodal import MultimodalTBDataset, create_dataloaders, custom_collate_fn, analyze_dataset_distribution
     from models import create_model, DomainAwareClinicalEncoder, SimpleClinicalEncoder
     print("✓ Successfully imported all modules")
 except ImportError as e:
