@@ -1,3 +1,18 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import logging
+import torchvision.models as models
+
+# Import base components from original model
+from ultr_ai.network_architecture.components.general_components import (
+    PathologyModule, SiteIntegrationModule, DeepAttentionMIL
+)
+from ultr_ai.network_architecture.components import MultiTaskModel, AttentionPoolSelector
+
+logger = logging.getLogger(__name__)
+
+
 class CNNLSTMMultiTaskModel(nn.Module):
     """Ablation: CNN-LSTM using PyTorch ResNet + LSTM."""
     

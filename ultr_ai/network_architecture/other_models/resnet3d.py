@@ -1,3 +1,19 @@
+import torch
+import torch.nn as nn
+import logging
+import torchvision.models.video as video_models
+import gc
+
+# Import base components from original model
+from ultr_ai.network_architecture.components.general_components import (
+    PathologyModule, SiteIntegrationModule, DeepAttentionMIL
+)
+from ultr_ai.network_architecture.components import MultiTaskModel
+
+logger = logging.getLogger(__name__)
+
+
+
 class ResNet3DMultiTaskModel(nn.Module):
     """Memory-efficient ResNet3D backbone from torchvision."""
     
