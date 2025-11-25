@@ -19,7 +19,9 @@ WORKDIR /workspace
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-COPY . ./
+COPY ultr_ai ./ultr_ai
+COPY setup.py ./
+COPY pyproject.toml ./
 RUN pip install --no-cache-dir ./  # Install local package in editable mode
 
 # Optional extras for LLM/Axolotl-style stacks. Disabled by default.
