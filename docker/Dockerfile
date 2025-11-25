@@ -18,6 +18,8 @@ WORKDIR /workspace
 # Install Python dependencies first for better Docker layer caching
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir ./  # Install local package in editable mode
 
 # Optional extras for LLM/Axolotl-style stacks. Disabled by default.
 # Enable at build time with: --build-arg INSTALL_LLM_EXTRAS=1 --build-arg TORCH_CUDA_ARCH_LIST=9.0
