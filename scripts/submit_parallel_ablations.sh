@@ -35,7 +35,7 @@ declare -A ABLATIONS=(
 FOLDS=(0 1 2 3 4)
 
 # SLURM runner that launches a *single* experiment on 1 node
-SLURM_SCRIPT="run_ablation_single_node.sh"
+SLURM_SCRIPT="scripts/run_ablation_single_node.sh"
 
 # Submission tracking CSV (central location for all jobs)
 SUBMISSION_LOG_DIR="./ablation_results"
