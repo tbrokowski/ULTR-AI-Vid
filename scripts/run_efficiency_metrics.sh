@@ -7,7 +7,7 @@ set -euo pipefail
 # =========================
 # Config
 # =========================
-CONFIG_BASE_DIR="configs/attention_pool_extra3"
+CONFIG_BASE_DIR="configs/attention_pool_extra3_full_train2"
 RESULTS_BASE_DIR="/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results"
 
 # Experiments to evaluate
@@ -65,7 +65,7 @@ main() {
       fi
       
       # Run evaluation
-      log_info "Running: python ultr_ai/efficiency/metrics.py --model-type $MODEL_TYPE --config $CONFIG_FILE --model $MODEL_FILE --fold $fold --output-dir $OUTPUT_DIR --video_folder $VIDEO_FOLDER"
+      # log_info "Running: python ultr_ai/efficiency/metrics.py --model-type $MODEL_TYPE --config $CONFIG_FILE --model $MODEL_FILE --fold $fold --output-dir $OUTPUT_DIR --video_folder $VIDEO_FOLDER"
       
       if python ultr_ai/efficiency/metrics.py \
         --model-type "$MODEL_TYPE" \

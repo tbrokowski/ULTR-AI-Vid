@@ -26,7 +26,6 @@ sys.path.insert(0, SRC_PATH)
 sys.path.insert(0, NETWORK_PATH)
 
 from ultr_ai.dataset import LungUltrasoundDataModule
-#from NetworkArchitecture.CLIP_DRL_Aug26 import MultiTaskModel
 from ultr_ai.config import load_config
 
 from ultr_ai.network_architecture import create_ablation_model
@@ -46,6 +45,18 @@ def compute_num_params(model):
         param_counts[component_name] += num_params
     param_counts['total'] = total_params
     return param_counts
+
+def dtype_of_weights(model):
+    """ Compute the types of the weights in the model. """
+    type_counts = {}
+    for name, param in model.named_parameters():
+        param_type = str(param.dtype)
+        if param_type not in type_counts:
+            type_counts[param_type] = 0
+        type_counts[param_type] += param.numel()
+    return type_counts
+
+
 
 
 def main():
@@ -74,8 +85,10 @@ def main():
                        help='Number of folds to process')
     
     args = parser.parse_args()
-
-    print(compute_num_params(create_ablation_model(args.model_type, load_config(args.config))))
+    model = create_ablation_model(args.model_type, load_config(config_file=args.config))
+    print(compute_num_params(model))
+    print(dtype_of_weights(model))
+    print(list(model.named_parameters()))
     
     # if args.process_all_folds:
     #     # Process all folds
