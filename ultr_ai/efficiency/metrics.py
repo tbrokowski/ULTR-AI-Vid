@@ -4,6 +4,7 @@ import logging
 import json
 import h5py
 import torch
+import time
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -56,7 +57,43 @@ def dtype_of_weights(model):
         type_counts[param_type] += param.numel()
     return type_counts
 
+def compute_memory_usage(num_params, dtype_counts):
+    """Estimate the memory size of the model based on parameter counts and data types."""
+    type_size_map = {
+        'torch.float32': 4,
+        'torch.float16': 2,
+        'torch.int64': 8,
+        'torch.int32': 4,
+        'torch.uint8': 1,
+    }
+    
+    total_size_bytes = 0
+    for dtype, count in dtype_counts.items():
+        size_per_param = type_size_map.get(dtype, 4)  # Default to 4 bytes if unknown
+        total_size_bytes += count * size_per_param
+    
+    return total_size_bytes / (1000 ** 2)  # Convert to MB
 
+
+def compute_inference_time(model, dataloader, device, num_iterations=100):
+    """Compute average inference time over a number of iterations."""
+    model.to(device)
+    model.eval()
+    
+    start_time = time.time()
+    with torch.no_grad():
+        for i, batch in enumerate(tqdm(dataloader, desc="Measuring Inference Time")):
+            if i >= num_iterations:
+                break
+            for key in batch:
+                if isinstance(batch[key], torch.Tensor):
+                    batch[key] = batch[key].to(device)
+           
+            outputs = model(batch)
+    
+    total_time = time.time() - start_time
+    avg_time_per_batch = total_time / num_iterations
+    return avg_time_per_batch
 
 
 def main():
@@ -85,10 +122,60 @@ def main():
                        help='Number of folds to process')
     
     args = parser.parse_args()
-    model = create_ablation_model(args.model_type, load_config(config_file=args.config))
-    print(compute_num_params(model))
-    print(dtype_of_weights(model))
-    print(list(model.named_parameters()))
+
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+    # Load config
+    config = load_config(config_file=args.config)
+    # Optional override for video folder
+    if args.video_folder:
+        try:
+            old_vf = getattr(config, 'video_folder', None)
+        except Exception:
+            old_vf = None
+        setattr(config, 'video_folder', args.video_folder)
+        print(f"Overriding video_folder: {old_vf} -> {args.video_folder}")
+
+    # Load model
+    model = create_ablation_model(args.model_type, config)
+    print(f"Model initialized: {args.model_type}")
+    checkpoint = torch.load(args.model, map_location=device, weights_only=False)
+    if 'model_state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['model_state_dict'])
+    else:
+        model.load_state_dict(checkpoint)
+    print("Successfully loaded model")
+    model.eval()
+    
+    # Setup data
+    data_module = LungUltrasoundDataModule(
+        root_dir=config.root_dir,
+        labels_csv=config.labels_csv,
+        file_metadata_csv=config.file_metadata_csv,
+        image_folder=config.image_folder,
+        video_folder=config.video_folder,
+        split_csv=config.split_csv,
+        batch_size=1,
+        num_workers=config.num_workers,
+        frame_sampling=config.frame_sampling,
+        depth_filter=config.depth_filter,
+        cache_size=100,
+    )
+    
+    data_module.setup(stage='patient_level')
+
+    videos = next(iter(data_module.patient_level_dataloader('test')))
+    # print(videos["site_videos"].shape) # torch.Size([1, 24, 32, 3, 224, 224])
+
+    # Compute efficiency metrics
+    num_params = compute_num_params(model)
+    dtype_counts = dtype_of_weights(model)
+
+    print(f"Number of parameters: {num_params}")
+    print(f"dtype counts: {dtype_counts}")
+    print(f"Estimated model size (MB): {compute_memory_usage(num_params, dtype_counts)}")
+    inference_time = compute_inference_time(model, data_module.patient_level_dataloader('test'), device)
+    print(f"Average inference time per batch (s): {inference_time}")
     
     # if args.process_all_folds:
     #     # Process all folds
