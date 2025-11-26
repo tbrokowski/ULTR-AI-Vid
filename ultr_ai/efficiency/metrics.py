@@ -1,273 +1,170 @@
-"""
-This file contains metrics to evaluate efficiency when performing inference of the model.
-"""
+import os
+import sys
+import logging
+import json
+import h5py
+import torch
+import pandas as pd
+import numpy as np
+from tqdm import tqdm
+import warnings
+import argparse
+from pathlib import Path
+warnings.filterwarnings('ignore')
 
-class Config:
-    def __init__(self, params=None):
-        """Initialize configuration with defaults and optional overrides."""
-        self._set_defaults()
-        
-        if params:
-            for key, value in params.items():
-                setattr(self, key, value)
-    
-    def _set_defaults(self):
-        """Set default configuration values."""
-        # Training mode
-        self.train = True
-        
-        # Data paths
-        self.root_dir = ""
-        self.labels_csv = ""
-        self.file_metadata_csv = ""
-        self.split_csv = ''
-        self.video_folder = 'videos'
-        self.image_folder = 'images'
-        
-        # Model config
-        self.model_type = 'no_rl'
-        self.model_name = 'ablation_tb_classifier_fold0'
-        self.backbone = 'resnet18'
-        self.freeze_backbone = False
-        self.hidden_dim = 512
-        self.dropout_rate = 0.3
-        self.num_pathologies = 4
-        self.pretrained = True
-        self.num_classes = 1
-        self.in_channels = 3
-        self.reset_optimizers = False
-        
-        # Data preprocessing
-        self.target_height = 224
-        self.target_width = 224
-        self.depth_filter = '15'
-        self.frame_sampling = 32
-        self.num_sites = 15
-        self.mode = 'video'
-        self.pooling = 'attention'
-        
-        # Training settings
-        self.task = "TB Label"
-        self.batch_size = 2
-        self.num_workers = 6
-        self.learning_rate = 0.00001
-        self.weight_decay = 0.00001
-        self.num_epochs = 20
-        self.early_stopping_patience = 8
-        self.accumulation_steps = 8
-        self.use_amp = True
-        self.seed = 42
-        
-        # Multi-task config
-        self.active_tasks = ['TB Label']
-        self.use_pathology_loss = True
-        self.task_weights = {'TB Label': 1.0}
-        
-        # Attention settings
-        self.attention_temperature = 0.5  # Temperature for soft attention (lower = sharper)
-        
-        # Dataset parameters
-        self.files_per_site = 1
-        self.site_order = None
-        self.pad_missing_sites = True
-        self.max_sites = 15
-        
-        self.classification_type = "binary"
-        self.pos_weight = 1.4
-        
-        # Evaluation settings
-        self.eval_metric = "auc"
-        self.eval_metric_goal = "max"
-        self.evaluate_best_valid_model = True
-        
-        self.local_weights_dir = '/NetworkArchitecture/CLIP_weights'
-        
-        # Optimizer settings
-        self.backbone_lr = 0.00001
-        self.backbone_weight_decay = 0.00001
-        self.backbone_eta_min = 1e-6
-        
-        self.pathology_lr = 0.0001
-        self.pathology_weight_decay = 0.00001
-        self.pathology_eta_min = 1e-6
-        
-        self.patient_pipeline_lr = 0.001
-        self.patient_pipeline_weight_decay = 0.00001
-        self.patient_pipeline_eta_min = 1e-6
-        
-        # Directories
-        self.log_dir = "logs"
-        self.save_dir = "models"
-        self.checkpoint_dir = "checkpoints"
-        self.pred_save_dir = "predictions"
-        self.checkpoint_base_dir = "/capstor/store/cscs/swissai/a127/ultr-ai"
-        self.experiment_dir = None  # Will be set based on experiment_name
-        
-        # Pathology settings
-        self.pathology_pos_weights = [1.0, 4.0, 4.0, 4.0]
-        self.pathology_classes = [
-            'A-line',
-            'Large consolidations', 
-            'Pleural Effusion',
-            'Other Pathology'
-        ]
-        
-        # Distributed training settings
-        self.distributed = False
-        self.world_size = 1
-        self.rank = 0
-        self.local_rank = 0
-        self.dist_backend = 'nccl'
-        self.dist_url = 'env://'
-        
-        # Device (will be set based on local_rank)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    def load_from_yaml(self, yaml_path):
-        """Load configuration from YAML file (upstream-friendly)."""
-        if not os.path.exists(yaml_path):
-            logger.warning(f"Config file not found: {yaml_path}")
-        try:
-            with open(yaml_path, 'r') as f:
-                yaml_config = yaml.safe_load(f) or {}
-            logger.info(f"Loading configuration from {yaml_path}")
+# Suppress TensorFlow warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-            # Accept ALL keys (no unknown-key warnings)
-            for key, value in yaml_config.items():
-                setattr(self, key, value)
+# Add paths
+PROJECT_ROOT = "."
+SRC_PATH = "."
+NETWORK_PATH = "."
 
-            # Ensure experiment_dir is set after potential overrides
-            if not getattr(self, 'experiment_dir', None):
-                self.experiment_dir = os.path.join(self.checkpoint_dir, self.model_name)
+sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, SRC_PATH)
+sys.path.insert(0, NETWORK_PATH)
 
-            # Normalize output directories to external /capstor location
-            CAPSTOR_ROOT = os.environ.get(
-                "CAPSTOR_ROOT",
-                "/capstor/store/cscs/swissai/a127/ultr-ai"
-            )
+from ultr_ai.dataset import LungUltrasoundDataModule
+#from NetworkArchitecture.CLIP_DRL_Aug26 import MultiTaskModel
+from ultr_ai.config import load_config
 
-            def _to_capstor_path(p):
-                if not isinstance(p, str) or not p:
-                    return p
-                if p.startswith('/'):
-                    return p
-                if p.startswith('capstor/'):
-                    return os.path.join(CAPSTOR_ROOT, p[len('capstor/'):])
-                if p.startswith('./capstor/'):
-                    return os.path.join(CAPSTOR_ROOT, p[len('./capstor/'):])
-                return p
+from ultr_ai.network_architecture import create_ablation_model
 
-            for key in ['experiment_dir', 'checkpoint_dir', 'log_dir', 'save_dir', 'pred_save_dir']:
-                if hasattr(self, key):
-                    setattr(self, key, _to_capstor_path(getattr(self, key)))
+logger = logging.getLogger(__name__)
 
-            # Create relevant directories (main process only)
-            os.makedirs(self.experiment_dir, exist_ok=True)
-            os.makedirs(self.checkpoint_dir, exist_ok=True)
-            os.makedirs(self.log_dir, exist_ok=True)
-            os.makedirs(self.save_dir, exist_ok=True)
-            os.makedirs(self.pred_save_dir, exist_ok=True)
-
-            logger.info(f"Configuration successfully loaded from {yaml_path}")
-        except Exception as e:
-            logger.error(f"Error loading config from {yaml_path}: {e}")
-            raise e
-        
-    def to_dict(self):
-        """Convert configuration to dictionary."""
-        return {k: v for k, v in self.__dict__.items() 
-                if not k.startswith('_') and not callable(v)}
-    
-    def save(self, path):
-        """Save configuration to YAML file."""
-        
-        try:
-            with open(path, 'w') as f:
-                yaml.dump(self.to_dict(), f, default_flow_style=False)
-            logger.info(f"Configuration saved to {path}")
-        except Exception as e:
-            logger.error(f"Error saving config to {path}: {e}")
-            raise e
+def compute_num_params(model):
+    """Compute the number of parameters for each component of the model."""
+    param_counts = {}
+    total_params = 0
+    for name, param in model.named_parameters():
+        num_params = param.numel()
+        total_params += num_params
+        component_name = name.split('.')[0]
+        if component_name not in param_counts:
+            param_counts[component_name] = 0
+        param_counts[component_name] += num_params
+    param_counts['total'] = total_params
+    return param_counts
 
 
-
-
-
-
-
-
-def parse_args_and_load_config():
-    """Parse command line arguments and load configuration."""
-    parser = argparse.ArgumentParser(description='Efficiency metrics evaluation.')
-    
-    # Config file argument
-    parser.add_argument('--config', type=str, required=False,
-                       help='Path to config YAML file')
-    
-    # Model arguments
-    parser.add_argument('--model_type', type=str, help='Ablation model type',
-                      choices=['no_rl', 'mean_pool', 'attention_pool', 'single_task',
-                              '3d_cnn', 'cnn_lstm', 'video_transformer'])
+def main():
+    parser = argparse.ArgumentParser(description='Evaluate inference efficiency of models.')
     
     # Data arguments
-    parser.add_argument('--video_folder', type=str, help='Path to video folder')
+    parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory')
     
-    # Model loading arguments
-    parser.add_argument('--model_weights', type=str, help='Path to model weights')
-    parser.add_argument('--best_model_path', type=str, help='Path to best model for evaluation')
-    parser.add_argument('--resume_from_checkpoint', type=str, help='Path to checkpoint to resume from')
+    # Single fold processing
+    parser.add_argument('--model-type', type=str, default='original')
+    parser.add_argument('--config', type=str, help='Path to config file')
+    parser.add_argument('--model', type=str, help='Path to model checkpoint')
+    parser.add_argument('--output-dir', type=str, default='ULTR-CLIP/results',
+                       help='Output directory')
+    parser.add_argument('--fold', type=int, default=0, help='Fold number')
+
+    
+    # Multi-fold processing
+    parser.add_argument('--process-all-folds', action='store_true',
+                       help='Process all folds at once')
+    parser.add_argument('--config-pattern', type=str,
+                       help='Pattern for config files (e.g., "configs/fold_{}.yaml")')
+    parser.add_argument('--model-pattern', type=str,
+                       help='Pattern for model files (e.g., "checkpoints/fold_{}/best.pth")')
+    parser.add_argument('--num-folds', type=int, default=5,
+                       help='Number of folds to process')
     
     args = parser.parse_args()
+
+    print(compute_num_params(create_ablation_model(args.model_type, load_config(args.config))))
     
-    # Create config with defaults
-    config = Config()
-    
-    # Load YAML config if provided
-    if args.config:
-        if os.path.exists(args.config):
-            config.load_from_yaml(args.config)
-        else:
-            if is_main_process():
-                logger.error(f"Config file not found: {args.config}")
-            raise FileNotFoundError(f"Config file not found: {args.config}")
-    else:
-        if is_main_process():
-            logger.info("No config file provided, using defaults")
-    
-    # Override with command-line arguments
-    if args.model_type is not None:
-        config.model_type = args.model_type
-    
-    if args.lr is not None:
-        config.learning_rate = args.lr
-    
-    if args.batch_size is not None:
-        config.batch_size = args.batch_size
-    
-    if args.epochs is not None:
-        config.num_epochs = args.epochs
-    
-    if args.seed is not None:
-        config.seed = args.seed
-    
-    if args.video_folder is not None:
-        config.video_folder = args.video_folder
-    
-    if args.model_weights is not None:
-        config.model_weights = args.model_weights
-    
-    if args.best_model_path is not None:
-        config.best_model_path = args.best_model_path
-    
-    if args.resume_from_checkpoint is not None:
-        config.resume_from_checkpoint = args.resume_from_checkpoint
-    
-    if args.eval_only:
-        config.train = False
-    
-    return config
+    # if args.process_all_folds:
+    #     # Process all folds
+    #     if not args.config_pattern or not args.model_pattern:
+    #         print("Error: --config-pattern and --model-pattern required for --process-all-folds")
+    #         return
+        
+    #     config_paths = [args.config_pattern.format(i) for i in range(args.num_folds)]
+    #     model_paths = [args.model_pattern.format(i) for i in range(args.num_folds)]
+
+    #     process_all_folds(args.model_type, config_paths, model_paths, args.output_dir, video_folder_override=args.video_folder)
+
+    # else:
+    #     # Process single fold
+    #     if not args.config or not args.model:
+    #         print("Error: --config and --model required for single fold processing")
+    #         return
+        
+    #     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        
+    #     # Load config
+    #     config = load_config(config_file=args.config)
+    #     # Optional override for video folder
+    #     if args.video_folder:
+    #         try:
+    #             old_vf = getattr(config, 'video_folder', None)
+    #         except Exception:
+    #             old_vf = None
+    #         setattr(config, 'video_folder', args.video_folder)
+    #         print(f"✓ Overriding video_folder: {old_vf} -> {args.video_folder}")
+        
+    #     # Load model
+    #     model = create_ablation_model(args.model_type, config)
+    #     print(f"✓ Model initialized: {args.model_type}")
+    #     checkpoint = torch.load(args.model, map_location=device, weights_only=False)
+    #     if 'model_state_dict' in checkpoint:
+    #         model.load_state_dict(checkpoint['model_state_dict'])
+    #     else:
+    #         model.load_state_dict(checkpoint)
+    #     model = model.to(device)
+    #     print("Successfully loaded model")
+    #     model.eval()
+        
+    #     # Setup data
+    #     data_module = LungUltrasoundDataModule(
+    #         root_dir=config.root_dir,
+    #         labels_csv=config.labels_csv,
+    #         file_metadata_csv=config.file_metadata_csv,
+    #         image_folder=config.image_folder,
+    #         video_folder=config.video_folder,
+    #         split_csv=config.split_csv,
+    #         batch_size=config.batch_size,
+    #         num_workers=config.num_workers,
+    #         frame_sampling=config.frame_sampling,
+    #         depth_filter=config.depth_filter,
+    #         cache_size=100,
+    #     )
+        
+    #     data_module.setup(stage='patient_level')
+        
+    #     # Process each split
+    #     # Determine default output dir if user left default
+    #     output_dir = args.output_dir
+    #     if output_dir == 'ULTR-CLIP/results' or not output_dir:
+    #         output_dir = _infer_eval_output_dir_from_config(config)
+    #         print(f"Inferred output dir: {output_dir}")
+
+    #     for split_name in ['train', 'val', 'test']:
+    #         print(f"\nProcessing {split_name} split...")
+            
+    #         dataloader = data_module.patient_level_dataloader(split_name)
+            
+    #         active_tasks = getattr(config, 'active_tasks', ['TB Label'])
+    #         use_pathology_loss = getattr(config, 'use_pathology_loss', True)
+            
+    #         patient_df, site_df, complex_data, metrics = evaluate_model_for_downstream(
+    #             model, dataloader, device, active_tasks, use_pathology_loss
+    #         )
+            
+    #         saved_files = save_for_downstream_pipeline(
+    #             patient_df, site_df, complex_data, metrics,
+    #             output_dir, split_name, args.fold
+    #         )
+            
+    #         verify_compatibility(output_dir, split_name, args.fold)
+        
+    #     print(f"\n✅ Fold {args.fold} processing complete!")
+
 
 if __name__ == "__main__":
-    config = parse_args_and_load_config()
-    logger.info("Final configuration:")
-    logger.info(config)
+    # Example usage
+    main()

@@ -28,13 +28,11 @@ sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, SRC_PATH)
 sys.path.insert(0, NETWORK_PATH)
 
-from dataset import LungUltrasoundDataModule
+from ultr_ai.dataset import LungUltrasoundDataModule
 #from NetworkArchitecture.CLIP_DRL_Aug26 import MultiTaskModel
-from config import load_config, MultiTaskConfig
+from ultr_ai.config import load_config
 
-
-from NetworkArchitecture.CLIP_DRL_Aug11 import MultiTaskModel
-from NetworkArchitecture.ablation_models import create_ablation_model
+from ultr_ai.network_architecture import create_ablation_model
 
 
 
