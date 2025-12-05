@@ -26,6 +26,10 @@ MODEL_TYPE="attention_pool"
 # Video folder override (adjust this to the correct path)
 VIDEO_FOLDER="/capstor/scratch/cscs/mbarbiere/ultr-ai/LusBeninVideos"
 
+# Quick fix: Install timm if not present (for LeViT and other vision backbones)
+echo "Installing packages..."
+pip install --quiet onnx onnx2tf tensorflow tensorflowjs || echo "Warning: packages installation failed, but continuing..."
+
 # =========================
 # Helpers
 # =========================
