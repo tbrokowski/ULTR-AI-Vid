@@ -1,116 +1,175 @@
 """Convert the current pytorch model to tf.js"""
 import os
+import sys
 import shutil
 import subprocess
 import torch
-import tensorflow as tf
 import argparse
+import warnings
+import json
+import numpy as np
+
+warnings.filterwarnings("ignore", message="Protobuf gencode version")
 
 import torch.nn as nn
+
+# Add paths
+PROJECT_ROOT = "."
+SRC_PATH = "."
+NETWORK_PATH = "."
+
+sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, SRC_PATH)
+sys.path.insert(0, NETWORK_PATH)
 
 from ultr_ai.config import load_config
 from ultr_ai.network_architecture import create_ablation_model
 
+class SimpleModel(nn.Module):
+    def __init__(self):
+        super(SimpleModel, self).__init__()
+        self.fc1 = nn.Linear(10, 20)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(20, 5)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        return x
+
 
 def convert_to_tfjs(model, output_dir, input_shape=(1, 3, 224, 224)):
     """
-    Converts a PyTorch model to TensorFlow.js format.
-    
-    Args:
-        model: The PyTorch model instance (already loaded).
-        output_dir: The folder where the TF.js files will be saved.
-        input_shape: Tuple for dummy input.
+    Converts PyTorch -> Keras (via Nobuco) -> TF.js
     """
-    print(f"Converting model to TF.js format at {output_dir}...")
+    # Force TensorFlow to use legacy Keras (fixes Keras 3 compatibility issues)
+    os.environ["TF_USE_LEGACY_KERAS"] = "1"
+    
+    print(f"Starting Nobuco conversion for input shape: {input_shape}")
+    
+    # 1. Imports inside function to avoid global dependency issues
+    try:
+        import tensorflow as tf
+        import keras
+        import nobuco
+        from nobuco import ChannelOrder
+        
+        print(f"[DEBUG] TensorFlow Version: {tf.__version__}")
+        print(f"[DEBUG] Keras Version: {keras.__version__}")
+        
+        if keras.__version__.startswith("3"):
+            print("\n[CRITICAL WARNING] Keras 3 detected. Nobuco requires Keras 2.")
+            print("Please run: pip install \"tensorflow<2.16\" \"keras<3\" --force-reinstall\n")
+            
+    except ImportError as e:
+        print(f"Error: Missing dependencies. Please install: pip install nobuco tensorflow tensorflowjs")
+        print(f"Details: {e}")
+        return False
 
-    # Paths for intermediate files
-    onnx_path = "temp_model.onnx"
-    tf_saved_model_path = "temp_tf_saved_model"
+    # Ensure output directories exist
+    tf_path = os.path.join(output_dir, "tf_saved_model")
+    web_path = os.path.join(output_dir, "web_model")
+    
+    # Clean previous attempts
+    if os.path.exists(tf_path): shutil.rmtree(tf_path)
+    if os.path.exists(web_path): shutil.rmtree(web_path)
+    os.makedirs(output_dir, exist_ok=True)
 
     try:
-        # Try to export to ONNX
-        print("Step 1/3: Exporting to ONNX...")
+        # --- Step 1: Convert PyTorch to Keras (TensorFlow) directly ---
+        print("-> Converting PyTorch to Keras/TensorFlow via Nobuco...")
         model.eval()
         
-        # Create dummy input based on the shape provided
-        dummy_input = torch.randn(*input_shape)
+        # Create dummy input on the correct device
+        device = next(model.parameters()).device
+        dummy_input = torch.randn(input_shape).to(device)
         
-        torch.onnx.export(
+        # Nobuco conversion
+        # inputs_channel_order=ChannelOrder.TENSORFLOW ensures NHWC format (better for Web/JS)
+        keras_model = nobuco.pytorch_to_keras(
             model,
-            dummy_input,
-            onnx_path,
-            opset_version=12,
-            input_names=['input'],
-            output_names=['output'],
-            dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+            args=[dummy_input],
+            inputs_channel_order=ChannelOrder.TENSORFLOW, 
+            outputs_channel_order=ChannelOrder.TENSORFLOW,
+            save_trace_html=False
         )
 
-        # From ONNX to TensorFlow SavedModel
-        print("Step 2/3: Converting ONNX to TensorFlow SavedModel...")
+        # Save as TensorFlow SavedModel
+        print(f"-> Saving intermediate TF model to {tf_path}...")
+        keras_model.save(tf_path, save_format="tf")
+
+        # --- Step 2: Convert SavedModel to TF.js ---
+        print("-> Converting SavedModel to TF.js format...")
         
-        # Run the command using onnx2tf
-        cmd_onnx2tf = [
-            "onnx2tf", 
-            "-i", onnx_path, 
-            "-o", tf_saved_model_path,
-            "-oiqt" 
-        ]
-        
-        # Run command and check for errors
-        subprocess.run(cmd_onnx2tf, check=True)
+        if shutil.which('tensorflowjs_converter') is None:
+            print("Error: 'tensorflowjs_converter' not found in PATH.")
+            print("Please run: pip install tensorflowjs")
+            return False
 
-        # Convert to TensorFlow.js format
-        print("Step 3/3: Converting SavedModel to web format...")
-
-        # Ensure output directory is clean
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-
-        cmd_tfjs = [
+        cmd = [
             "tensorflowjs_converter",
             "--input_format=tf_saved_model",
-            "--output_node_names=output",
-            "--saved_model_tags=serve",
-            tf_saved_model_path,
-            output_dir
+            # Skip op check allows custom/complex layers to pass through
+            "--skip_op_check", 
+            tf_path,
+            web_path
         ]
-
-        subprocess.run(cmd_tfjs, check=True)
         
-        print(f"\nSUCCESS: Model converted! Files located in '{output_dir}/'")
+        subprocess.run(cmd, check=True)
+        
+        print(f"Success! Web model saved to: {web_path}")
+        return True
 
-    except subprocess.CalledProcessError as e:
-        print(f"\nERROR: A conversion command failed. Return code: {e.returncode}")
     except Exception as e:
-        print(f"\nERROR: An unexpected error occurred: {e}")
-    finally:
-        # Clean
-        print("Cleaning up temporary intermediate files...")
-        if os.path.exists(onnx_path):
-            os.remove(onnx_path)
-        if os.path.exists(tf_saved_model_path):
-            shutil.rmtree(tf_saved_model_path)
+        print(f"\nConversion failed: {e}")
+        return False
+
 
 def load_from_tfjs(model_path):
     """
-    Loads a TensorFlow.js model and saves it as a TensorFlow SavedModel.
+    Loads a TensorFlow.js model for inference testing.
+    
+    For TF.js graph models, we need to use TFSMLayer or load the SavedModel directly.
+    This function provides a way to verify the converted model.
     
     Args:
-        model_path: Path to the TF.js model directory.
-        output_dir: Directory to save the TensorFlow SavedModel.
+        model_path: Path to the output directory containing 'tf_saved_model'.
+    
+    Returns:
+        A callable model or None if loading fails.
     """
-    print(f"Loading TF.js model from {model_path}")
+    import tensorflow as tf
     
-    try:
-        # Load the TF.js model
-        model = tf.keras.models.load_model(model_path)
-        
-        print(f"\nSUCCESS: Model loaded")
-        return model
+    # Python cannot natively load the 'web_model/model.json' (that is for JS).
+    # However, our conversion process generates a 'tf_saved_model' folder 
+    # which IS loadable by Python and is mathematically identical.
+    tf_saved_model_path = os.path.join(model_path, "tf_saved_model")
     
-    except Exception as e:
-        print(f"\nERROR: An error occurred while loading or saving the model: {e}")
+    print(f"Loading verification model from {tf_saved_model_path}")
+    
+    if not os.path.exists(tf_saved_model_path):
+        print("Error: TF SavedModel not found. Cannot verify in Python.")
+        return None
 
+    try:
+        loaded_model = tf.saved_model.load(tf_saved_model_path)
+        inference_func = loaded_model.signatures['serving_default']
+        
+        # Wrap the TF function to return a tensor directly (matching PyTorch behavior for the test)
+        def model_wrapper(x):
+            # ONNX export usually names inputs 'input' or 'input_1'
+            # We inspect the signature to be safe
+            key = list(inference_func.structured_input_signature[1].keys())[0]
+            out = inference_func(**{key: x})
+            # Return the first output tensor
+            return list(out.values())[0]
+            
+        return model_wrapper
+        
+    except Exception as e:
+        print(f"Failed to load TF model: {e}")
+        return None
 
 
 def main():
@@ -121,29 +180,30 @@ def main():
     
     # Single fold processing
     parser.add_argument('--model-type', type=str, default='original')
+    parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory')
     parser.add_argument('--config', type=str, help='Path to config file')
     parser.add_argument('--model', type=str, help='Path to model checkpoint')
     parser.add_argument('--output-dir', type=str, default='ULTR-CLIP/results',
-                       help='Output directory')
+                        help='Output directory')
     parser.add_argument('--fold', type=int, default=0, help='Fold number')
 
     
     # Multi-fold processing
     # parser.add_argument('--process-all-folds', action='store_true',
-    #                    help='Process all folds at once')
+    #                     help='Process all folds at once')
     # parser.add_argument('--config-pattern', type=str,
-    #                    help='Pattern for config files (e.g., "configs/fold_{}.yaml")')
+    #                     help='Pattern for config files (e.g., "configs/fold_{}.yaml")')
     # parser.add_argument('--model-pattern', type=str,
-    #                    help='Pattern for model files (e.g., "checkpoints/fold_{}/best.pth")')
+    #                     help='Pattern for model files (e.g., "checkpoints/fold_{}/best.pth")')
     # parser.add_argument('--num-folds', type=int, default=5,
-    #                    help='Number of folds to process')
+    #                     help='Number of folds to process')
     
     args = parser.parse_args()
 
     # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # Load config
-    config = load_config(config_file=args.config)
+    # config = load_config(config_file=args.config)
     # Optional override for video folder
     # if args.video_folder:
     #     try:
@@ -154,36 +214,61 @@ def main():
     #     print(f"Overriding video_folder: {old_vf} -> {args.video_folder}")
 
     # Load model
-    model = create_ablation_model(args.model_type, config)
-    print(f"Model initialized: {args.model_type}")
-    checkpoint = torch.load(args.model, weights_only=False)
-    if 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
-    else:
-        model.load_state_dict(checkpoint)
-    print("Successfully loaded model")
-    model.eval()
+    # model = create_ablation_model(args.model_type, config)
+    # print(f"Model initialized: {args.model_type}")
+    # checkpoint = torch.load(args.model, weights_only=False)
+    # if 'model_state_dict' in checkpoint:
+    #     model.load_state_dict(checkpoint['model_state_dict'])
+    # else:
+    #     model.load_state_dict(checkpoint)
+    # print("Successfully loaded model")
+    # model.eval()
 
     # Testing model
 
-    model = nn.Sequential(
-        nn.linear(10, 20),
-        nn.ReLU(),
-        nn.linear(20, 5)
-    )
+    model = SimpleModel()
+    model.eval()
     test = torch.ones((1, 10))
     with torch.no_grad():
         output = model(test)
-    print(f"Test output: {output}")
+    print(f"PyTorch test output: {output}")
 
-    # Convert to TF.js
-    convert_to_tfjs(model, args.output_dir)
+    # Ensure output directory exists
+    os.makedirs(args.output_dir, exist_ok=True)
 
-    # Load from TF.js
-    tf_model = load_from_tfjs(args.output_dir)
-    test = tf.ones((1, 10))
-    output = tf_model(test)
-    print(f"TF.js model test output: {output}")
+    dummy_input_shape = (1, 10)
+    dummy_input = torch.randn(*dummy_input_shape)
+
+    # Convert to ONNX
+    onnx_path = os.path.join(args.output_dir, "model.onnx")
+    torch.onnx.export(
+        model,
+        dummy_input,
+        onnx_path,
+        dynamo=True,
+        verbose=True)
+     
+
+    # # Convert to TF.js
+    # success = convert_to_tfjs(model, args.output_dir, input_shape=(1, 10))
+
+    # if success:
+    #     # Load from TF.js and test
+    #     tf_model = load_from_tfjs(args.output_dir)
+    #     if tf_model is not None:
+    #         import tensorflow as tf
+    #         test_tf = tf.ones((1, 10), dtype=tf.float32)
+    #         output_tf = tf_model(test_tf)
+    #         print(f"TF.js model test output: {output_tf}")
+            
+    #         # Compare outputs
+    #         print("\n=== Comparison ===")
+    #         print(f"PyTorch output: {output.numpy()}")
+    #         print(f"TF.js output:   {output_tf.numpy()}")
+    #     else:
+    #         print("Failed to load TF.js model for testing")
+    # else:
+    #     print("Conversion failed, skipping TF.js model test")
     
     # Setup data
     # data_module = LungUltrasoundDataModule(
