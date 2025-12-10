@@ -1,4 +1,42 @@
 """Convert the current pytorch model to tf.js"""
+
+"""
+Structure of the attention_pool model's forward input and output:
+
+Input Dict:
+    patient_ids: ['25-103']
+    tb_labels: torch.Size([1])
+    pneumonia_labels: torch.Size([1])
+    covid_labels: torch.Size([1])
+    site_indices: torch.Size([1, 24])
+    site_counts: torch.Size([1])
+    site_videos: torch.Size([1, 24, 32, 3, 224, 224])
+    site_images: torch.Size([1, 24, 3, 224, 224])
+    site_findings: torch.Size([1, 24, 4])
+    site_masks: torch.Size([1, 24])
+    batch_padding_masks: torch.Size([1, 24])
+    real_data_masks: torch.Size([1, 24])
+    _mask_type: batch_padding
+
+Output Dict:
+    task_logits: dict, example: {'TB Label': tensor([0.1041], grad_fn=<SqueezeBackward1>)}
+    patient_pathology_scores: torch.Size([1, 4]), example: tensor([[-0.1297, -0.1474, -0.2922,  0.2340]], grad_fn=<SqueezeBackward1>)
+    patient_features: torch.Size([1, 512]), example value: tensor([[-1.6737e+00,  1.2444e+00, ... , -1.1030e+00,  1.6990e+00]], grad_fn=<SqueezeBackward1>)
+    pathology_scores: torch.Size([1, 24, 4]), example: torch.Size([1, 24, 4]), value: tensor([[[-0.6251, -0.7291, -1.4302,  1.1436], .... [ 0.0000,  0.0000,  0.0000,  0.0000]]], grad_fn=<StackBackward0>)
+    mil_attention: torch.Size([1, 24]), example: tensor([[0.0971, 0.0000, 0.1073, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, ..., 0.0000, grad_fn=<SoftmaxBackward0>)
+    site_features: torch.Size([1, 24, 512]), example: tensor([[[ 0.8532,  0.2620,  0.8520,  ..., -0.8633, -0.0293,  0.8508], [ 0.8502,  0.2265,  0.8531,  ..., -0.8650, -0.0161,  0.8479], [ 0.8558,  0.2430,  0.8482,  ..., -0.8604, -0.0273,  0.8546], ..., grad_fn=<StackBackward0>)
+    site_metadata: list of lists, where each sublits contains 10 dicts, example of a single dict: [...., [{'batch_idx': 0, 'site_idx': 7, 'selected_indices': None, 'action_logits': tensor([[1.0978, 1.0982, 1.0980, 1.0979, 1.0983, 1.0985, 1.0980, 1.0977, 1.0982,
+                                                                                                                                    1.0979, 1.0980, 1.0979, 1.0978, 1.0977, 1.0983, 1.0979, 1.0980, 1.0980,
+                                                                                                                                    1.0983, 1.0980, 1.0976, 1.0982, 1.0981, 1.0982, 1.0982, 1.0979, 1.0983,
+                                                                                                                                    1.0979, 1.0982, 1.0982, 1.0980, 1.0983]],
+                                                                                                                                grad_fn=<MaskedFillBackward0>), 'state_values': tensor([[0.]], requires_grad=True)}, ...], ...]
+    site_outputs: list of 10 dicts, example of a single dict: [{'batch_idx': 0, 'site_idx': 9, 'selected_indices': None, 'action_logits': tensor([[1.1021, 1.1024, 1.1012, 1.1022, 1.1021, 1.1024, 1.1019, 1.1016, 1.1028,
+                                                                                                                                                1.1019, 1.1026, 1.1024, 1.1022, 1.1030, 1.1020, 1.1021, 1.1025, 1.1020,
+                                                                                                                                                1.1024, 1.1014, 1.1016, 1.1017, 1.1018, 1.1023, 1.1024, 1.1018, 1.1022,
+                                                                                                                                                1.1024, 1.1025, 1.1022, 1.1017, 1.1023]],
+                                                                grad_fn=<MaskedFillBackward0>), 'state_values': tensor([[0.]], requires_grad=True)}, ...]
+    tb_logits: torch.Size([1]), example: tensor([0.1041], grad_fn=<SqueezeBackward1>)
+"""
 import os
 import sys
 import shutil
@@ -12,6 +50,10 @@ import numpy as np
 warnings.filterwarnings("ignore", message="Protobuf gencode version")
 
 import torch.nn as nn
+import onnxruntime as ort
+
+# Set seed
+torch.manual_seed(0)
 
 # Add paths
 PROJECT_ROOT = "."
@@ -26,6 +68,9 @@ from ultr_ai.config import load_config
 from ultr_ai.network_architecture import create_ablation_model
 from ultr_ai.dataset import LungUltrasoundDataModule
 
+# Flags
+TEST_SIMPLE_MODEL = True
+
 class SimpleModel(nn.Module):
     def __init__(self):
         super(SimpleModel, self).__init__()
@@ -38,7 +83,6 @@ class SimpleModel(nn.Module):
         x = self.relu(x)
         x = self.fc2(x)
         return x
-
 
 class ONNXModelWrapper(nn.Module):
     """
@@ -108,153 +152,72 @@ class ONNXModelWrapper(nn.Module):
             # Fallback: return zeros if no logits available
             return torch.zeros(site_videos.shape[0], 3)
 
+def load_model(args, config, simple=False):
+    if simple:
+        model = SimpleModel()
+    else:
+        model = create_ablation_model(args.model_type, config)
+        print(f"Model initialized: {args.model_type}")
+        checkpoint = torch.load(args.model, weights_only=False, map_location='cpu')
+        if 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+        print("Successfully loaded model")
 
-def convert_to_tfjs(model, output_dir, input_shape=(1, 3, 224, 224)):
-    """
-    Converts PyTorch -> Keras (via Nobuco) -> TF.js
-    """
-    # Force TensorFlow to use legacy Keras (fixes Keras 3 compatibility issues)
-    os.environ["TF_USE_LEGACY_KERAS"] = "1"
-    
-    print(f"Starting Nobuco conversion for input shape: {input_shape}")
-    
-    # 1. Imports inside function to avoid global dependency issues
-    try:
-        import tensorflow as tf
-        import keras
-        import nobuco
-        from nobuco import ChannelOrder
-        
-        print(f"[DEBUG] TensorFlow Version: {tf.__version__}")
-        print(f"[DEBUG] Keras Version: {keras.__version__}")
-        
-        if keras.__version__.startswith("3"):
-            print("\n[CRITICAL WARNING] Keras 3 detected. Nobuco requires Keras 2.")
-            print("Please run: pip install \"tensorflow<2.16\" \"keras<3\" --force-reinstall\n")
-            
-    except ImportError as e:
-        print(f"Error: Missing dependencies. Please install: pip install nobuco tensorflow tensorflowjs")
-        print(f"Details: {e}")
-        return False
+    model.eval()
+    return model
 
-    # Ensure output directories exist
-    tf_path = os.path.join(output_dir, "tf_saved_model")
-    web_path = os.path.join(output_dir, "web_model")
+def convert_to_onnx(model, output_path, simple=False):
+    print(f"\n=== Exporting to ONNX: {output_path} ===")
     
-    # Clean previous attempts
-    if os.path.exists(tf_path): shutil.rmtree(tf_path)
-    if os.path.exists(web_path): shutil.rmtree(web_path)
-    os.makedirs(output_dir, exist_ok=True)
+    if simple:
+        dummy_input_shape_simple = (1, 10)
+        dummy_input = torch.randn(*dummy_input_shape_simple)
 
-    try:
-        # --- Step 1: Convert PyTorch to Keras (TensorFlow) directly ---
-        print("-> Converting PyTorch to Keras/TensorFlow via Nobuco...")
-        model.eval()
-        
-        # Create dummy input on the correct device
-        device = next(model.parameters()).device
-        dummy_input = torch.randn(input_shape).to(device)
-        
-        # Nobuco conversion
-        # inputs_channel_order=ChannelOrder.TENSORFLOW ensures NHWC format (better for Web/JS)
-        keras_model = nobuco.pytorch_to_keras(
+        # Convert to ONNX
+        torch.onnx.export(
             model,
-            args=[dummy_input],
-            inputs_channel_order=ChannelOrder.TENSORFLOW, 
-            outputs_channel_order=ChannelOrder.TENSORFLOW,
-            save_trace_html=False
+            dummy_input,
+            output_path,
+            dynamo=True,
+            # verbose=True
+            )
+        
+    else:
+        dummy_inputs = construct_dummy_input(to_numpy=False, as_dict=False)
+        dynamic_axes = construct_dynamic_axes()
+        
+        # Force legacy TorchScript-based exporter by setting dynamo=False explicitly
+        torch.onnx.export(
+            model,
+            dummy_inputs,
+            output_path,
+            input_names=[
+                "site_videos",
+                "site_images", 
+                "site_findings",
+                "site_indices",
+                "site_counts",
+                "site_masks",
+                "batch_padding_masks",
+                "real_data_masks",
+                "tb_labels",
+                "pneumonia_labels",
+                "covid_labels"
+            ],
+            output_names=["logits"],  # Single concatenated output [batch, num_tasks]
+            dynamic_axes=dynamic_axes,
+            opset_version=18,  # Use opset 18 as suggested by the warning
+            do_constant_folding=True,
+            dynamo=False,  # Explicitly disable dynamo to use legacy TorchScript exporter
+            # verbose=True
         )
+    print(f"ONNX model saved to: {output_path}")
 
-        # Save as TensorFlow SavedModel
-        print(f"-> Saving intermediate TF model to {tf_path}...")
-        keras_model.save(tf_path, save_format="tf")
-
-        # --- Step 2: Convert SavedModel to TF.js ---
-        print("-> Converting SavedModel to TF.js format...")
-        
-        if shutil.which('tensorflowjs_converter') is None:
-            print("Error: 'tensorflowjs_converter' not found in PATH.")
-            print("Please run: pip install tensorflowjs")
-            return False
-
-        cmd = [
-            "tensorflowjs_converter",
-            "--input_format=tf_saved_model",
-            # Skip op check allows custom/complex layers to pass through
-            "--skip_op_check", 
-            tf_path,
-            web_path
-        ]
-        
-        subprocess.run(cmd, check=True)
-        
-        print(f"Success! Web model saved to: {web_path}")
-        return True
-
-    except Exception as e:
-        print(f"\nConversion failed: {e}")
-        return False
-
-
-def load_from_tfjs(model_path):
-    """
-    Loads a TensorFlow.js model for inference testing.
-    
-    For TF.js graph models, we need to use TFSMLayer or load the SavedModel directly.
-    This function provides a way to verify the converted model.
-    
-    Args:
-        model_path: Path to the output directory containing 'tf_saved_model'.
-    
-    Returns:
-        A callable model or None if loading fails.
-    """
-    # import tensorflow as tf
-    
-    # Python cannot natively load the 'web_model/model.json' (that is for JS).
-    # However, our conversion process generates a 'tf_saved_model' folder 
-    # which IS loadable by Python and is mathematically identical.
-    tf_saved_model_path = os.path.join(model_path, "tf_saved_model")
-    
-    print(f"Loading verification model from {tf_saved_model_path}")
-    
-    if not os.path.exists(tf_saved_model_path):
-        print("Error: TF SavedModel not found. Cannot verify in Python.")
-        return None
-
-    try:
-        loaded_model = tf.saved_model.load(tf_saved_model_path)
-        inference_func = loaded_model.signatures['serving_default']
-        
-        # Wrap the TF function to return a tensor directly (matching PyTorch behavior for the test)
-        def model_wrapper(x):
-            # ONNX export usually names inputs 'input' or 'input_1'
-            # We inspect the signature to be safe
-            key = list(inference_func.structured_input_signature[1].keys())[0]
-            out = inference_func(**{key: x})
-            # Return the first output tensor
-            return list(out.values())[0]
-            
-        return model_wrapper
-        
-    except Exception as e:
-        print(f"Failed to load TF model: {e}")
-        return None
-
-def construct_dummy_input():
-    # patient_ids: ['25-103']
-    # tb_labels: torch.Size([1])
-    # pneumonia_labels: torch.Size([1])
-    # covid_labels: torch.Size([1])
-    # site_indices: torch.Size([1, 24])
-    # site_counts: torch.Size([1])
-    # site_videos: torch.Size([1, 24, 32, 3, 224, 224])
-    # site_images: torch.Size([1, 24, 3, 224, 224])
-    # site_findings: torch.Size([1, 24, 4])
-    # site_masks: torch.Size([1, 24])
-    # batch_padding_masks: torch.Size([1, 24])
-    # real_data_masks: torch.Size([1, 24])
-    # _mask_type: batch_padding
+def construct_dummy_input_dict():
+    # Set seed
+    torch.manual_seed(0)
 
     return {
         "patient_ids": ['25-103'],
@@ -272,123 +235,42 @@ def construct_dummy_input():
         "_mask_type": "batch_padding"
     }
 
-
-def main():
-    parser = argparse.ArgumentParser(description='Convert model formats.')
-    
-    # Data arguments
-    # parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory')
-    
-    # Single fold processing
-    parser.add_argument('--model-type', type=str, default='attention_pool')
-    parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory', default="C:\\Users\\mattb\\Documents\\ULTR-AI-Checkpoints")
-    parser.add_argument('--config', type=str, help='Path to config file', default="configs/attention_pool_extra3_full_train2/fold0.yaml")
-    parser.add_argument('--model', type=str, help='Path to model checkpoint', default="C:\\Users\\mattb\\Documents\\ULTR-AI-Checkpoints\\fold0\\checkpoint_best.pth")
-    parser.add_argument('--output-dir', type=str, default='ULTR-CLIP/results',
-                        help='Output directory')
-    parser.add_argument('--fold', type=int, default=0, help='Fold number')
-
-    
-    # Multi-fold processing
-    # parser.add_argument('--process-all-folds', action='store_true',
-    #                     help='Process all folds at once')
-    # parser.add_argument('--config-pattern', type=str,
-    #                     help='Pattern for config files (e.g., "configs/fold_{}.yaml")')
-    # parser.add_argument('--model-pattern', type=str,
-    #                     help='Pattern for model files (e.g., "checkpoints/fold_{}/best.pth")')
-    # parser.add_argument('--num-folds', type=int, default=5,
-    #                     help='Number of folds to process')
-    
-    args = parser.parse_args()
-
-    # device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
-    # Load config
-    config = load_config(config_file=args.config)
-    # Optional override for video folder
-    if args.video_folder:
-        try:
-            old_vf = getattr(config, 'video_folder', None)
-        except Exception:
-            old_vf = None
-        setattr(config, 'video_folder', args.video_folder)
-        print(f"Overriding video_folder: {old_vf} -> {args.video_folder}")
-
-    # Load model
-    model = create_ablation_model(args.model_type, config)
-    print(f"Model initialized: {args.model_type}")
-    checkpoint = torch.load(args.model, weights_only=False, map_location='cpu')
-    if 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
-    else:
-        model.load_state_dict(checkpoint)
-    print("Successfully loaded model")
-    model.eval()
-
-    # Testing model
-
-    model_simple = SimpleModel()
-    model_simple.eval()
-    test = torch.ones((1, 10))
-    with torch.no_grad():
-        output = model_simple(test)
-    print(f"PyTorch test output: {output}")
-
-    # Ensure output directory exists
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    dummy_input_shape_simple = (1, 10)
-    dummy_input = torch.randn(*dummy_input_shape_simple)
-
-    # Convert to ONNX
-    onnx_path = os.path.join(args.output_dir, "model.onnx")
-    torch.onnx.export(
-        model_simple,
-        dummy_input,
-        onnx_path,
-        dynamo=True,
-        verbose=True)
-    
-    dummy_input_shape = (1, 24, 32, 3, 224, 224)
-    dummy_input = torch.randn(*dummy_input_shape)
-
-    model.eval()
-    with torch.no_grad():
-        output = model(construct_dummy_input())
-        print(output)
-
-    # Create ONNX-compatible wrapper
-    print("\n=== Wrapping model for ONNX export ===")
-    wrapped_model = ONNXModelWrapper(model)
-    wrapped_model.eval()
-    
-    # Prepare individual tensor inputs (no dictionaries)
-    dummy_batch = construct_dummy_input()
-    dummy_inputs = (
-        dummy_batch["site_videos"],
-        dummy_batch["site_images"],
-        dummy_batch["site_findings"],
-        dummy_batch["site_indices"],
-        dummy_batch["site_counts"],
-        dummy_batch["site_masks"],
-        dummy_batch["batch_padding_masks"],
-        dummy_batch["real_data_masks"],
-        dummy_batch["tb_labels"],
-        dummy_batch["pneumonia_labels"],
-        dummy_batch["covid_labels"]
+def construct_dummy_input(to_numpy=False, as_dict=False):
+    dummy_dict = construct_dummy_input_dict()
+    dummy_tuple = (
+        dummy_dict["site_videos"],
+        dummy_dict["site_images"],
+        dummy_dict["site_findings"],
+        dummy_dict["site_indices"],
+        dummy_dict["site_counts"],
+        dummy_dict["site_masks"],
+        dummy_dict["batch_padding_masks"],
+        dummy_dict["real_data_masks"],
+        dummy_dict["tb_labels"],
+        dummy_dict["pneumonia_labels"],
+        dummy_dict["covid_labels"]
     )
-    
-    # Verify wrapper works
-    with torch.no_grad():
-        wrapped_output = wrapped_model(*dummy_inputs)
-        print("Wrapped model output:", wrapped_output)
+    if as_dict and not to_numpy:
+        return dummy_dict
+    elif as_dict and to_numpy:
+        return {
+            "site_videos": dummy_dict["site_videos"].numpy(),
+            "site_images": dummy_dict["site_images"].numpy(),
+            "site_findings": dummy_dict["site_findings"].numpy(),
+            "site_indices": dummy_dict["site_indices"].numpy(),
+            "site_counts": dummy_dict["site_counts"].numpy(),
+            "site_masks": dummy_dict["site_masks"].numpy(),
+            "batch_padding_masks": dummy_dict["batch_padding_masks"].numpy(),
+            "real_data_masks": dummy_dict["real_data_masks"].numpy(),
+            "tb_labels": dummy_dict["tb_labels"].numpy(),
+            "pneumonia_labels": dummy_dict["pneumonia_labels"].numpy(),
+            "covid_labels": dummy_dict["covid_labels"].numpy()
+        }
+    else:
+        return dummy_tuple
 
-    # Convert to ONNX
-    onnx_path = os.path.join(args.output_dir, "model_full.onnx")
-    print(f"\n=== Exporting to ONNX: {onnx_path} ===")
-    
-    # Define dynamic axes for tensors that have variable dimensions
-    dynamic_axes = {
+def construct_dynamic_axes():
+    return {
         "site_videos": {0: "batch", 1: "num_sites"},
         "site_images": {0: "batch", 1: "num_sites"},
         "site_findings": {0: "batch", 1: "num_sites"},
@@ -402,49 +284,11 @@ def main():
         "covid_labels": {0: "batch"},
         "logits": {0: "batch"}  # Single output: [batch, num_tasks]
     }
-    
-    # Use traditional TorchScript-based export (dynamo doesn't support data-dependent control flow)
-    print("Using traditional TorchScript-based ONNX export...")
-    print("Note: Your model has data-dependent control flow which requires TorchScript tracing.\n")
-    
-    # Force legacy TorchScript-based exporter by setting dynamo=False explicitly
-    torch.onnx.export(
-        wrapped_model,
-        dummy_inputs,
-        onnx_path,
-        input_names=[
-            "site_videos",
-            "site_images", 
-            "site_findings",
-            "site_indices",
-            "site_counts",
-            "site_masks",
-            "batch_padding_masks",
-            "real_data_masks",
-            "tb_labels",
-            "pneumonia_labels",
-            "covid_labels"
-        ],
-        output_names=["logits"],  # Single concatenated output [batch, num_tasks]
-        dynamic_axes=dynamic_axes,
-        opset_version=18,  # Use opset 18 as suggested by the warning
-        do_constant_folding=True,
-        dynamo=False,  # Explicitly disable dynamo to use legacy TorchScript exporter
-        verbose=True
-    )
-    print(f"\n✓ ONNX export completed: {onnx_path}")
-    
-    # Test ONNX model
-    print(f"\n{'='*60}")
-    print("Testing ONNX Model")
-    print(f"{'='*60}\n")
-    
-    try:
-        import onnxruntime as ort
-        
-        # Load ONNX model
-        print(f"Loading ONNX model from: {onnx_path}")
-        ort_session = ort.InferenceSession(onnx_path)
+
+def run_inference_onnx(output_path):
+    # Load ONNX model
+        print(f"Loading ONNX model from: {output_path}")
+        ort_session = ort.InferenceSession(output_path)
         
         # Print model info
         print(f"\nONNX Model Info:")
@@ -455,91 +299,323 @@ def main():
         for output_meta in ort_session.get_outputs():
             print(f"    - {output_meta.name}: {output_meta.shape} ({output_meta.type})")
         
-        # Prepare ONNX inputs - only include inputs the model actually expects
-        # Get the list of expected input names from the ONNX model
+        # Prepare ONNX inputs - dynamically based on what the model expects
         expected_inputs = {inp.name for inp in ort_session.get_inputs()}
         
-        # Map of all possible inputs
-        all_inputs = {
-            "site_videos": dummy_batch["site_videos"].numpy(),
-            "site_images": dummy_batch["site_images"].numpy(),
-            "site_findings": dummy_batch["site_findings"].numpy(),
-            "site_indices": dummy_batch["site_indices"].numpy(),
-            "site_counts": dummy_batch["site_counts"].numpy(),
-            "site_masks": dummy_batch["site_masks"].numpy(),
-            "batch_padding_masks": dummy_batch["batch_padding_masks"].numpy(),
-            "real_data_masks": dummy_batch["real_data_masks"].numpy(),
-            "tb_labels": dummy_batch["tb_labels"].numpy(),
-            "pneumonia_labels": dummy_batch["pneumonia_labels"].numpy(),
-            "covid_labels": dummy_batch["covid_labels"].numpy()
-        }
+        # Create input dictionary based on expected inputs
+        onnx_inputs = {}
+        all_inputs = construct_dummy_input(to_numpy=True, as_dict=True)
         
-        # Only use inputs that the ONNX model expects
-        onnx_inputs = {name: all_inputs[name] for name in expected_inputs if name in all_inputs}
+        for input_name in expected_inputs:
+            if input_name in all_inputs:
+                # Use the prepared dummy inputs for the full model
+                onnx_inputs[input_name] = all_inputs[input_name]
+            elif input_name == 'x':
+                # Simple model input: fixed shape (1, 10)
+                np.random.seed(0)
+                onnx_inputs[input_name] = np.random.randn(1, 10).astype(np.float32)
+            else:
+                raise ValueError(f"Unknown input '{input_name}' - please add handling for this input")
         
         print(f"\nUsing {len(onnx_inputs)} inputs: {list(onnx_inputs.keys())}")
         
         # Run ONNX inference
         print("Running ONNX inference...")
         onnx_outputs = ort_session.run(None, onnx_inputs)
-        onnx_logits = onnx_outputs[0]  # [batch, num_tasks]
-        
-        print(f"ONNX output shape: {onnx_logits.shape}")
-        print(f"ONNX logits:\n{onnx_logits}")
-        
-        # Compare with wrapped PyTorch output
-        pytorch_logits = wrapped_output.numpy()
-        
-        print(f"\nPyTorch output shape: {pytorch_logits.shape}")
-        print(f"PyTorch logits:\n{pytorch_logits}")
-        
-        # Compute differences
-        diff = np.abs(onnx_logits - pytorch_logits)
-        max_diff = np.max(diff)
-        mean_diff = np.mean(diff)
-        
+        onnx_logits = onnx_outputs[0]
+
+        return onnx_logits
+
+def compare_logits(onnx_logits, pytorch_logits):
+    print(f"ONNX output shape: {onnx_logits.shape}")
+    print(f"ONNX logits:\n{onnx_logits}")
+    
+    # Compare with wrapped PyTorch output
+    pytorch_logits = pytorch_logits.numpy()
+    
+    print(f"\nPyTorch output shape: {pytorch_logits.shape}")
+    print(f"PyTorch logits:\n{pytorch_logits}")
+    
+    # Compute differences
+    diff = np.abs(onnx_logits - pytorch_logits)
+    max_diff = np.max(diff)
+    mean_diff = np.mean(diff)
+    
+    print(f"\n{'='*60}")
+    print("Comparison Results")
+    print(f"{'='*60}\n")
+    print(f"Maximum absolute difference: {max_diff:.6f}")
+    print(f"Mean absolute difference: {mean_diff:.6f}")
+    
+    # Check if outputs match
+    tolerance = 1e-5
+    if np.allclose(onnx_logits, pytorch_logits, atol=tolerance):
+        print(f"\nPASSED: Outputs match within tolerance ({tolerance})")
+    else:
+        print(f"\nWARNING: Outputs differ by more than tolerance ({tolerance})")
+        print(f"Difference matrix:\n{diff}")
+    
+    # Show probabilities
+    print(f"\n{'='*60}")
+    print("Probability Predictions")
+    print(f"{'='*60}\n")
+    
+    onnx_probs = 1 / (1 + np.exp(-onnx_logits))
+    pytorch_probs = 1 / (1 + np.exp(-pytorch_logits))
+    
+    task_names = ['TB', 'Pneumonia', 'COVID']
+    print("ONNX Probabilities:")
+    for i, task in enumerate(task_names):
+        if i < onnx_probs.shape[1]:
+            print(f"  {task}: {onnx_probs[0, i]:.4f}")
+    
+    print("\nPyTorch Probabilities:")
+    for i, task in enumerate(task_names):
+        if i < pytorch_probs.shape[1]:
+            print(f"  {task}: {pytorch_probs[0, i]:.4f}")
+
+def main():
+    # ----------------------------------
+    # Argument parsing
+    # ----------------------------------
+    parser = argparse.ArgumentParser(description='Convert model formats.')
+    
+    # Single fold processing
+    parser.add_argument('--model-type', type=str, default='attention_pool')
+    parser.add_argument('--video_folder', type=str, help='Name of the video folder within the data directory', default="C:\\Users\\mattb\\Documents\\ULTR-AI-Checkpoints")
+    parser.add_argument('--config', type=str, help='Path to config file', default="configs/attention_pool_extra3_full_train2/fold0.yaml")
+    parser.add_argument('--model', type=str, help='Path to model checkpoint', default="C:\\Users\\mattb\\Documents\\ULTR-AI-Checkpoints\\fold0\\checkpoint_best.pth")
+    parser.add_argument('--output-dir', type=str, default='JS_models', help='Output directory')
+    parser.add_argument('--fold', type=int, default=0, help='Fold number')
+    
+    args = parser.parse_args()
+
+    # Update paths with fold number
+    args.config = args.config.replace("fold0", f"fold{args.fold}")
+    args.model = args.model.replace("fold0", f"fold{args.fold}")
+    args.output_dir = os.path.join(args.output_dir, f"fold{args.fold}")
+
+    # Ensure output directory exists
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    # Load config
+    config = load_config(config_file=args.config)
+    # Optional override for video folder
+    if args.video_folder:
+        try:
+            old_vf = getattr(config, 'video_folder', None)
+        except Exception:
+            old_vf = None
+        setattr(config, 'video_folder', args.video_folder)
+        print(f"Overriding video_folder: {old_vf} -> {args.video_folder}")
+
+    
+    # ----------------------------------
+    # Model Conversion
+    # ----------------------------------
+
+    # Testing model
+    if TEST_SIMPLE_MODEL:
+        file_name = "model_simple.onnx"
+        output_path_simple = os.path.join(args.output_dir, file_name)
+        model_simple = load_model(args, config, simple=True)
+
+        # Verify wrapper works
+        with torch.no_grad():
+            np.random.seed(0)
+            x = torch.tensor(np.random.randn(1, 10).astype(np.float32))
+            simple_output = model_simple(x)
+            print("Wrapped model output:", simple_output)
+        convert_to_onnx(model_simple, output_path_simple, simple=True)
+
+        # Test ONNX model
         print(f"\n{'='*60}")
-        print("Comparison Results")
+        print("Testing Simple ONNX Model")
         print(f"{'='*60}\n")
-        print(f"Maximum absolute difference: {max_diff:.6f}")
-        print(f"Mean absolute difference: {mean_diff:.6f}")
+
+        onnx_logits = run_inference_onnx(output_path_simple)
+        compare_logits(onnx_logits, simple_output)
+
+    # Real model
+    model = load_model(args, config, simple=False)
+    for key, value in model(construct_dummy_input_dict()).items():
+        if key == "site_metadata":
+            print(f"{key}: (list of {len(value)} {type(value[0])}s, there are {len(value[0])} of them)")
+            print(value[0][0].keys())
+
+            
+
+
+    raise NotImplemented("ONNX export for full model is currently disabled for safety - please enable when ready")
+    wrapped_model = ONNXModelWrapper(model)
+    wrapped_model.eval()
+
+    # Prepare individual tensor inputs (no dictionaries)
+    dummy_inputs = construct_dummy_input(to_numpy=False, as_dict=False)
+    
+    # Verify wrapper works
+    with torch.no_grad():
+        wrapped_output = wrapped_model(*dummy_inputs)
+        print("Wrapped model output:", wrapped_output)
+
+    # Use traditional TorchScript-based export (dynamo doesn't support data-dependent control flow)
+    print("Using traditional TorchScript-based ONNX export...")
+
+    file_name = "model_full.onnx"
+    output_path = os.path.join(args.output_dir, file_name)
+    
+    convert_to_onnx(wrapped_model, output_path, simple=False)
+
+    
+    # Test ONNX model
+    print(f"\n{'='*60}")
+    print("Testing ONNX Model")
+    print(f"{'='*60}\n")
+
+    onnx_logits = run_inference_onnx(output_path)
+    compare_logits(onnx_logits, wrapped_output)
+
+
+    # Load model
+    
+    # dummy_input_shape_simple = (1, 10)
+    # dummy_input = torch.randn(*dummy_input_shape_simple)
+
+    # # Convert to ONNX
+    # onnx_path = os.path.join(args.output_dir, "model.onnx")
+    # torch.onnx.export(
+    #     model_simple,
+    #     dummy_input,
+    #     onnx_path,
+    #     dynamo=True,
+    #     verbose=True)
+    
+    # dummy_input_shape = (1, 24, 32, 3, 224, 224)
+    # dummy_input = torch.randn(*dummy_input_shape)
+
+    # model.eval()
+    # with torch.no_grad():
+    #     output = model(construct_dummy_input())
+    #     print(output)
+
+
+    # # Convert to ONNX
+    # onnx_path = os.path.join(args.output_dir, "model_full.onnx")
+    # print(f"\n=== Exporting to ONNX: {onnx_path} ===")
+    
+    # Define dynamic axes for tensors that have variable dimensions
+    # dynamic_axes = {
+    #     "site_videos": {0: "batch", 1: "num_sites"},
+    #     "site_images": {0: "batch", 1: "num_sites"},
+    #     "site_findings": {0: "batch", 1: "num_sites"},
+    #     "site_indices": {0: "batch", 1: "num_sites"},
+    #     "site_counts": {0: "batch"},
+    #     "site_masks": {0: "batch", 1: "num_sites"},
+    #     "batch_padding_masks": {0: "batch", 1: "num_sites"},
+    #     "real_data_masks": {0: "batch", 1: "num_sites"},
+    #     "tb_labels": {0: "batch"},
+    #     "pneumonia_labels": {0: "batch"},
+    #     "covid_labels": {0: "batch"},
+    #     "logits": {0: "batch"}  # Single output: [batch, num_tasks]
+    # }
         
-        # Check if outputs match
-        tolerance = 1e-5
-        if np.allclose(onnx_logits, pytorch_logits, atol=tolerance):
-            print(f"\n✓ PASSED: Outputs match within tolerance ({tolerance})")
-        else:
-            print(f"\n⚠ WARNING: Outputs differ by more than tolerance ({tolerance})")
-            print(f"Difference matrix:\n{diff}")
+    # # Load ONNX model
+    # print(f"Loading ONNX model from: {output_path}")
+    # ort_session = ort.InferenceSession(output_path)
+    
+    # # Print model info
+    # print(f"\nONNX Model Info:")
+    # print(f"  Inputs:")
+    # for input_meta in ort_session.get_inputs():
+    #     print(f"    - {input_meta.name}: {input_meta.shape} ({input_meta.type})")
+    # print(f"  Outputs:")
+    # for output_meta in ort_session.get_outputs():
+    #     print(f"    - {output_meta.name}: {output_meta.shape} ({output_meta.type})")
+    
+    # # Prepare ONNX inputs - dynamically based on what the model expects
+    # expected_inputs = {inp.name for inp in ort_session.get_inputs()}
+    
+    # # Create input dictionary based on expected inputs
+    # onnx_inputs = {}
+    # all_inputs = construct_dummy_input(to_numpy=True, as_dict=True)
+    
+    # for input_name in expected_inputs:
+    #     if input_name in all_inputs:
+    #         # Use the prepared dummy inputs for the full model
+    #         onnx_inputs[input_name] = all_inputs[input_name]
+    #     else:
+    #         # Handle other inputs (e.g., 'x' for simple model)
+    #         # Infer shape from ONNX model metadata
+    #         input_meta = next(inp for inp in ort_session.get_inputs() if inp.name == input_name)
+    #         shape = [dim if isinstance(dim, int) else 1 for dim in input_meta.shape]
+    #         onnx_inputs[input_name] = np.random.randn(*shape).astype(np.float32)
+    
+    # print(f"\nUsing {len(onnx_inputs)} inputs: {list(onnx_inputs.keys())}")
+    
+    # # Run ONNX inference
+    # print("Running ONNX inference...")
+    # onnx_outputs = ort_session.run(None, onnx_inputs)
+    # onnx_logits = onnx_outputs[0]
+
+    # Compare outputs
+    
+    
+    # print(f"ONNX output shape: {onnx_logits.shape}")
+    # print(f"ONNX logits:\n{onnx_logits}")
+    
+    # # Compare with wrapped PyTorch output
+    # pytorch_logits = wrapped_output.numpy()
+    
+    # print(f"\nPyTorch output shape: {pytorch_logits.shape}")
+    # print(f"PyTorch logits:\n{pytorch_logits}")
+    
+    # # Compute differences
+    # diff = np.abs(onnx_logits - pytorch_logits)
+    # max_diff = np.max(diff)
+    # mean_diff = np.mean(diff)
+    
+    # print(f"\n{'='*60}")
+    # print("Comparison Results")
+    # print(f"{'='*60}\n")
+    # print(f"Maximum absolute difference: {max_diff:.6f}")
+    # print(f"Mean absolute difference: {mean_diff:.6f}")
+    
+    # # Check if outputs match
+    # tolerance = 1e-5
+    # if np.allclose(onnx_logits, pytorch_logits, atol=tolerance):
+    #     print(f"\n✓ PASSED: Outputs match within tolerance ({tolerance})")
+    # else:
+    #     print(f"\n⚠ WARNING: Outputs differ by more than tolerance ({tolerance})")
+    #     print(f"Difference matrix:\n{diff}")
+    
+    # # Show probabilities
+    # print(f"\n{'='*60}")
+    # print("Probability Predictions")
+    # print(f"{'='*60}\n")
+    
+    # onnx_probs = 1 / (1 + np.exp(-onnx_logits))
+    # pytorch_probs = 1 / (1 + np.exp(-pytorch_logits))
+    
+    # task_names = ['TB', 'Pneumonia', 'COVID']
+    # print("ONNX Probabilities:")
+    # for i, task in enumerate(task_names):
+    #     if i < onnx_probs.shape[1]:
+    #         print(f"  {task}: {onnx_probs[0, i]:.4f}")
+    
+    # print("\nPyTorch Probabilities:")
+    # for i, task in enumerate(task_names):
+    #     if i < pytorch_probs.shape[1]:
+    #         print(f"  {task}: {pytorch_probs[0, i]:.4f}")
+    
+    # print(f"\n{'='*60}\n")
         
-        # Show probabilities
-        print(f"\n{'='*60}")
-        print("Probability Predictions")
-        print(f"{'='*60}\n")
-        
-        onnx_probs = 1 / (1 + np.exp(-onnx_logits))
-        pytorch_probs = 1 / (1 + np.exp(-pytorch_logits))
-        
-        task_names = ['TB', 'Pneumonia', 'COVID']
-        print("ONNX Probabilities:")
-        for i, task in enumerate(task_names):
-            if i < onnx_probs.shape[1]:
-                print(f"  {task}: {onnx_probs[0, i]:.4f}")
-        
-        print("\nPyTorch Probabilities:")
-        for i, task in enumerate(task_names):
-            if i < pytorch_probs.shape[1]:
-                print(f"  {task}: {pytorch_probs[0, i]:.4f}")
-        
-        print(f"\n{'='*60}\n")
-        
-    except ImportError:
-        print("\n⚠ WARNING: onnxruntime not installed. Skipping ONNX validation.")
-        print("Install with: pip install onnxruntime")
-    except Exception as e:
-        print(f"\n✗ ERROR during ONNX validation: {e}")
-        import traceback
-        traceback.print_exc()
+    # except ImportError:
+    #     print("\n⚠ WARNING: onnxruntime not installed. Skipping ONNX validation.")
+    #     print("Install with: pip install onnxruntime")
+    # except Exception as e:
+    #     print(f"\n✗ ERROR during ONNX validation: {e}")
+    #     import traceback
+    #     traceback.print_exc()
     
     # Setup data
     # data_module = LungUltrasoundDataModule(
