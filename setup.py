@@ -1,9 +1,9 @@
 from setuptools import setup, find_packages
 
 # Read from requirements.txt
-with open('requirements.txt') as f:
-    required = f.read().splitlines()
-    install_requires = required
+# with open('requirements.txt') as f:
+#     required = f.read().splitlines()
+#     install_requires = required
 
 setup(
     name='ULTR-AI',
@@ -15,5 +15,5 @@ setup(
     long_description_content_type='text/markdown',
     url='',
     packages=find_packages(),
-    install_requires=install_requires,
+    # install_requires=install_requires,
 )
