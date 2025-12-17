@@ -130,7 +130,7 @@ class MultiTaskModelTF(tf.keras.Model):
             # Simple site integration without pathology
             self.site_integration_simple = tf.keras.Sequential([
                 tf.keras.layers.Dense(self.hidden_dim),
-                tf.keras.layers.LayerNormalization(),
+                tf.keras.layers.LayerNormalization(epsilon=1e-05),
                 tf.keras.layers.Activation('gelu'),
                 tf.keras.layers.Dropout(self.dropout_rate)
             ], name='site_integration_simple')
@@ -149,7 +149,7 @@ class MultiTaskModelTF(tf.keras.Model):
             task_key = task_name.replace(' ', '_').replace('Label', 'label')
             self.task_classifiers[task_key] = tf.keras.Sequential([
                 tf.keras.layers.Dense(self.hidden_dim // 2),
-                tf.keras.layers.LayerNormalization(),
+                tf.keras.layers.LayerNormalization(epsilon=1e-05),
                 tf.keras.layers.Activation('gelu'),
                 tf.keras.layers.Dropout(self.dropout_rate),
                 tf.keras.layers.Dense(self.num_classes)
@@ -158,7 +158,7 @@ class MultiTaskModelTF(tf.keras.Model):
         # Keep the original TB classifier for backward compatibility
         self.tb_classifier = tf.keras.Sequential([
             tf.keras.layers.Dense(self.hidden_dim // 2),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('gelu'),
             tf.keras.layers.Dropout(self.dropout_rate),
             tf.keras.layers.Dense(self.num_classes)

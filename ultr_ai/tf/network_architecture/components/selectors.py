@@ -16,7 +16,7 @@ class AttentionPoolSelectorTF(tf.keras.Model):
         
         self.feature_encoder = tf.keras.Sequential([
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('gelu'),
             tf.keras.layers.Dropout(0.1)
         ], name='feature_encoder')
@@ -35,7 +35,7 @@ class AttentionPoolSelectorTF(tf.keras.Model):
         
         self.output_projection = tf.keras.Sequential([
             tf.keras.layers.Dense(output_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('tanh')
         ], name='output_projection')
         

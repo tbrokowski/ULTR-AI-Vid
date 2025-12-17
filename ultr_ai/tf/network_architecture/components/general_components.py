@@ -96,11 +96,11 @@ class FrameSelectionAgentTF(tf.keras.Model):
         # Feature encoder - extracts multiscale features from raw CLIP features
         self.feature_encoder = tf.keras.Sequential([
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('tanh'),
             tf.keras.layers.Dropout(0.1),
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('tanh')
         ], name='feature_encoder')
         
@@ -132,14 +132,14 @@ class FrameSelectionAgentTF(tf.keras.Model):
             # Combine history with current features
             self.history_projection = tf.keras.Sequential([
                 tf.keras.layers.Dense(hidden_dim),
-                tf.keras.layers.LayerNormalization(),
+                tf.keras.layers.LayerNormalization(epsilon=1e-05),
                 tf.keras.layers.Activation('gelu')
             ], name='history_projection')
         
         # Policy network (produces action logits)
         self.policy_net = tf.keras.Sequential([
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('tanh'),
             tf.keras.layers.Dropout(0.1),
             tf.keras.layers.Dense(1)
@@ -148,7 +148,7 @@ class FrameSelectionAgentTF(tf.keras.Model):
         # Value network (estimates state value)
         self.value_net = tf.keras.Sequential([
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('tanh'),
             tf.keras.layers.Dropout(0.1),
             tf.keras.layers.Dense(1)
@@ -157,7 +157,7 @@ class FrameSelectionAgentTF(tf.keras.Model):
         # Output feature projection for downstream tasks
         self.output_projection = tf.keras.Sequential([
             tf.keras.layers.Dense(output_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('tanh')
         ], name='output_projection')
         
@@ -482,7 +482,7 @@ class PathologyModuleTF(tf.keras.Model):
         # Feature refinement
         self.feature_refine = tf.keras.Sequential([
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('tanh'),
             tf.keras.layers.Dropout(dropout)
         ], name='feature_refine')
@@ -553,11 +553,11 @@ class SiteIntegrationModuleTF(tf.keras.Model):
         # Feature integration
         self.integration = tf.keras.Sequential([
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('gelu'),
             tf.keras.layers.Dropout(dropout),
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('gelu')
         ], name='integration')
         
@@ -613,11 +613,11 @@ class DeepAttentionMILTF(tf.keras.Model):
         # Feature transformation
         self.transform = tf.keras.Sequential([
             tf.keras.layers.Dense(hidden_dim),
-            tf.keras.layers.LayerNormalization(),
+            tf.keras.layers.LayerNormalization(epsilon=1e-05),
             tf.keras.layers.Activation('gelu'),
             tf.keras.layers.Dropout(dropout),
             tf.keras.layers.Dense(feature_dim),
-            tf.keras.layers.LayerNormalization()
+            tf.keras.layers.LayerNormalization(epsilon=1e-05)
         ], name='transform')
         
         # Second attention layer (bag-level)
