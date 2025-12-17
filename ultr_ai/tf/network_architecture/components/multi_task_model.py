@@ -167,61 +167,82 @@ class MultiTaskModelTF(tf.keras.Model):
     def _init_vision_backbone(self):
         """
         Initialize a vision backbone.
-        
-        NOTE: This is a PLACEHOLDER implementation. The original PyTorch version uses:
-        - CLIP from HuggingFace (CLIPVisionModel)
-        - timm models for mobile backbones
-        
-        For TensorFlow, you have several options:
-        
-        1. HuggingFace TensorFlow CLIP:
-           from transformers import TFCLIPVisionModel
-           self.vision_encoder = TFCLIPVisionModel.from_pretrained(self.backbone_model_name)
-           
-        2. TensorFlow Hub models:
-           self.vision_encoder = hub.KerasLayer("https://tfhub.dev/...")
-           
-        3. tf.keras.applications:
-           self.vision_encoder = tf.keras.applications.EfficientNetB0(include_top=False, pooling='avg')
-        
-        For now, this creates a simple CNN that you should replace with your preferred backbone.
+        Supported:
+          - 'clip' (uses HuggingFace CLIPVisionModel with pooler_output)
+          - Any timm model name (e.g., 'mobilenetv3_large_100', 'efficientnet_lite0', 'ghostnetv2', 'levit_256', 'deit_tiny_distilled_patch16_224')
+        Sets:
+          - self.vision_encoder: callable/module that returns a tensor [B*T, D] or feature map
+          - self.vision_dim: output feature dimension D
+          - self._vision_kind: 'clip', 'timm_features', or 'timm_pooled'
+          - self.vision_pool / self.vision_proj if needed (for timm)
         """
-        logger.warning("Using placeholder vision backbone. Replace with actual CLIP or other model.")
-        
-        # Placeholder: Simple feature extractor
-        # Replace this with your actual vision backbone
+        # Default outputs
+        self._vision_kind = 'clip'
+        # Use CLIP only when backbone explicitly requests 'clip'
         if str(self.backbone).lower() == 'clip':
-            # Try to use HuggingFace TF CLIP if available
-            try:
-                from transformers import TFCLIPVisionModel
-                self.vision_encoder = TFCLIPVisionModel.from_pretrained(self.backbone_model_name)
-                self.vision_dim = self.vision_encoder.config.hidden_size  # Usually 768 for ViT-B/32
-                self._vision_kind = 'clip_tf'
-                logger.info(f"Loaded TFCLIPVisionModel with dim={self.vision_dim}")
-                return
-            except Exception as e:
-                logger.warning(f"Could not load TFCLIPVisionModel: {e}")
-                logger.warning("Falling back to placeholder backbone")
-        
-        # Fallback: Simple CNN backbone (placeholder)
-        self.vision_dim = 768  # Match CLIP ViT-B/32 dimension
-        self._vision_kind = 'placeholder'
-        
-        self.vision_encoder = tf.keras.Sequential([
-            tf.keras.layers.Conv2D(64, 3, strides=2, padding='same', activation='relu'),
-            tf.keras.layers.Conv2D(128, 3, strides=2, padding='same', activation='relu'),
-            tf.keras.layers.Conv2D(256, 3, strides=2, padding='same', activation='relu'),
-            tf.keras.layers.Conv2D(512, 3, strides=2, padding='same', activation='relu'),
-            tf.keras.layers.GlobalAveragePooling2D(),
-            tf.keras.layers.Dense(self.vision_dim)
-        ], name='vision_encoder_placeholder')
-        
-        logger.info(f"Vision backbone: kind={self._vision_kind}, vision_dim={self.vision_dim}")
-                
+            from ultr_ai.convert.utils import load_clip_weights_from_safetensors_to_tf
+            from transformers import TFCLIPVisionModel
+
+            self.vision_encoder = TFCLIPVisionModel.from_pretrained(
+                "openai/clip-vit-base-patch32",
+                from_pt=True,
+                # dtype=tf.float32
+            )
+            # CLIP ViT-B/32 has 768-d pooler_output
+            self.vision_dim = getattr(self.vision_encoder.config, 'hidden_size', 768)
+            self._vision_kind = 'clip'
+            # Optional: local weights loading using the new mapping
+            local_weights_path = os.path.join(
+                'ultr_ai/network_architecture/CLIP_weights',
+                'model.safetensors'
+            )
+            # TEMPORARILY DISABLED: Skip local weights loading to debug shape issue
+            if os.path.exists(local_weights_path):
+                logger.info(f"Loading CLIP weights from {local_weights_path}")
+                try:
+                    matched, total, unmatched = load_clip_weights_from_safetensors_to_tf(
+                        local_weights_path, 
+                        self.vision_encoder, 
+                        num_layers=12
+                    )
+                    logger.info(f"Successfully matched {matched}/{total} CLIP weights")
+                    if unmatched:
+                        logger.info(f"Unmatched weights ({len(unmatched)}):")
+                        for msg in unmatched[:10]:  # Print first 10
+                            logger.info(f"  - {msg}")
+                        if len(unmatched) > 10:
+                            logger.info(f"  ... and {len(unmatched) - 10} more")
+                except Exception as e:
+                    logger.warning(f"Failed to load local CLIP weights: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                logger.info("No local CLIP weights file found, using default pretrained weights")
+
+        else:
+            raise NotImplementedError(f"Please implement vision {self.backbone} backbone initialization for TensorFlow/Keras.")
+                      
     def _freeze_backbone(self, freeze: bool = True):
-        """Freeze or unfreeze the vision backbone."""
-        if hasattr(self, 'vision_encoder'):
-            self.vision_encoder.trainable = not freeze
+        """
+        Freeze or unfreeze the vision backbone. If using CLIP and freeze=False,
+        we still keep most of CLIP frozen by default, except the last block or visual projection.
+        """
+        if self._vision_kind == 'clip':
+            # Start by freezing all
+            for p in self.vision_encoder.parameters():
+                p.requires_grad = not freeze
+            if not freeze:
+                # Unfreeze only the last block by default (safer for fine-tuning on device)
+                if hasattr(self.vision_encoder, 'visual_projection'):
+                    for p in self.vision_encoder.visual_projection.parameters():
+                        p.requires_grad = True
+                elif hasattr(self.vision_encoder, 'vision_model') and hasattr(self.vision_encoder.vision_model, 'encoder'):
+                    layers = self.vision_encoder.vision_model.encoder.layers
+                    if len(layers) > 0:
+                        for p in layers[-1].parameters():
+                            p.requires_grad = True
+        else:
+            raise NotImplementedError(f"Backbone {self._vision_kind} freezing not implemented for this vision kind.")
 
     def _extract_vision_features(self, frames, training=False):
         """
@@ -234,22 +255,35 @@ class MultiTaskModelTF(tf.keras.Model):
         shape = tf.shape(frames)
         batch_size, num_frames = shape[0], shape[1]
         
-        # Check if channels are last or first and adjust
-        # PyTorch uses NCHW, TensorFlow typically uses NHWC
-        if frames.shape[-1] != 3 and frames.shape[2] == 3:
-            # Channels are in position 2 (BTCHW), need to transpose to BTHWC
-            frames = tf.transpose(frames, [0, 1, 3, 4, 2])
+        # Determine input format
+        # Check static shape if available
+        static_shape = frames.shape.as_list()
         
-        # Reshape for batch processing: [B*T, H, W, C]
-        height, width, channels = frames.shape[2], frames.shape[3], frames.shape[4]
-        x = tf.reshape(frames, [-1, height, width, channels])
-
-        if self._vision_kind == 'clip_tf':
-            # HuggingFace TF CLIP expects pixel_values
+        # Detect if input is channels-first [B, T, C, H, W] or channels-last [B, T, H, W, C]
+        is_channels_first = (static_shape[2] == 3) or (static_shape[-1] != 3 and static_shape[2] is not None)
+        
+        if self._vision_kind == 'clip':
+            # HuggingFace TF CLIP expects NCHW format (channels first): [B, C, H, W]
+            if is_channels_first:
+                # Input is [B, T, C, H, W] - already channels first
+                # Reshape to [B*T, C, H, W]
+                x = tf.reshape(frames, [batch_size * num_frames, static_shape[2], static_shape[3], static_shape[4]])
+            else:
+                # Input is [B, T, H, W, C] - transpose to [B, T, C, H, W] first
+                frames = tf.transpose(frames, [0, 1, 4, 2, 3])
+                frame_shape = tf.shape(frames)
+                x = tf.reshape(frames, [batch_size * num_frames, frame_shape[2], frame_shape[3], frame_shape[4]])
+            
             outputs = self.vision_encoder(pixel_values=x, training=training)
             feats = outputs.pooler_output  # [B*T, D]
         else:
-            # Placeholder or other backbone
+            # Other backbones expect NHWC format (channels last)
+            if is_channels_first:
+                # Input is [B, T, C, H, W] - transpose to [B, T, H, W, C]
+                frames = tf.transpose(frames, [0, 1, 3, 4, 2])
+            # Reshape to [B*T, H, W, C]
+            frame_shape = tf.shape(frames)
+            x = tf.reshape(frames, [batch_size * num_frames, frame_shape[2], frame_shape[3], frame_shape[4]])
             feats = self.vision_encoder(x, training=training)  # [B*T, D]
 
         return tf.reshape(feats, [batch_size, num_frames, -1])
@@ -282,7 +316,7 @@ class MultiTaskModelTF(tf.keras.Model):
         
         # Select key frames using enhanced frame selector
         action_logits, state_values, enhanced_features = self.frame_selector(
-            clip_features, mask, batch_idx, site_pos, training=training
+            clip_features, mask=mask, batch_idxs=batch_idx, site_idxs=site_pos, training=training
         )
         
         # Sample actions (frame indices) - kept for RL compatibility but not used for selection

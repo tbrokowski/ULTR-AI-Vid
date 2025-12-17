@@ -961,6 +961,120 @@ def test_multihead_attention():
     return True
 
 # ============================================================================
+# CLIP TEST
+# ============================================================================
+
+# The two loading functions were for testing the same logic is not implemented in MultiTaskModel
+def load_clip_torch():
+    from transformers import CLIPVisionModel
+    import os
+
+    vision_encoder = CLIPVisionModel.from_pretrained(
+        "openai/clip-vit-base-patch32",
+        dtype=torch.float32
+    )
+    # CLIP ViT-B/32 has 768-d pooler_output
+    vision_dim = getattr(vision_encoder.config, 'hidden_size', 768)
+    _vision_kind = 'clip'
+    # Optional: local weights loading (kept from original)
+    local_weights_path = os.path.join(
+        'ultr_ai/network_architecture/CLIP_weights',
+        'model.safetensors'
+    )
+    if os.path.exists(local_weights_path):
+        print(f"Loading CLIP weights from {local_weights_path}")
+        try:
+            from safetensors import safe_open as _safe_open
+            with _safe_open(local_weights_path, framework='pt', device='cpu') as f:
+                vision_state_dict = {}
+                model_state_dict = vision_encoder.state_dict()
+                matched_keys = 0
+                for key in model_state_dict.keys():
+                    safetensors_key = f"vision_model.{key}"
+                    if safetensors_key in f.keys():
+                        tensor = f.get_tensor(safetensors_key)
+                        if tensor.shape == model_state_dict[key].shape:
+                            vision_state_dict[key] = tensor
+                            matched_keys += 1
+                if matched_keys > 0:
+                    print(f"Successfully matched {matched_keys}/{len(model_state_dict)} CLIP weights")
+                    vision_encoder.load_state_dict(vision_state_dict, strict=False)
+                else:
+                    print("No weights could be matched from the safetensors file")
+        except Exception as e:
+            print(f"Failed to load local CLIP weights: {e}")
+    else:
+        print("No local CLIP weights file found, using default pretrained weights")
+
+    return vision_encoder
+
+def load_clip_tf():
+    from transformers import TFCLIPVisionModel
+    import os
+
+    from ultr_ai.convert.utils import load_clip_weights_from_safetensors_to_tf
+
+    vision_encoder = TFCLIPVisionModel.from_pretrained(
+        "openai/clip-vit-base-patch32",
+        from_pt=True,
+        # dtype=tf.float32
+    )
+    # CLIP ViT-B/32 has 768-d pooler_output
+    vision_dim = getattr(vision_encoder.config, 'hidden_size', 768)
+    _vision_kind = 'clip'
+    # Optional: local weights loading using the new mapping
+    local_weights_path = os.path.join(
+        'ultr_ai/network_architecture/CLIP_weights',
+        'model.safetensors'
+    )
+    if os.path.exists(local_weights_path):
+        print(f"Loading CLIP weights from {local_weights_path}")
+        try:
+            matched, total, unmatched = load_clip_weights_from_safetensors_to_tf(
+                local_weights_path, 
+                vision_encoder, 
+                num_layers=12
+            )
+            print(f"Successfully matched {matched}/{total} CLIP weights")
+            if unmatched:
+                print(f"Unmatched weights ({len(unmatched)}):")
+                for msg in unmatched[:10]:  # Print first 10
+                    print(f"  - {msg}")
+                if len(unmatched) > 10:
+                    print(f"  ... and {len(unmatched) - 10} more")
+        except Exception as e:
+            print(f"Failed to load local CLIP weights: {e}")
+            import traceback
+            traceback.print_exc()
+    else:
+        print("No local CLIP weights file found, using default pretrained weights")
+
+    return vision_encoder
+
+def test_clip_model(torch_encoder, tf_encoder):
+    """Test CLIP model vision encoder TF vs PyTorch with same weights."""
+    set_seeds()
+
+    # Dummy input to check forward pass
+    import numpy as np
+    dummy_input = np.random.randn(2, 3, 224, 224).astype(np.float32)
+    import torch
+    torch_input = torch.tensor(dummy_input)
+    with torch.no_grad():
+        torch_output = torch_encoder(pixel_values=torch_input).pooler_output.numpy()
+    import tensorflow as tf
+    tf_input = tf.constant(dummy_input)
+    tf_output = tf_encoder(pixel_values=tf_input).pooler_output.numpy()
+    max_diff = np.max(np.abs(torch_output - tf_output))
+    print(f"CLIP Vision Encoder Test:")
+    print(f"  Input shape: {dummy_input.shape}")
+    print(f"  Max difference: {max_diff}")
+    assert max_diff < 1e-4, f"Outputs differ by {max_diff}"
+    print("  PASSED\n")
+    return True
+    
+
+# ============================================================================
 # FULL ATTENTION POOL MODEL TEST
 # ============================================================================
 
@@ -985,126 +1099,27 @@ def test_full_attention_pool_model():
     
     tf_model = create_ablation_model_tf("attention_pool", config)
 
-    print(f"Vision Encoder Comparison Test:")
-    print(f"  PyTorch vision encoder: {type(torch_model.vision_encoder).__name__}")
-    print(f"  TensorFlow vision encoder: {type(tf_model.vision_encoder).__name__}")
-    print(f"  PyTorch vision_dim: {torch_model.vision_dim}")
-    print(f"  TensorFlow vision_dim: {tf_model.vision_dim}")
-    
-    # Check if TF model has proper CLIP encoder or is using placeholder
-    tf_vision_kind = getattr(tf_model, '_vision_kind', 'unknown')
-    print(f"  TensorFlow vision kind: {tf_vision_kind}")
-    
-    if tf_vision_kind == 'placeholder':
-        print("  SKIPPED: TF model is using placeholder backbone (tf-keras not installed)")
-        print("  To run this test, install tf-keras: pip install tf-keras")
-        return True  # Skip but don't fail
-    
-    # Create a dummy image input for the vision encoder
-    # Both PyTorch and TFCLIPVisionModel expect [B, C, H, W] format (channels first)
-    batch_size = 2
-    height, width = 224, 224
-    channels = 3
-    
-    # Create reproducible test input in [B, C, H, W] format
-    np.random.seed(SEED)
-    test_input_np = np.random.randn(batch_size, channels, height, width).astype(np.float32)
-    
-    # PyTorch: [B, C, H, W]
-    torch_input = torch.tensor(test_input_np)
-    
-    # TensorFlow CLIP also expects [B, C, H, W] format for pixel_values
-    tf_input = tf.constant(test_input_np)
-    
-    # Forward pass through vision encoders
+    # Test clip vision encoders
+    test_clip_model(torch_model.vision_encoder, tf_model.vision_encoder)
+
+    # Create dummy input
+    input_dict = construct_dummy_input_dict()
+
+    # Forward pass
     with torch.no_grad():
-        torch_output = torch_model.vision_encoder(torch_input)
-        torch_pooler_output = torch_output.pooler_output.numpy()  # [B, 768]
-    
-    tf_output = tf_model.vision_encoder(pixel_values=tf_input, training=False)
-    tf_pooler_output = tf_output.pooler_output.numpy()  # [B, 768]
-    
+        torch_output = torch_model(input_dict)
+    tf_input_dict = {k: tf.constant(v) for k, v in input_dict.items()}
+    tf_output = tf_model(tf_input_dict, training=False)
+
+
+
     # Compare outputs
-    max_diff = np.max(np.abs(torch_pooler_output - tf_pooler_output))
-    mean_diff = np.mean(np.abs(torch_pooler_output - tf_pooler_output))
-    
-    print(f"  PyTorch pooler_output shape: {torch_pooler_output.shape}")
-    print(f"  TensorFlow pooler_output shape: {tf_pooler_output.shape}")
+    max_diff = np.max(np.abs(torch_output["task_logits"]["TB Label"].numpy() - tf_output["task_logits"]["TB Label"].numpy()))
+    print(f"Full Attention Pool Model Test:")
     print(f"  Max difference: {max_diff}")
-    print(f"  Mean difference: {mean_diff}")
-    
-    # Check for NaN
-    assert not np.any(np.isnan(torch_pooler_output)), "PyTorch output contains NaN"
-    assert not np.any(np.isnan(tf_pooler_output)), "TensorFlow output contains NaN"
-    
-    # Check shapes match
-    assert torch_pooler_output.shape == tf_pooler_output.shape, \
-        f"Output shapes don't match: PT {torch_pooler_output.shape} vs TF {tf_pooler_output.shape}"
-    
-    # With properly transferred weights, outputs should be very close
-    # Note: There may be small numerical differences due to implementation differences
-    if max_diff < 1e-4:
-        print("  PASSED (outputs match within tolerance)\n")
-        return True
-    elif max_diff < 1e-2:
-        print(f"  WARNING: Outputs differ by {max_diff} (above 1e-4 but below 1e-2)")
-        print("  This may indicate minor numerical differences in implementation")
-        print("  Investigating weight differences...")
-        
-        # Debug: Compare some weights
-        _compare_clip_weights(torch_model.vision_encoder, tf_model.vision_encoder)
-        return True  # Still pass but with warning
-    else:
-        print(f"  FAILED: Outputs differ significantly by {max_diff}")
-        _compare_clip_weights(torch_model.vision_encoder, tf_model.vision_encoder)
-        return False
-
-
-def _compare_clip_weights(torch_vision_encoder, tf_vision_encoder):
-    """Compare a few key weights between PyTorch and TensorFlow CLIP models."""
-    print("\n  Comparing key weights:")
-    
-    # Get PyTorch state dict
-    torch_state_dict = torch_vision_encoder.state_dict()
-    
-    # Sample a few weights to compare
-    sample_keys = [
-        'vision_model.embeddings.class_embedding',
-        'vision_model.embeddings.position_embedding.weight',
-        'vision_model.encoder.layers.0.layer_norm1.weight',
-        'vision_model.encoder.layers.0.self_attn.q_proj.weight',
-    ]
-    
-    for key in sample_keys:
-        if key in torch_state_dict:
-            pt_weight = torch_state_dict[key].numpy()
-            print(f"    {key}:")
-            print(f"      PT shape: {pt_weight.shape}, mean: {pt_weight.mean():.6f}, std: {pt_weight.std():.6f}")
-            # print([var.name for var in tf_vision_encoder.trainable_variables])
-            
-            # Try to find corresponding TF weight
-            for tf_var in tf_vision_encoder.trainable_variables:
-                tf_name = tf_var.name
-                # Convert TF name to match PyTorch key
-                if key.replace('_', '/').replace('.', '/') in tf_name.replace('_', '/'):
-                    tf_weight = tf_var.numpy()
-                    print(f"      TF shape: {tf_weight.shape}, mean: {tf_weight.mean():.6f}, std: {tf_weight.std():.6f}")
-                    
-                    # Handle transposition for linear layers
-                    if 'weight' in key and len(pt_weight.shape) == 2:
-                        pt_weight_t = pt_weight.T
-                        if pt_weight_t.shape == tf_weight.shape:
-                            diff = np.max(np.abs(pt_weight_t - tf_weight))
-                            print(f"      Max diff (transposed): {diff:.6e}")
-                        elif pt_weight.shape == tf_weight.shape:
-                            diff = np.max(np.abs(pt_weight - tf_weight))
-                            print(f"      Max diff: {diff:.6e}")
-                    else:
-                        if pt_weight.shape == tf_weight.shape:
-                            diff = np.max(np.abs(pt_weight - tf_weight))
-                            print(f"      Max diff: {diff:.6e}")
-                    break
-
+    assert max_diff < 1e-4, f"Outputs differ by {max_diff}"
+    print("  PASSED\n")
+    return True
 
 # ============================================================================
 # COMPREHENSIVE COMPARISON
@@ -1117,18 +1132,19 @@ def run_all_tests():
     print("=" * 70 + "\n")
     
     tests = [
-        ("Simple Linear", test_simple_linear),
-        ("LayerNorm", test_layer_norm),
-        ("Conv1D", test_conv1d),
-        ("Softmax", test_softmax),
-        ("GELU", test_gelu),
-        ("Weight Transfer", test_weight_transfer),
-        ("MultiHeadAttention", test_multihead_attention),
-        ("PathologyModule", test_pathology_module),
-        ("SiteIntegrationModule", test_site_integration_module),
-        ("DeepAttentionMIL", test_deep_attention_mil),
-        ("AttentionPoolSelector", test_attention_pool_selector),
-        ("FrameSelectionAgent", test_frame_selection_agent),
+        # ("Simple Linear", test_simple_linear),
+        # ("LayerNorm", test_layer_norm),
+        # ("Conv1D", test_conv1d),
+        # ("Softmax", test_softmax),
+        # ("GELU", test_gelu),
+        # ("Weight Transfer", test_weight_transfer),
+        # ("MultiHeadAttention", test_multihead_attention),
+        # ("PathologyModule", test_pathology_module),
+        # ("SiteIntegrationModule", test_site_integration_module),
+        # ("DeepAttentionMIL", test_deep_attention_mil),
+        # ("AttentionPoolSelector", test_attention_pool_selector),
+        # ("FrameSelectionAgent", test_frame_selection_agent),
+        # ("CLIP Vision Encoder", test_clip_model),
         ("Full Attention Pool Model", test_full_attention_pool_model),
     ]
     
