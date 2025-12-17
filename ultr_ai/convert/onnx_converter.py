@@ -66,7 +66,7 @@ sys.path.insert(0, NETWORK_PATH)
 
 from ultr_ai.config import load_config
 from ultr_ai.network_architecture import create_ablation_model
-from ultr_ai.dataset import LungUltrasoundDataModule
+from ultr_ai.convert.utils import compare_logits
 
 # Flags
 TEST_SIMPLE_MODEL = True
@@ -326,54 +326,6 @@ def run_inference_onnx(output_path):
 
         return onnx_logits
 
-def compare_logits(onnx_logits, pytorch_logits):
-    print(f"ONNX output shape: {onnx_logits.shape}")
-    print(f"ONNX logits:\n{onnx_logits}")
-    
-    # Compare with wrapped PyTorch output
-    pytorch_logits = pytorch_logits.numpy()
-    
-    print(f"\nPyTorch output shape: {pytorch_logits.shape}")
-    print(f"PyTorch logits:\n{pytorch_logits}")
-    
-    # Compute differences
-    diff = np.abs(onnx_logits - pytorch_logits)
-    max_diff = np.max(diff)
-    mean_diff = np.mean(diff)
-    
-    print(f"\n{'='*60}")
-    print("Comparison Results")
-    print(f"{'='*60}\n")
-    print(f"Maximum absolute difference: {max_diff:.6f}")
-    print(f"Mean absolute difference: {mean_diff:.6f}")
-    
-    # Check if outputs match
-    tolerance = 1e-5
-    if np.allclose(onnx_logits, pytorch_logits, atol=tolerance):
-        print(f"\nPASSED: Outputs match within tolerance ({tolerance})")
-    else:
-        print(f"\nWARNING: Outputs differ by more than tolerance ({tolerance})")
-        print(f"Difference matrix:\n{diff}")
-    
-    # Show probabilities
-    print(f"\n{'='*60}")
-    print("Probability Predictions")
-    print(f"{'='*60}\n")
-    
-    onnx_probs = 1 / (1 + np.exp(-onnx_logits))
-    pytorch_probs = 1 / (1 + np.exp(-pytorch_logits))
-    
-    task_names = ['TB', 'Pneumonia', 'COVID']
-    print("ONNX Probabilities:")
-    for i, task in enumerate(task_names):
-        if i < onnx_probs.shape[1]:
-            print(f"  {task}: {onnx_probs[0, i]:.4f}")
-    
-    print("\nPyTorch Probabilities:")
-    for i, task in enumerate(task_names):
-        if i < pytorch_probs.shape[1]:
-            print(f"  {task}: {pytorch_probs[0, i]:.4f}")
-
 def main():
     # ----------------------------------
     # Argument parsing
@@ -438,15 +390,11 @@ def main():
 
     # Real model
     model = load_model(args, config, simple=False)
-    for key, value in model(construct_dummy_input_dict()).items():
-        if key == "site_metadata":
-            print(f"{key}: (list of {len(value)} {type(value[0])}s, there are {len(value[0])} of them)")
-            print(value[0][0].keys())
+    # for key, value in model(construct_dummy_input_dict()).items():
+    #     if key == "site_metadata":
+    #         print(f"{key}: (list of {len(value)} {type(value[0])}s, there are {len(value[0])} of them)")
+    #         print(value[0][0].keys())
 
-            
-
-
-    raise NotImplemented("ONNX export for full model is currently disabled for safety - please enable when ready")
     wrapped_model = ONNXModelWrapper(model)
     wrapped_model.eval()
 
