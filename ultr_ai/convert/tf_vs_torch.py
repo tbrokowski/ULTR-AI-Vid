@@ -41,6 +41,8 @@ def set_seeds():
     torch.manual_seed(SEED)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(SEED)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     tf.random.set_seed(SEED)
 
 
@@ -663,6 +665,9 @@ def test_deep_attention_mil():
     transfer_linear_weights(torch_module.transform[4], tf_module.transform.layers[4])
     transfer_layernorm_weights(torch_module.transform[5], tf_module.transform.layers[5])
     
+    # Transfer attention1 MultiHeadAttention weights
+    transfer_mha_weights(torch_module.attention1, tf_module.attention1, feature_dim, num_heads)
+    
     # Transfer attention2 Sequential: Linear, Tanh, Linear
     transfer_linear_weights(torch_module.attention2[0], tf_module.attention2.layers[0])
     transfer_linear_weights(torch_module.attention2[2], tf_module.attention2.layers[2])
@@ -670,10 +675,6 @@ def test_deep_attention_mil():
     # Transfer gating Sequential: Linear, GELU, Linear, Sigmoid
     transfer_linear_weights(torch_module.gating[0], tf_module.gating.layers[0])
     transfer_linear_weights(torch_module.gating[2], tf_module.gating.layers[2])
-    
-    # Transfer MultiHeadAttention weights (complex - requires careful mapping)
-    # For now, we skip MHA weight transfer and test with random weights
-    # The test will verify shapes and that no NaN occurs
     
     # Forward pass
     with torch.no_grad():
@@ -698,8 +699,15 @@ def test_deep_attention_mil():
     assert not np.any(np.isnan(tf_aggregated.numpy()))
     assert not np.any(np.isnan(tf_attention.numpy()))
     
-    # Note: Due to MHA weight differences, we only check shapes and valid outputs
-    print("  PASSED (shapes valid, no NaN - MHA weights not transferred)\n")
+    # Compare outputs after full weight transfer
+    aggregated_diff = np.max(np.abs(torch_aggregated.numpy() - tf_aggregated.numpy()))
+    attention_diff = np.max(np.abs(torch_attention.numpy() - tf_attention.numpy()))
+    print(f"  Aggregated max diff: {aggregated_diff}")
+    print(f"  Attention max diff: {attention_diff}")
+    
+    assert aggregated_diff < 1e-4, f"Aggregated outputs differ by {aggregated_diff}"
+    assert attention_diff < 1e-4, f"Attention outputs differ by {attention_diff}"
+    print("  PASSED\n")
     return True
 
 
@@ -1075,11 +1083,200 @@ def test_clip_model(torch_encoder, tf_encoder):
     
 
 # ============================================================================
+# FULL MODEL WEIGHT TRANSFER
+# ============================================================================
+
+def transfer_attention_pool_selector_weights(torch_selector, tf_selector, hidden_dim=1024, num_heads=8):
+    """
+    Transfer weights from PyTorch AttentionPoolSelector to TensorFlow AttentionPoolSelectorTF.
+    
+    Components:
+    - feature_encoder: Sequential[Linear, LayerNorm, GELU, Dropout]
+    - attention: MultiheadAttention
+    - attention_scorer: Sequential[Linear, Tanh, Linear]
+    - output_projection: Sequential[Linear, LayerNorm, Tanh]
+    """
+    # feature_encoder: Linear(0), LayerNorm(1), GELU(2), Dropout(3)
+    transfer_linear_weights(torch_selector.feature_encoder[0], tf_selector.feature_encoder.layers[0])
+    transfer_layernorm_weights(torch_selector.feature_encoder[1], tf_selector.feature_encoder.layers[1])
+    
+    # attention: MultiheadAttention
+    transfer_mha_weights(torch_selector.attention, tf_selector.attention, hidden_dim, num_heads)
+    
+    # attention_scorer: Linear(0), Tanh(1), Linear(2)
+    transfer_linear_weights(torch_selector.attention_scorer[0], tf_selector.attention_scorer.layers[0])
+    transfer_linear_weights(torch_selector.attention_scorer[2], tf_selector.attention_scorer.layers[2])
+    
+    # output_projection: Linear(0), LayerNorm(1), Tanh(2)
+    transfer_linear_weights(torch_selector.output_projection[0], tf_selector.output_projection.layers[0])
+    transfer_layernorm_weights(torch_selector.output_projection[1], tf_selector.output_projection.layers[1])
+
+
+def transfer_pathology_module_weights(torch_module, tf_module):
+    """
+    Transfer weights from PyTorch PathologyModule to TensorFlow PathologyModuleTF.
+    
+    Components:
+    - feature_refine: Sequential[Linear, LayerNorm, Tanh, Dropout]
+    - frame_attention: Sequential[Linear, Tanh, Linear]
+    - classifier: Sequential[Linear, GELU, Dropout, Linear]
+    """
+    # feature_refine: Linear(0), LayerNorm(1), Tanh(2), Dropout(3)
+    transfer_linear_weights(torch_module.feature_refine[0], tf_module.feature_refine.layers[0])
+    transfer_layernorm_weights(torch_module.feature_refine[1], tf_module.feature_refine.layers[1])
+    
+    # frame_attention: Linear(0), Tanh(1), Linear(2)
+    transfer_linear_weights(torch_module.frame_attention[0], tf_module.frame_attention.layers[0])
+    transfer_linear_weights(torch_module.frame_attention[2], tf_module.frame_attention.layers[2])
+    
+    # classifier: Linear(0), GELU(1), Dropout(2), Linear(3)
+    transfer_linear_weights(torch_module.classifier[0], tf_module.classifier.layers[0])
+    transfer_linear_weights(torch_module.classifier[3], tf_module.classifier.layers[3])
+
+
+def transfer_site_integration_weights(torch_module, tf_module):
+    """
+    Transfer weights from PyTorch SiteIntegrationModule to TensorFlow SiteIntegrationModuleTF.
+    
+    Components:
+    - site_embedding: Embedding
+    - integration: Sequential[Linear, LayerNorm, GELU, Dropout, Linear, LayerNorm, GELU]
+    """
+    # site_embedding
+    transfer_embedding_weights(torch_module.site_embedding, tf_module.site_embedding)
+    
+    # integration: Linear(0), LayerNorm(1), GELU(2), Dropout(3), Linear(4), LayerNorm(5), GELU(6)
+    transfer_linear_weights(torch_module.integration[0], tf_module.integration.layers[0])
+    transfer_layernorm_weights(torch_module.integration[1], tf_module.integration.layers[1])
+    transfer_linear_weights(torch_module.integration[4], tf_module.integration.layers[4])
+    transfer_layernorm_weights(torch_module.integration[5], tf_module.integration.layers[5])
+
+
+def transfer_deep_attention_mil_weights(torch_module, tf_module, feature_dim=512, hidden_dim=256, num_heads=8):
+    """
+    Transfer weights from PyTorch DeepAttentionMIL to TensorFlow DeepAttentionMILTF.
+    
+    Components:
+    - attention1: MultiheadAttention (instance-level)
+    - transform: Sequential[Linear, LayerNorm, GELU, Dropout, Linear, LayerNorm]
+    - attention2: Sequential[Linear, Tanh, Linear]
+    - gating: Sequential[Linear, GELU, Linear, Sigmoid]
+    """
+    # attention1: MultiheadAttention
+    transfer_mha_weights(torch_module.attention1, tf_module.attention1, feature_dim, num_heads)
+    
+    # transform: Linear(0), LayerNorm(1), GELU(2), Dropout(3), Linear(4), LayerNorm(5)
+    transfer_linear_weights(torch_module.transform[0], tf_module.transform.layers[0])
+    transfer_layernorm_weights(torch_module.transform[1], tf_module.transform.layers[1])
+    transfer_linear_weights(torch_module.transform[4], tf_module.transform.layers[4])
+    transfer_layernorm_weights(torch_module.transform[5], tf_module.transform.layers[5])
+    
+    # attention2: Linear(0), Tanh(1), Linear(2)
+    transfer_linear_weights(torch_module.attention2[0], tf_module.attention2.layers[0])
+    transfer_linear_weights(torch_module.attention2[2], tf_module.attention2.layers[2])
+    
+    # gating: Linear(0), GELU(1), Linear(2), Sigmoid(3)
+    transfer_linear_weights(torch_module.gating[0], tf_module.gating.layers[0])
+    transfer_linear_weights(torch_module.gating[2], tf_module.gating.layers[2])
+
+
+def transfer_classifier_weights(torch_classifier, tf_classifier):
+    """
+    Transfer weights from PyTorch task classifier to TensorFlow task classifier.
+    
+    Structure: Sequential[Linear, LayerNorm, GELU, Dropout, Linear]
+    """
+    # Linear(0), LayerNorm(1), GELU(2), Dropout(3), Linear(4)
+    transfer_linear_weights(torch_classifier[0], tf_classifier.layers[0])
+    transfer_layernorm_weights(torch_classifier[1], tf_classifier.layers[1])
+    transfer_linear_weights(torch_classifier[4], tf_classifier.layers[4])
+
+
+def transfer_attention_pool_model_weights(torch_model, tf_model):
+    """
+    Transfer all weights from PyTorch AttentionPoolMultiTaskModel to TensorFlow AttentionPoolMultiTaskModelTF.
+    
+    This function transfers weights for all components of the model:
+    - vision_encoder (CLIP): Already loaded from pretrained, skip or use separate loading
+    - frame_selector (AttentionPoolSelector)
+    - pathology_modules (list of PathologyModule)
+    - site_integration (SiteIntegrationModule)
+    - patient_mil (DeepAttentionMIL)
+    - task_classifiers (dict of Sequential classifiers)
+    - tb_classifier (Sequential classifier)
+    
+    NOTE: Vision encoder weights are typically loaded separately from pretrained weights.
+    This function focuses on the learned components.
+    """
+    logger.info("Transferring AttentionPoolMultiTaskModel weights from PyTorch to TensorFlow...")
+    
+    # 1. Transfer frame_selector (AttentionPoolSelector) weights
+    logger.info("  Transferring frame_selector weights...")
+    hidden_dim = torch_model.frame_selector.hidden_dim
+    transfer_attention_pool_selector_weights(
+        torch_model.frame_selector, 
+        tf_model.frame_selector,
+        hidden_dim=hidden_dim,
+        num_heads=8
+    )
+    
+    # 2. Transfer pathology_modules weights
+    if torch_model.use_pathology_loss and torch_model.pathology_modules is not None:
+        logger.info("  Transferring pathology_modules weights...")
+        for i, (torch_pm, tf_pm) in enumerate(zip(torch_model.pathology_modules, tf_model.pathology_modules)):
+            transfer_pathology_module_weights(torch_pm, tf_pm)
+            logger.info(f"    Transferred pathology module {i}: {torch_pm.name}")
+    
+    # 3. Transfer site_integration weights
+    if torch_model.use_pathology_loss:
+        logger.info("  Transferring site_integration weights...")
+        transfer_site_integration_weights(torch_model.site_integration, tf_model.site_integration)
+    else:
+        # Simple site integration (Sequential)
+        logger.info("  Transferring site_integration_simple weights...")
+        transfer_linear_weights(torch_model.site_integration[0], tf_model.site_integration_simple.layers[0])
+        transfer_layernorm_weights(torch_model.site_integration[1], tf_model.site_integration_simple.layers[1])
+    
+    # 4. Transfer patient_mil (DeepAttentionMIL) weights
+    logger.info("  Transferring patient_mil weights...")
+    transfer_deep_attention_mil_weights(
+        torch_model.patient_mil, 
+        tf_model.patient_mil,
+        feature_dim=torch_model.hidden_dim,
+        hidden_dim=torch_model.hidden_dim // 2,
+        num_heads=8
+    )
+    
+    # 5. Transfer task_classifiers weights
+    logger.info("  Transferring task_classifiers weights...")
+    for task_name in torch_model.active_tasks:
+        task_key = task_name.replace(' ', '_').replace('Label', 'label')
+        if task_key in torch_model.task_classifiers and task_key in tf_model.task_classifiers:
+            # Build the TF classifier if not already built
+            tf_classifier = tf_model.task_classifiers[task_key]
+            if not tf_classifier.built:
+                dummy_input = tf.zeros((1, torch_model.hidden_dim))
+                _ = tf_classifier(dummy_input)
+            transfer_classifier_weights(torch_model.task_classifiers[task_key], tf_classifier)
+            logger.info(f"    Transferred classifier for task: {task_key}")
+    
+    # 6. Transfer tb_classifier weights
+    logger.info("  Transferring tb_classifier weights...")
+    # Build the TF tb_classifier if not already built
+    if not tf_model.tb_classifier.built:
+        dummy_input = tf.zeros((1, torch_model.hidden_dim))
+        _ = tf_model.tb_classifier(dummy_input)
+    transfer_classifier_weights(torch_model.tb_classifier, tf_model.tb_classifier)
+    
+    logger.info("Weight transfer complete!")
+
+
+# ============================================================================
 # FULL ATTENTION POOL MODEL TEST
 # ============================================================================
 
 def test_full_attention_pool_model():
-    """Test AttentionPool model vision encoder TF vs PyTorch with same weights."""
+    """Test AttentionPool model TF vs PyTorch with full weight transfer."""
     set_seeds()
 
     from ultr_ai.config import load_config
@@ -1099,24 +1296,34 @@ def test_full_attention_pool_model():
     
     tf_model = create_ablation_model_tf("attention_pool", config)
 
-    # Test clip vision encoders
-    test_clip_model(torch_model.vision_encoder, tf_model.vision_encoder)
+    # Test clip vision encoders first (they should already match from pretrained)
+    assert test_clip_model(torch_model.vision_encoder, tf_model.vision_encoder), "Clip vision encoder weights did not match"
 
     # Create dummy input
     input_dict = construct_dummy_input_dict()
+    
+    # Build TF model by doing an initial forward pass
+    tf_input_dict = {k: tf.constant(v) for k, v in input_dict.items()}
+    _ = tf_model(tf_input_dict, training=False)
+    
+    # Transfer all weights from PyTorch to TensorFlow
+    transfer_attention_pool_model_weights(torch_model, tf_model)
 
-    # Forward pass
+    # Forward pass with transferred weights
     with torch.no_grad():
         torch_output = torch_model(input_dict)
-    tf_input_dict = {k: tf.constant(v) for k, v in input_dict.items()}
     tf_output = tf_model(tf_input_dict, training=False)
 
-
-
     # Compare outputs
-    max_diff = np.max(np.abs(torch_output["task_logits"]["TB Label"].numpy() - tf_output["task_logits"]["TB Label"].numpy()))
-    print(f"Full Attention Pool Model Test:")
+    torch_tb_logits = torch_output["task_logits"]["TB Label"].numpy()
+    tf_tb_logits = tf_output["task_logits"]["TB Label"].numpy()
+    
+    max_diff = np.max(np.abs(torch_tb_logits - tf_tb_logits))
+    print(f"Full Attention Pool Model Test (with weight transfer):")
+    print(f"  PyTorch TB logits: {torch_tb_logits.flatten()}")
+    print(f"  TensorFlow TB logits: {tf_tb_logits.flatten()}")
     print(f"  Max difference: {max_diff}")
+    
     assert max_diff < 1e-4, f"Outputs differ by {max_diff}"
     print("  PASSED\n")
     return True
@@ -1132,19 +1339,18 @@ def run_all_tests():
     print("=" * 70 + "\n")
     
     tests = [
-        # ("Simple Linear", test_simple_linear),
-        # ("LayerNorm", test_layer_norm),
-        # ("Conv1D", test_conv1d),
-        # ("Softmax", test_softmax),
-        # ("GELU", test_gelu),
-        # ("Weight Transfer", test_weight_transfer),
-        # ("MultiHeadAttention", test_multihead_attention),
-        # ("PathologyModule", test_pathology_module),
-        # ("SiteIntegrationModule", test_site_integration_module),
-        # ("DeepAttentionMIL", test_deep_attention_mil),
-        # ("AttentionPoolSelector", test_attention_pool_selector),
-        # ("FrameSelectionAgent", test_frame_selection_agent),
-        # ("CLIP Vision Encoder", test_clip_model),
+        ("Simple Linear", test_simple_linear),
+        ("LayerNorm", test_layer_norm),
+        ("Conv1D", test_conv1d),
+        ("Softmax", test_softmax),
+        ("GELU", test_gelu),
+        ("Weight Transfer", test_weight_transfer),
+        ("MultiHeadAttention", test_multihead_attention),
+        ("PathologyModule", test_pathology_module),
+        ("SiteIntegrationModule", test_site_integration_module),
+        ("DeepAttentionMIL", test_deep_attention_mil),
+        ("AttentionPoolSelector", test_attention_pool_selector),
+        ("FrameSelectionAgent", test_frame_selection_agent),
         ("Full Attention Pool Model", test_full_attention_pool_model),
     ]
     

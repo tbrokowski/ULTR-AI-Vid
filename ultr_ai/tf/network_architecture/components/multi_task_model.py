@@ -164,6 +164,12 @@ class MultiTaskModelTF(tf.keras.Model):
             tf.keras.layers.Dense(self.num_classes)
         ], name='tb_classifier')
 
+    def build(self, input_shape):
+        """Build all sublayers. Called automatically on first call."""
+        # Build is handled by Keras when sublayers are called
+        # This method exists to satisfy Keras build requirements
+        super().build(input_shape)
+
     def _init_vision_backbone(self):
         """
         Initialize a vision backbone.
@@ -389,12 +395,15 @@ class MultiTaskModelTF(tf.keras.Model):
         Process videos from multiple anatomical sites for a patient.
         
         Args:
-            site_videos: Videos from different sites [B, N, T, H, W, C]
+            site_videos: Videos from different sites [B, N, T, C, H, W] (channels-first, same as PyTorch)
+                        or [B, N, T, H, W, C] (channels-last, TF native)
             site_indices: Anatomical site indices [B, N]
             site_masks: Site masks [B, N]
         """
-        batch_size = site_videos.shape[0]
-        max_sites = site_videos.shape[1]
+        # Use static shape for batch_size and max_sites to allow Python loops
+        static_shape = site_videos.shape.as_list()
+        batch_size = static_shape[0] if static_shape[0] is not None else tf.shape(site_videos)[0]
+        max_sites = static_shape[1] if static_shape[1] is not None else tf.shape(site_videos)[1]
         
         all_site_features = []
         all_pathology_scores = []
@@ -406,15 +415,18 @@ class MultiTaskModelTF(tf.keras.Model):
             site_pathology_scores = []
             site_metadata = []
             
-            # Process each valid site
-            valid_sites = int(tf.reduce_sum(tf.cast(site_masks[b], tf.int32)))
-            for n in range(valid_sites):
+            # Process each valid site - use max_sites and check validity inside loop
+            for n in range(max_sites):
+                # Check if this site is valid
+                is_valid = site_masks[b, n]
+                
                 # Get video and site index
                 video = tf.expand_dims(site_videos[b, n], 0)  # [1, T, H, W, C]
-                site_idx = int(site_indices[b, n])
+                site_idx = site_indices[b, n]  # Keep as tensor, don't convert to int
                 
                 # Create frame masks (all valid initially)
-                frame_mask = tf.ones((1, video.shape[1]), dtype=tf.bool)
+                num_frames = tf.shape(video)[1]
+                frame_mask = tf.ones((1, num_frames), dtype=tf.bool)
                 
                 # Process site
                 site_output = self.process_site(
@@ -423,10 +435,22 @@ class MultiTaskModelTF(tf.keras.Model):
                 
                 # Get selected features
                 selected_features = site_output['selected_features']  # [1, hidden_dim]
+                
+                # Zero out features for invalid sites
+                selected_features = tf.where(
+                    tf.cast(is_valid, tf.bool),
+                    selected_features,
+                    tf.zeros_like(selected_features)
+                )
                 site_features.append(selected_features)
                 
                 if self.use_pathology_loss and site_output['pathology_scores'] is not None:
-                    site_pathology_scores.append(site_output['pathology_scores'])
+                    pathology_scores = tf.where(
+                        tf.cast(is_valid, tf.bool),
+                        site_output['pathology_scores'],
+                        tf.zeros_like(site_output['pathology_scores'])
+                    )
+                    site_pathology_scores.append(pathology_scores)
                 
                 # Store site metadata
                 site_metadata.append({
@@ -437,28 +461,15 @@ class MultiTaskModelTF(tf.keras.Model):
                     'state_values': site_output['state_values']
                 })
             
-            # Stack outputs for this patient
+            # Stack outputs for this patient - all sites already processed with masking
             if site_features:
-                site_features_stacked = tf.concat(site_features, axis=0)  # [valid_sites, hidden_dim]
-                
-                # Create padded tensors
-                padding_size = max_sites - valid_sites
-                if padding_size > 0:
-                    padding = tf.zeros((padding_size, self.hidden_dim))
-                    padded_features = tf.concat([site_features_stacked, padding], axis=0)
-                else:
-                    padded_features = site_features_stacked
-                all_site_features.append(padded_features)
+                site_features_stacked = tf.concat(site_features, axis=0)  # [max_sites, hidden_dim]
+                all_site_features.append(site_features_stacked)
                 
                 if self.use_pathology_loss:
                     if site_pathology_scores:
                         site_pathology_stacked = tf.concat(site_pathology_scores, axis=0)
-                        if padding_size > 0:
-                            padding = tf.zeros((padding_size, self.num_pathologies))
-                            padded_scores = tf.concat([site_pathology_stacked, padding], axis=0)
-                        else:
-                            padded_scores = site_pathology_stacked
-                        all_pathology_scores.append(padded_scores)
+                        all_pathology_scores.append(site_pathology_stacked)
                     else:
                         all_pathology_scores.append(tf.zeros((max_sites, self.num_pathologies)))
                 
@@ -486,11 +497,21 @@ class MultiTaskModelTF(tf.keras.Model):
         
         Args:
             inputs: Dictionary containing:
-                - site_videos: Videos from different sites [B, N, T, H, W, C]
+                - patient_ids: List of patient IDs (optional, not used in forward pass)
+                - tb_labels: TB labels [B] (optional, used for loss computation)
+                - pneumonia_labels: Pneumonia labels [B] (optional, used for loss computation)
+                - covid_labels: COVID labels [B] (optional, used for loss computation)
                 - site_indices: Anatomical site indices [B, N]
+                - site_counts: Number of valid sites per patient [B] (optional)
+                - site_videos: Videos from different sites [B, N, T, C, H, W] (channels-first, same as PyTorch)
+                - site_images: Representative images [B, N, C, H, W] (optional)
+                - site_findings: Site findings [B, N, num_pathologies] (optional)
                 - site_masks: Site masks [B, N]
+                - batch_padding_masks: Batch padding masks [B, N] (optional)
+                - real_data_masks: Real data masks [B, N] (optional)
+                - _mask_type: Type of masking used (optional)
         """
-        # Extract inputs
+        # Extract required inputs
         site_videos = inputs['site_videos']
         site_indices = inputs['site_indices']
         site_masks = inputs['site_masks']

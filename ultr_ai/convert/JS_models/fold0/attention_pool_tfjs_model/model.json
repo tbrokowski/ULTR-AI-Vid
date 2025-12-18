@@ -1,0 +1,2641 @@
+{
+  "format": "weights_manifest",
+  "model_type": "attention_pool",
+  "weights_files": [
+    "weights.bin"
+  ],
+  "weights_spec": {
+    "tfclip_vision_model/clip/vision_model/embeddings/class_embedding:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 0,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/embeddings/position_embedding/embeddings:0": {
+      "shape": [
+        50,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 3072,
+      "size": 153600
+    },
+    "tfclip_vision_model/clip/vision_model/embeddings/patch_embedding/kernel:0": {
+      "shape": [
+        32,
+        32,
+        3,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 156672,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/pre_layrnorm/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 9593856,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/pre_layrnorm/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 9596928,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 9600000,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 11959296,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 11962368,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 14321664,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 14324736,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 16684032,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 16687104,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 19046400,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 19049472,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 19052544,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 19055616,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 28492800,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 28505088,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 37942272,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 37945344,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._0/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 37948416,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 37951488,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 40310784,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 40313856,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 42673152,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 42676224,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 45035520,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 45038592,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 47397888,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 47400960,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 47404032,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 47407104,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 56844288,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 56856576,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 66293760,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 66296832,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._1/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 66299904,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 66302976,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 68662272,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 68665344,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 71024640,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 71027712,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 73387008,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 73390080,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 75749376,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 75752448,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 75755520,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 75758592,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 85195776,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 85208064,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 94645248,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 94648320,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._2/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 94651392,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 94654464,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 97013760,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 97016832,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 99376128,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 99379200,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 101738496,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 101741568,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 104100864,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 104103936,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 104107008,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 104110080,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 113547264,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 113559552,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 122996736,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 122999808,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._3/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 123002880,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 123005952,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 125365248,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 125368320,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 127727616,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 127730688,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 130089984,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 130093056,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 132452352,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 132455424,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 132458496,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 132461568,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 141898752,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 141911040,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 151348224,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 151351296,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._4/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 151354368,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 151357440,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 153716736,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 153719808,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 156079104,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 156082176,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 158441472,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 158444544,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 160803840,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 160806912,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 160809984,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 160813056,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 170250240,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 170262528,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 179699712,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 179702784,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._5/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 179705856,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 179708928,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 182068224,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 182071296,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 184430592,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 184433664,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 186792960,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 186796032,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 189155328,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 189158400,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 189161472,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 189164544,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 198601728,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 198614016,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 208051200,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 208054272,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._6/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 208057344,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 208060416,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 210419712,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 210422784,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 212782080,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 212785152,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 215144448,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 215147520,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 217506816,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 217509888,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 217512960,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 217516032,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 226953216,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 226965504,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 236402688,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 236405760,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._7/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 236408832,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 236411904,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 238771200,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 238774272,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 241133568,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 241136640,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 243495936,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 243499008,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 245858304,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 245861376,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 245864448,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 245867520,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 255304704,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 255316992,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 264754176,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 264757248,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._8/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 264760320,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 264763392,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 267122688,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 267125760,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 269485056,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 269488128,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 271847424,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 271850496,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 274209792,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 274212864,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 274215936,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 274219008,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 283656192,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 283668480,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 293105664,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 293108736,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._9/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 293111808,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 293114880,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 295474176,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 295477248,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 297836544,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 297839616,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 300198912,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 300201984,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 302561280,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 302564352,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 302567424,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 302570496,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 312007680,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 312019968,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 321457152,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 321460224,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._10/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 321463296,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/self_attn/q_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 321466368,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/self_attn/q_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 323825664,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/self_attn/k_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 323828736,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/self_attn/k_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 326188032,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/self_attn/v_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 326191104,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/self_attn/v_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 328550400,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/self_attn/out_proj/kernel:0": {
+      "shape": [
+        768,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 328553472,
+      "size": 2359296
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/self_attn/out_proj/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 330912768,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/layer_norm1/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 330915840,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/layer_norm1/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 330918912,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/mlp/fc1/kernel:0": {
+      "shape": [
+        768,
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 330921984,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/mlp/fc1/bias:0": {
+      "shape": [
+        3072
+      ],
+      "dtype": "float32",
+      "offset": 340359168,
+      "size": 12288
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/mlp/fc2/kernel:0": {
+      "shape": [
+        3072,
+        768
+      ],
+      "dtype": "float32",
+      "offset": 340371456,
+      "size": 9437184
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/mlp/fc2/bias:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 349808640,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/layer_norm2/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 349811712,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/encoder/layers_._11/layer_norm2/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 349814784,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/post_layernorm/gamma:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 349817856,
+      "size": 3072
+    },
+    "tfclip_vision_model/clip/vision_model/post_layernorm/beta:0": {
+      "shape": [
+        768
+      ],
+      "dtype": "float32",
+      "offset": 349820928,
+      "size": 3072
+    },
+    "dense_8/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 349824000,
+      "size": 524288
+    },
+    "dense_8/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 350348288,
+      "size": 1024
+    },
+    "layer_normalization_6/gamma:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 350349312,
+      "size": 1024
+    },
+    "layer_normalization_6/beta:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 350350336,
+      "size": 1024
+    },
+    "dense_9/kernel:0": {
+      "shape": [
+        256,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 350351360,
+      "size": 131072
+    },
+    "dense_9/bias:0": {
+      "shape": [
+        128
+      ],
+      "dtype": "float32",
+      "offset": 350482432,
+      "size": 512
+    },
+    "dense_10/kernel:0": {
+      "shape": [
+        128,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 350482944,
+      "size": 512
+    },
+    "dense_10/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 350483456,
+      "size": 4
+    },
+    "dense_11/kernel:0": {
+      "shape": [
+        256,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 350483460,
+      "size": 262144
+    },
+    "dense_11/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 350745604,
+      "size": 1024
+    },
+    "dense_12/kernel:0": {
+      "shape": [
+        256,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 350746628,
+      "size": 1024
+    },
+    "dense_12/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 350747652,
+      "size": 4
+    },
+    "dense_13/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 350747656,
+      "size": 524288
+    },
+    "dense_13/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 351271944,
+      "size": 1024
+    },
+    "layer_normalization_7/gamma:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 351272968,
+      "size": 1024
+    },
+    "layer_normalization_7/beta:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 351273992,
+      "size": 1024
+    },
+    "dense_14/kernel:0": {
+      "shape": [
+        256,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 351275016,
+      "size": 131072
+    },
+    "dense_14/bias:0": {
+      "shape": [
+        128
+      ],
+      "dtype": "float32",
+      "offset": 351406088,
+      "size": 512
+    },
+    "dense_15/kernel:0": {
+      "shape": [
+        128,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 351406600,
+      "size": 512
+    },
+    "dense_15/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 351407112,
+      "size": 4
+    },
+    "dense_16/kernel:0": {
+      "shape": [
+        256,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 351407116,
+      "size": 262144
+    },
+    "dense_16/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 351669260,
+      "size": 1024
+    },
+    "dense_17/kernel:0": {
+      "shape": [
+        256,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 351670284,
+      "size": 1024
+    },
+    "dense_17/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 351671308,
+      "size": 4
+    },
+    "dense_18/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 351671312,
+      "size": 524288
+    },
+    "dense_18/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 352195600,
+      "size": 1024
+    },
+    "layer_normalization_8/gamma:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 352196624,
+      "size": 1024
+    },
+    "layer_normalization_8/beta:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 352197648,
+      "size": 1024
+    },
+    "dense_19/kernel:0": {
+      "shape": [
+        256,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 352198672,
+      "size": 131072
+    },
+    "dense_19/bias:0": {
+      "shape": [
+        128
+      ],
+      "dtype": "float32",
+      "offset": 352329744,
+      "size": 512
+    },
+    "dense_20/kernel:0": {
+      "shape": [
+        128,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 352330256,
+      "size": 512
+    },
+    "dense_20/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 352330768,
+      "size": 4
+    },
+    "dense_21/kernel:0": {
+      "shape": [
+        256,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 352330772,
+      "size": 262144
+    },
+    "dense_21/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 352592916,
+      "size": 1024
+    },
+    "dense_22/kernel:0": {
+      "shape": [
+        256,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 352593940,
+      "size": 1024
+    },
+    "dense_22/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 352594964,
+      "size": 4
+    },
+    "dense_23/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 352594968,
+      "size": 524288
+    },
+    "dense_23/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 353119256,
+      "size": 1024
+    },
+    "layer_normalization_9/gamma:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 353120280,
+      "size": 1024
+    },
+    "layer_normalization_9/beta:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 353121304,
+      "size": 1024
+    },
+    "dense_24/kernel:0": {
+      "shape": [
+        256,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 353122328,
+      "size": 131072
+    },
+    "dense_24/bias:0": {
+      "shape": [
+        128
+      ],
+      "dtype": "float32",
+      "offset": 353253400,
+      "size": 512
+    },
+    "dense_25/kernel:0": {
+      "shape": [
+        128,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 353253912,
+      "size": 512
+    },
+    "dense_25/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 353254424,
+      "size": 4
+    },
+    "dense_26/kernel:0": {
+      "shape": [
+        256,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 353254428,
+      "size": 262144
+    },
+    "dense_26/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 353516572,
+      "size": 1024
+    },
+    "dense_27/kernel:0": {
+      "shape": [
+        256,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 353517596,
+      "size": 1024
+    },
+    "dense_27/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 353518620,
+      "size": 4
+    },
+    "site_integration_module_tf/embedding/embeddings:0": {
+      "shape": [
+        22,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 353518624,
+      "size": 22528
+    },
+    "dense_28/kernel:0": {
+      "shape": [
+        772,
+        512
+      ],
+      "dtype": "float32",
+      "offset": 353541152,
+      "size": 1581056
+    },
+    "dense_28/bias:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 355122208,
+      "size": 2048
+    },
+    "layer_normalization_10/gamma:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 355124256,
+      "size": 2048
+    },
+    "layer_normalization_10/beta:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 355126304,
+      "size": 2048
+    },
+    "dense_29/kernel:0": {
+      "shape": [
+        512,
+        512
+      ],
+      "dtype": "float32",
+      "offset": 355128352,
+      "size": 1048576
+    },
+    "dense_29/bias:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 356176928,
+      "size": 2048
+    },
+    "layer_normalization_11/gamma:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 356178976,
+      "size": 2048
+    },
+    "layer_normalization_11/beta:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 356181024,
+      "size": 2048
+    },
+    "deep_attention_miltf/multi_head_attention/query/kernel:0": {
+      "shape": [
+        512,
+        8,
+        64
+      ],
+      "dtype": "float32",
+      "offset": 356183072,
+      "size": 1048576
+    },
+    "deep_attention_miltf/multi_head_attention/query/bias:0": {
+      "shape": [
+        8,
+        64
+      ],
+      "dtype": "float32",
+      "offset": 357231648,
+      "size": 2048
+    },
+    "deep_attention_miltf/multi_head_attention/key/kernel:0": {
+      "shape": [
+        512,
+        8,
+        64
+      ],
+      "dtype": "float32",
+      "offset": 357233696,
+      "size": 1048576
+    },
+    "deep_attention_miltf/multi_head_attention/key/bias:0": {
+      "shape": [
+        8,
+        64
+      ],
+      "dtype": "float32",
+      "offset": 358282272,
+      "size": 2048
+    },
+    "deep_attention_miltf/multi_head_attention/value/kernel:0": {
+      "shape": [
+        512,
+        8,
+        64
+      ],
+      "dtype": "float32",
+      "offset": 358284320,
+      "size": 1048576
+    },
+    "deep_attention_miltf/multi_head_attention/value/bias:0": {
+      "shape": [
+        8,
+        64
+      ],
+      "dtype": "float32",
+      "offset": 359332896,
+      "size": 2048
+    },
+    "deep_attention_miltf/multi_head_attention/attention_output/kernel:0": {
+      "shape": [
+        8,
+        64,
+        512
+      ],
+      "dtype": "float32",
+      "offset": 359334944,
+      "size": 1048576
+    },
+    "deep_attention_miltf/multi_head_attention/attention_output/bias:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 360383520,
+      "size": 2048
+    },
+    "dense_30/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 360385568,
+      "size": 524288
+    },
+    "dense_30/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 360909856,
+      "size": 1024
+    },
+    "layer_normalization_12/gamma:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 360910880,
+      "size": 1024
+    },
+    "layer_normalization_12/beta:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 360911904,
+      "size": 1024
+    },
+    "dense_31/kernel:0": {
+      "shape": [
+        256,
+        512
+      ],
+      "dtype": "float32",
+      "offset": 360912928,
+      "size": 524288
+    },
+    "dense_31/bias:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 361437216,
+      "size": 2048
+    },
+    "layer_normalization_13/gamma:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 361439264,
+      "size": 2048
+    },
+    "layer_normalization_13/beta:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 361441312,
+      "size": 2048
+    },
+    "dense_32/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 361443360,
+      "size": 524288
+    },
+    "dense_32/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 361967648,
+      "size": 1024
+    },
+    "dense_33/kernel:0": {
+      "shape": [
+        256,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 361968672,
+      "size": 1024
+    },
+    "dense_33/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 361969696,
+      "size": 4
+    },
+    "dense_34/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 361969700,
+      "size": 524288
+    },
+    "dense_34/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 362493988,
+      "size": 1024
+    },
+    "dense_35/kernel:0": {
+      "shape": [
+        256,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 362495012,
+      "size": 1024
+    },
+    "dense_35/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 362496036,
+      "size": 4
+    },
+    "dense_36/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 362496040,
+      "size": 524288
+    },
+    "dense_36/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 363020328,
+      "size": 1024
+    },
+    "layer_normalization_14/gamma:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 363021352,
+      "size": 1024
+    },
+    "layer_normalization_14/beta:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 363022376,
+      "size": 1024
+    },
+    "dense_37/kernel:0": {
+      "shape": [
+        256,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 363023400,
+      "size": 1024
+    },
+    "dense_37/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 363024424,
+      "size": 4
+    },
+    "dense_38/kernel:0": {
+      "shape": [
+        512,
+        256
+      ],
+      "dtype": "float32",
+      "offset": 363024428,
+      "size": 524288
+    },
+    "dense_38/bias:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 363548716,
+      "size": 1024
+    },
+    "layer_normalization_15/gamma:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 363549740,
+      "size": 1024
+    },
+    "layer_normalization_15/beta:0": {
+      "shape": [
+        256
+      ],
+      "dtype": "float32",
+      "offset": 363550764,
+      "size": 1024
+    },
+    "dense_39/kernel:0": {
+      "shape": [
+        256,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 363551788,
+      "size": 1024
+    },
+    "dense_39/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 363552812,
+      "size": 4
+    },
+    "dense_40/kernel:0": {
+      "shape": [
+        768,
+        1024
+      ],
+      "dtype": "float32",
+      "offset": 363552816,
+      "size": 3145728
+    },
+    "dense_40/bias:0": {
+      "shape": [
+        1024
+      ],
+      "dtype": "float32",
+      "offset": 366698544,
+      "size": 4096
+    },
+    "layer_normalization_16/gamma:0": {
+      "shape": [
+        1024
+      ],
+      "dtype": "float32",
+      "offset": 366702640,
+      "size": 4096
+    },
+    "layer_normalization_16/beta:0": {
+      "shape": [
+        1024
+      ],
+      "dtype": "float32",
+      "offset": 366706736,
+      "size": 4096
+    },
+    "attention_pool_selector_tf/multi_head_attention_1/query/kernel:0": {
+      "shape": [
+        1024,
+        8,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 366710832,
+      "size": 4194304
+    },
+    "attention_pool_selector_tf/multi_head_attention_1/query/bias:0": {
+      "shape": [
+        8,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 370905136,
+      "size": 4096
+    },
+    "attention_pool_selector_tf/multi_head_attention_1/key/kernel:0": {
+      "shape": [
+        1024,
+        8,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 370909232,
+      "size": 4194304
+    },
+    "attention_pool_selector_tf/multi_head_attention_1/key/bias:0": {
+      "shape": [
+        8,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 375103536,
+      "size": 4096
+    },
+    "attention_pool_selector_tf/multi_head_attention_1/value/kernel:0": {
+      "shape": [
+        1024,
+        8,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 375107632,
+      "size": 4194304
+    },
+    "attention_pool_selector_tf/multi_head_attention_1/value/bias:0": {
+      "shape": [
+        8,
+        128
+      ],
+      "dtype": "float32",
+      "offset": 379301936,
+      "size": 4096
+    },
+    "attention_pool_selector_tf/multi_head_attention_1/attention_output/kernel:0": {
+      "shape": [
+        8,
+        128,
+        1024
+      ],
+      "dtype": "float32",
+      "offset": 379306032,
+      "size": 4194304
+    },
+    "attention_pool_selector_tf/multi_head_attention_1/attention_output/bias:0": {
+      "shape": [
+        1024
+      ],
+      "dtype": "float32",
+      "offset": 383500336,
+      "size": 4096
+    },
+    "dense_41/kernel:0": {
+      "shape": [
+        1024,
+        512
+      ],
+      "dtype": "float32",
+      "offset": 383504432,
+      "size": 2097152
+    },
+    "dense_41/bias:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 385601584,
+      "size": 2048
+    },
+    "dense_42/kernel:0": {
+      "shape": [
+        512,
+        1
+      ],
+      "dtype": "float32",
+      "offset": 385603632,
+      "size": 2048
+    },
+    "dense_42/bias:0": {
+      "shape": [
+        1
+      ],
+      "dtype": "float32",
+      "offset": 385605680,
+      "size": 4
+    },
+    "dense_43/kernel:0": {
+      "shape": [
+        1024,
+        512
+      ],
+      "dtype": "float32",
+      "offset": 385605684,
+      "size": 2097152
+    },
+    "dense_43/bias:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 387702836,
+      "size": 2048
+    },
+    "layer_normalization_17/gamma:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 387704884,
+      "size": 2048
+    },
+    "layer_normalization_17/beta:0": {
+      "shape": [
+        512
+      ],
+      "dtype": "float32",
+      "offset": 387706932,
+      "size": 2048
+    }
+  },
+  "total_bytes": 387708980
+}

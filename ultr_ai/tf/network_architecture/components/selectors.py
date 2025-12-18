@@ -13,6 +13,7 @@ class AttentionPoolSelectorTF(tf.keras.Model):
         self.feature_dim = feature_dim
         self._hidden_dim = hidden_dim
         self.output_dim = output_dim
+        self.supports_masking = True  # Enable masking support
         
         self.feature_encoder = tf.keras.Sequential([
             tf.keras.layers.Dense(hidden_dim),
