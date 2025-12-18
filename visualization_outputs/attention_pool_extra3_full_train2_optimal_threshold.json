@@ -1,0 +1,9 @@
+{
+  "model": "attention_pool_extra3_full_train2",
+  "threshold": 0.3376365900039673,
+  "sensitivity": 0.8300653594771242,
+  "specificity": 0.7032520325203252,
+  "constraints_met": false,
+  "n_samples": 399,
+  "split": "val"
+}
