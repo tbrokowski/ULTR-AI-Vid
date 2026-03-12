@@ -664,6 +664,7 @@ class PatientLevelDataset(Dataset):
             ('B-lines' in findings_dict and findings_dict['B-lines'] == 1),
             ('Confluent B-lines' in findings_dict and findings_dict['Confluent B-lines'] == 1),
             ('small Consolidations or Nodules' in findings_dict and findings_dict['small Consolidations or Nodules'] == 1),
+            ("Pattern A' (pneumothorax)" in findings_dict and findings_dict["Pattern A' (pneumothorax)"] == 1),
         ]
         
         if any(other_conditions):

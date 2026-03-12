@@ -1,0 +1,24 @@
+{
+  "subset_name": "full",
+  "n_train": 155,
+  "n_test": 104,
+  "best_metric": 0.7853881278538812,
+  "best_epoch": 17,
+  "auroc": 0.663265306122449,
+  "auprc": 0.1110896547171057,
+  "test_metrics": {
+    "accuracy": 0.9423076923076923,
+    "precision": 0.0,
+    "recall": 0.0,
+    "specificity": 1.0,
+    "f1": 0.0,
+    "auc": 0.663265306122449,
+    "auprc": 0.1110896547171057
+  },
+  "prediction_files": {
+    "patient_csv": "/users/lxflk/ULTR-AI-Vid/sa_finetuning_results/finetune_full/finetuned_full_patient_predictions.csv",
+    "site_csv": "/users/lxflk/ULTR-AI-Vid/sa_finetuning_results/finetune_full/finetuned_full_site_predictions.csv",
+    "complex_data": "/users/lxflk/ULTR-AI-Vid/sa_finetuning_results/finetune_full/finetuned_full_complex_data.pkl"
+  },
+  "checkpoint_path": "/users/lxflk/ULTR-AI-Vid/checkpoints/sa_finetune/finetune_full/checkpoint_best.pth"
+}

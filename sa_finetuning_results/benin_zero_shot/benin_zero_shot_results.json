@@ -1,0 +1,20 @@
+{
+  "model": "benin_zero_shot",
+  "n_test": 104,
+  "auroc": 0.5289115646258503,
+  "auprc": 0.08735569086391619,
+  "test_metrics": {
+    "accuracy": 0.9326923076923077,
+    "precision": 0.0,
+    "recall": 0.0,
+    "specificity": 0.9897959183673469,
+    "f1": 0.0,
+    "auc": 0.5289115646258503,
+    "auprc": 0.08735569086391619
+  },
+  "prediction_files": {
+    "patient_csv": "/users/lxflk/ULTR-AI-Vid/sa_finetuning_results/benin_zero_shot/benin_zero_shot_patient_predictions.csv",
+    "site_csv": "/users/lxflk/ULTR-AI-Vid/sa_finetuning_results/benin_zero_shot/benin_zero_shot_site_predictions.csv",
+    "complex_data": "/users/lxflk/ULTR-AI-Vid/sa_finetuning_results/benin_zero_shot/benin_zero_shot_complex_data.pkl"
+  }
+}

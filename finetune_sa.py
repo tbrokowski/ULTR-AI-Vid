@@ -168,46 +168,60 @@ def load_sa_data(
     ].copy()
     logger.info(f"  Patients with LUS and clinical data: {len(filtered_clinical)}")
     
-    # Merge clinical with pathology labels by numeric_id
-    # Keep clinical patient_id (27-XXX format) as it matches file metadata
+    # Keep the full pathology/LUS cohort and attach clinical metadata where available.
+    filtered_pathology = filtered_pathology.drop_duplicates(subset=['numeric_id']).copy()
+    filtered_clinical = filtered_clinical.drop_duplicates(subset=['numeric_id']).copy()
+    
+    clinical_columns = [col for col in filtered_clinical.columns if col not in ['patient_id']]
     merged_df = pd.merge(
-        filtered_clinical,
-        filtered_pathology[['numeric_id', 'TB Label']],
+        filtered_pathology,
+        filtered_clinical[clinical_columns],
         on='numeric_id',
-        how='inner'
+        how='left',
+        suffixes=('', '_clinical')
     )
-    # Drop the numeric_id column after merge
     merged_df = merged_df.drop(columns=['numeric_id'])
     
+    clinical_match_count = merged_df['record_id_clinical'].notna().sum() if 'record_id_clinical' in merged_df.columns else 0
     logger.info(f"  Final merged data: {len(merged_df)} patients")
+    logger.info(f"  Patients with matching clinical metadata: {clinical_match_count}")
     
-    # Prepare stratification columns
-    # HIV column
+    # Prepare stratification columns. Missing clinical values remain explicit as -1 so
+    # we can keep the full cohort and fall back to coarser stratification when needed.
     if 'hiv' in merged_df.columns:
-        merged_df['HIV'] = merged_df['hiv'].apply(lambda x: 1 if x == 1 else 0)
-        logger.info(f"  Using HIV column 'hiv' (1=Positive, 0=Negative)")
-    else:
-        raise ValueError("HIV column 'hiv' not found in clinical data")
-    
-    # Prior TB column
-    if 'previous_tb_diagnosis' in merged_df.columns:
-        # Map: 1=No, 2=Resolved, 4=Active -> Prior TB+ = 2 or 4
-        merged_df['Prior_TB'] = merged_df['previous_tb_diagnosis'].apply(
-            lambda x: 1 if x in [2, 4] else 0
+        merged_df['HIV'] = merged_df['hiv'].apply(
+            lambda x: 1 if x == 1 else (0 if x == 2 else -1)
         )
-        logger.info(f"  Using Prior TB column 'previous_tb_diagnosis' (1=No, 2=Resolved, 4=Active)")
+        logger.info("  Using HIV column 'hiv' (1=Positive, 2=Negative, else=Missing)")
     else:
-        raise ValueError("Prior TB column 'previous_tb_diagnosis' not found in clinical data")
+        merged_df['HIV'] = -1
+        logger.warning("  HIV column 'hiv' not found in clinical data; marking as missing")
+    
+    if 'previous_tb_diagnosis' in merged_df.columns:
+        # Map: 1=No, 2=Resolved, 4=Active. Preserve missing/other values as -1.
+        merged_df['Prior_TB'] = merged_df['previous_tb_diagnosis'].apply(
+            lambda x: 1 if x in [2, 4] else (0 if x == 1 else -1)
+        )
+        logger.info("  Using Prior TB column 'previous_tb_diagnosis' (1=No, 2/4=Prior TB+, else=Missing)")
+    else:
+        merged_df['Prior_TB'] = -1
+        logger.warning("  Prior TB column 'previous_tb_diagnosis' not found in clinical data; marking as missing")
     
     # TB Label
     merged_df['TB_Label'] = merged_df['TB Label'].apply(lambda x: 1 if x == 1 else 0)
     
     # Stratification summary
+    tb_pos = (merged_df['TB_Label'] == 1).sum()
+    hiv_pos = (merged_df['HIV'] == 1).sum()
+    hiv_missing = (merged_df['HIV'] == -1).sum()
+    prior_tb_pos = (merged_df['Prior_TB'] == 1).sum()
+    prior_tb_missing = (merged_df['Prior_TB'] == -1).sum()
+    
     logger.info(f"\n  Stratification summary:")
     logger.info(f"    Total patients: {len(merged_df)}")
-    logger.info(f"    TB+: {merged_df['TB_Label'].sum()} ({merged_df['TB_Label'].mean()*100:.1f}%)")
-    logger.info(f"    HIV+: {merged_df['HIV'].sum()} ({merged_df['HIV'].mean()*100:.1f}%)")
-    logger.info(f"    Prior TB+: {merged_df['Prior_TB'].sum()} ({merged_df['Prior_TB'].mean()*100:.1f}%)")
+    logger.info(f"    TB+: {tb_pos} ({tb_pos / len(merged_df) * 100:.1f}%)")
+    logger.info(f"    HIV+: {hiv_pos} ({hiv_pos / len(merged_df) * 100:.1f}%), missing: {hiv_missing}")
+    logger.info(f"    Prior TB+: {prior_tb_pos} ({prior_tb_pos / len(merged_df) * 100:.1f}%), missing: {prior_tb_missing}")
     
     return merged_df
 
@@ -236,12 +250,24 @@ def create_initial_split(
     logger.info("Creating initial 60/40 split (stratified by TB, prior TB, HIV)")
     logger.info(f"{'='*60}")
     
-    # Create stratification key (combine TB, HIV, Prior TB)
-    stratify_key = (
-        merged_df['TB_Label'].astype(str) + '_' +
-        merged_df['HIV'].astype(str) + '_' +
-        merged_df['Prior_TB'].astype(str)
-    )
+    # Try the richest available stratification first, then back off if the cohort is too sparse.
+    stratification_candidates = [
+        (['TB_Label', 'HIV', 'Prior_TB'], "TB + HIV + Prior_TB"),
+        (['TB_Label', 'HIV'], "TB + HIV"),
+        (['TB_Label'], "TB only"),
+    ]
+    
+    stratify_key = None
+    stratify_label = "unstratified"
+    for columns, label in stratification_candidates:
+        candidate_key = merged_df[columns].astype(str).agg('_'.join, axis=1)
+        min_count = candidate_key.value_counts().min()
+        if min_count >= 2:
+            stratify_key = candidate_key
+            stratify_label = label
+            break
+    
+    logger.info(f"  Stratification strategy: {stratify_label}")
     
     train_df, test_df = train_test_split(
         merged_df,
@@ -255,14 +281,14 @@ def create_initial_split(
     logger.info(f"    Test set (40%): {len(test_df)} patients")
     
     logger.info(f"\n  Training pool stratification:")
-    logger.info(f"    TB+: {train_df['TB_Label'].sum()} ({train_df['TB_Label'].mean()*100:.1f}%)")
-    logger.info(f"    HIV+: {train_df['HIV'].sum()} ({train_df['HIV'].mean()*100:.1f}%)")
-    logger.info(f"    Prior TB+: {train_df['Prior_TB'].sum()} ({train_df['Prior_TB'].mean()*100:.1f}%)")
+    logger.info(f"    TB+: {(train_df['TB_Label'] == 1).sum()} ({(train_df['TB_Label'] == 1).mean()*100:.1f}%)")
+    logger.info(f"    HIV+: {(train_df['HIV'] == 1).sum()} ({(train_df['HIV'] == 1).mean()*100:.1f}%), missing: {(train_df['HIV'] == -1).sum()}")
+    logger.info(f"    Prior TB+: {(train_df['Prior_TB'] == 1).sum()} ({(train_df['Prior_TB'] == 1).mean()*100:.1f}%), missing: {(train_df['Prior_TB'] == -1).sum()}")
     
     logger.info(f"\n  Test set stratification:")
-    logger.info(f"    TB+: {test_df['TB_Label'].sum()} ({test_df['TB_Label'].mean()*100:.1f}%)")
-    logger.info(f"    HIV+: {test_df['HIV'].sum()} ({test_df['HIV'].mean()*100:.1f}%)")
-    logger.info(f"    Prior TB+: {test_df['Prior_TB'].sum()} ({test_df['Prior_TB'].mean()*100:.1f}%)")
+    logger.info(f"    TB+: {(test_df['TB_Label'] == 1).sum()} ({(test_df['TB_Label'] == 1).mean()*100:.1f}%)")
+    logger.info(f"    HIV+: {(test_df['HIV'] == 1).sum()} ({(test_df['HIV'] == 1).mean()*100:.1f}%), missing: {(test_df['HIV'] == -1).sum()}")
+    logger.info(f"    Prior TB+: {(test_df['Prior_TB'] == 1).sum()} ({(test_df['Prior_TB'] == 1).mean()*100:.1f}%), missing: {(test_df['Prior_TB'] == -1).sum()}")
     
     return train_df, test_df
 
@@ -499,6 +525,14 @@ def save_comprehensive_predictions(
     os.makedirs(output_dir, exist_ok=True)
     
     trainer.model.eval()
+    frame_selector = getattr(trainer.model, 'frame_selector', None)
+    original_temperature = None
+    if frame_selector is not None and hasattr(frame_selector, 'clear_history'):
+        frame_selector.clear_history()
+    if frame_selector is not None and hasattr(frame_selector, 'temperature'):
+        original_temperature = frame_selector.temperature
+        frame_selector.temperature = 0.0
+
     patient_records = []
     site_records = []
     complex_data = {
@@ -513,129 +547,133 @@ def save_comprehensive_predictions(
     active_tasks = config.active_tasks
     use_pathology_loss = config.use_pathology_loss
     
-    with torch.no_grad():
-        for batch_idx, batch in enumerate(data_loader):
-            try:
-                # Prepare inputs
-                inputs = _prepare_inputs_from_batch(batch, trainer.device, config)
-                outputs = trainer.model(inputs)
+    try:
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(data_loader):
+                try:
+                    # Prepare inputs
+                    inputs = _prepare_inputs_from_batch(batch, trainer.device, config)
+                    outputs = trainer.model(inputs)
                 
-                # Get task predictions
-                task_logits = outputs.get('task_logits', {})
-                task_probs = {}
-                task_preds = {}
-                for task_name, logits in task_logits.items():
-                    task_probs[task_name] = torch.sigmoid(logits.squeeze())
-                    task_preds[task_name] = (task_probs[task_name] > 0.5).float()
+                    # Get task predictions
+                    task_logits = outputs.get('task_logits', {})
+                    task_probs = {}
+                    task_preds = {}
+                    for task_name, logits in task_logits.items():
+                        task_probs[task_name] = torch.sigmoid(logits.squeeze())
+                        task_preds[task_name] = (task_probs[task_name] > 0.5).float()
                 
-                # Get TB labels and IDs
-                tb_labels = batch['tb_labels'].to(trainer.device).squeeze()
-                patient_ids = batch['patient_ids']
-                batch_size = len(patient_ids)
+                    # Get TB labels and IDs
+                    tb_labels = batch['tb_labels'].to(trainer.device).squeeze()
+                    patient_ids = batch['patient_ids']
+                    batch_size = len(patient_ids)
                 
-                # Get optional outputs
-                patient_features = outputs.get('patient_features')
-                site_features = outputs.get('site_features')
-                mil_attention = outputs.get('mil_attention')
-                pathology_scores = outputs.get('pathology_logits')
+                    # Get optional outputs
+                    patient_features = outputs.get('patient_features')
+                    site_features = outputs.get('site_features')
+                    mil_attention = outputs.get('mil_attention')
+                    pathology_scores = outputs.get('pathology_logits')
                 
-                # Get site info
-                site_masks = batch.get('site_mask', torch.ones(batch_size, 1))
-                site_indices = batch.get('site_indices', torch.zeros(batch_size, 1, dtype=torch.long))
-                site_findings = batch.get('site_findings')
+                    # Get site info
+                    site_masks = batch.get('site_mask', torch.ones(batch_size, 1))
+                    site_indices = batch.get('site_indices', torch.zeros(batch_size, 1, dtype=torch.long))
+                    site_findings = batch.get('site_findings')
                 
-                # Process each patient in batch
-                for i in range(batch_size):
-                    patient_id = str(patient_ids[i])
+                    # Process each patient in batch
+                    for i in range(batch_size):
+                        patient_id = str(patient_ids[i])
                     
-                    # Get task predictions for this patient
-                    task_labels = {}
-                    task_logits_patient = {}
-                    task_probs_patient = {}
-                    task_preds_patient = {}
+                        # Get task predictions for this patient
+                        task_labels = {}
+                        task_logits_patient = {}
+                        task_probs_patient = {}
+                        task_preds_patient = {}
                     
-                    if 'TB Label' in active_tasks:
-                        task_labels['tb'] = tb_labels[i].cpu().item()
-                        if 'TB Label' in task_logits:
-                            task_logits_patient['tb'] = task_logits['TB Label'][i].cpu().item()
-                            task_probs_patient['tb'] = task_probs['TB Label'][i].cpu().item()
-                            task_preds_patient['tb'] = task_preds['TB Label'][i].cpu().item()
+                        if 'TB Label' in active_tasks:
+                            task_labels['tb'] = tb_labels[i].cpu().item()
+                            if 'TB Label' in task_logits:
+                                task_logits_patient['tb'] = task_logits['TB Label'][i].cpu().item()
+                                task_probs_patient['tb'] = task_probs['TB Label'][i].cpu().item()
+                                task_preds_patient['tb'] = task_preds['TB Label'][i].cpu().item()
                     
-                    # Number of valid sites
-                    num_sites = site_masks[i].sum().item() if site_masks is not None else 0
+                        # Number of valid sites
+                        num_sites = site_masks[i].sum().item() if site_masks is not None else 0
                     
-                    # Store patient-level complex data
-                    if patient_features is not None:
-                        complex_data['patient_features'][patient_id] = patient_features[i].cpu().numpy()
+                        # Store patient-level complex data
+                        if patient_features is not None:
+                            complex_data['patient_features'][patient_id] = patient_features[i].cpu().numpy()
                     
-                    if mil_attention is not None:
-                        complex_data['mil_attention'][patient_id] = mil_attention[i].cpu().numpy()
+                        if mil_attention is not None:
+                            complex_data['mil_attention'][patient_id] = mil_attention[i].cpu().numpy()
                     
-                    # Store task logits
-                    for task_name in active_tasks:
-                        if task_name not in complex_data['task_logits']:
-                            complex_data['task_logits'][task_name] = {}
-                        if task_name in task_logits:
-                            complex_data['task_logits'][task_name][patient_id] = task_logits[task_name][i].cpu().numpy()
+                        # Store task logits
+                        for task_name in active_tasks:
+                            if task_name not in complex_data['task_logits']:
+                                complex_data['task_logits'][task_name] = {}
+                            if task_name in task_logits:
+                                complex_data['task_logits'][task_name][patient_id] = task_logits[task_name][i].cpu().numpy()
                     
-                    if use_pathology_loss and pathology_scores is not None:
-                        complex_data['pathology_scores'][patient_id] = pathology_scores[i].cpu().numpy()
+                        if use_pathology_loss and pathology_scores is not None:
+                            complex_data['pathology_scores'][patient_id] = pathology_scores[i].cpu().numpy()
                     
-                    # Create patient-level record
-                    patient_record = {
-                        'patient_id': patient_id,
-                        'num_valid_sites': int(num_sites),
-                        'tb_label': task_labels.get('tb', -1),
-                        'tb_logit': task_logits_patient.get('tb', float('nan')),
-                        'tb_prob': task_probs_patient.get('tb', float('nan')),
-                        'tb_pred': task_preds_patient.get('tb', float('nan')),
-                    }
-                    patient_records.append(patient_record)
+                        # Create patient-level record
+                        patient_record = {
+                            'patient_id': patient_id,
+                            'num_valid_sites': int(num_sites),
+                            'tb_label': task_labels.get('tb', -1),
+                            'tb_logit': task_logits_patient.get('tb', float('nan')),
+                            'tb_prob': task_probs_patient.get('tb', float('nan')),
+                            'tb_pred': task_preds_patient.get('tb', float('nan')),
+                        }
+                        patient_records.append(patient_record)
                     
-                    # Create site-level records
-                    if site_findings is not None and num_sites > 0:
-                        for s in range(int(num_sites)):
-                            site_idx = site_indices[i, s].cpu().item()
-                            site_finding = site_findings[i, s].cpu().numpy()
+                        # Create site-level records
+                        if site_findings is not None and num_sites > 0:
+                            for s in range(int(num_sites)):
+                                site_idx = site_indices[i, s].cpu().item()
+                                site_finding = site_findings[i, s].cpu().numpy()
                             
-                            site_record = {
-                                'patient_id': patient_id,
-                                'site_position': s,
-                                'site_index': int(site_idx),
-                                'tb_label': task_labels.get('tb', -1),
-                                'tb_logit': task_logits_patient.get('tb', float('nan')),
-                                'tb_prob': task_probs_patient.get('tb', float('nan')),
-                                'tb_pred': task_preds_patient.get('tb', float('nan')),
-                            }
+                                site_record = {
+                                    'patient_id': patient_id,
+                                    'site_position': s,
+                                    'site_index': int(site_idx),
+                                    'tb_label': task_labels.get('tb', -1),
+                                    'tb_logit': task_logits_patient.get('tb', float('nan')),
+                                    'tb_prob': task_probs_patient.get('tb', float('nan')),
+                                    'tb_pred': task_preds_patient.get('tb', float('nan')),
+                                }
                             
-                            # Add site findings (ground truth)
-                            for p_idx, p_name in enumerate(pathology_names):
-                                if p_idx < len(site_finding):
-                                    site_record[f'{p_name}_finding'] = float(site_finding[p_idx])
-                            
-                            # Add site pathology predictions
-                            if use_pathology_loss and pathology_scores is not None:
-                                site_path_scores = pathology_scores[i, s].cpu().numpy()
+                                # Add site findings (ground truth)
                                 for p_idx, p_name in enumerate(pathology_names):
-                                    if p_idx < len(site_path_scores):
-                                        site_record[f'{p_name}_logit'] = float(site_path_scores[p_idx])
-                                        site_record[f'{p_name}_prob'] = float(1 / (1 + np.exp(-site_path_scores[p_idx])))
-                                        site_record[f'{p_name}_pred'] = int(site_path_scores[p_idx] > 0)
+                                    if p_idx < len(site_finding):
+                                        site_record[f'{p_name}_finding'] = float(site_finding[p_idx])
                             
-                            # Add MIL attention
-                            if mil_attention is not None:
-                                site_record['mil_attention'] = float(mil_attention[i, s].cpu().item())
+                                # Add site pathology predictions
+                                if use_pathology_loss and pathology_scores is not None:
+                                    site_path_scores = pathology_scores[i, s].cpu().numpy()
+                                    for p_idx, p_name in enumerate(pathology_names):
+                                        if p_idx < len(site_path_scores):
+                                            site_record[f'{p_name}_logit'] = float(site_path_scores[p_idx])
+                                            site_record[f'{p_name}_prob'] = float(1 / (1 + np.exp(-site_path_scores[p_idx])))
+                                            site_record[f'{p_name}_pred'] = int(site_path_scores[p_idx] > 0)
                             
-                            # Store site features
-                            if site_features is not None:
-                                site_key = f"{patient_id}_site_{site_idx}"
-                                complex_data['site_features'][site_key] = site_features[i, s].cpu().numpy()
+                                # Add MIL attention
+                                if mil_attention is not None:
+                                    site_record['mil_attention'] = float(mil_attention[i, s].cpu().item())
                             
-                            site_records.append(site_record)
-            
-            except Exception as e:
-                logger.warning(f"Error processing batch {batch_idx}: {e}")
-                continue
+                                # Store site features
+                                if site_features is not None:
+                                    site_key = f"{patient_id}_site_{site_idx}"
+                                    complex_data['site_features'][site_key] = site_features[i, s].cpu().numpy()
+                            
+                                site_records.append(site_record)
+                
+                except Exception as e:
+                    logger.warning(f"Error processing batch {batch_idx}: {e}")
+                    continue
+    finally:
+        if frame_selector is not None and original_temperature is not None:
+            frame_selector.temperature = original_temperature
     
     # Create DataFrames
     patient_df = pd.DataFrame(patient_records)
