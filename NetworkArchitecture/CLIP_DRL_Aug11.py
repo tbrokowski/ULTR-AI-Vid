@@ -1011,6 +1011,9 @@ class MultiTaskModel(nn.Module):
         # Create mask for selected features
         selected_mask = torch.ones(1, 3, dtype=torch.bool, device=video.device)
         
+        # Pool selected frame features into the per-scan representation used downstream.
+        pooled_site_features = selected_features.mean(dim=1)  # [1, hidden_dim]
+
         # Process pathologies (if enabled)
         pathology_scores = None
         if self.use_pathology_loss and self.pathology_modules is not None:
@@ -1029,8 +1032,10 @@ class MultiTaskModel(nn.Module):
         
         # Return comprehensive output
         return {
+            'clip_features': clip_features,
             'selected_features': selected_features,
             'selected_indices': selected_indices.unsqueeze(0),  # [1, 3]
+            'pooled_site_features': pooled_site_features,
             'pathology_scores': pathology_scores,
             'action_logits': action_logits,
             'state_values': state_values,
@@ -1038,7 +1043,7 @@ class MultiTaskModel(nn.Module):
             'site_idx': site_pos
         }
 
-    def process_patient(self, site_videos, site_indices, site_masks):
+    def process_patient(self, site_videos, site_indices, site_masks, collect_probe_data=False):
         """
         Process videos from multiple anatomical sites for a patient.
         
@@ -1052,6 +1057,12 @@ class MultiTaskModel(nn.Module):
         all_site_features = []
         all_pathology_scores = []
         all_site_rl_data = []
+        probe_data = None
+        if collect_probe_data:
+            probe_data = {
+                'frame_features': [],
+                'scan_features': []
+            }
         
         # Process each patient
         for b in range(batch_size):
@@ -1074,12 +1085,27 @@ class MultiTaskModel(nn.Module):
                     video, site_idx, frame_mask, batch_idx=b, site_pos=n
                 )
                 
-                # Get selected features and pathology scores
-                selected_features = site_output['selected_features'].mean(dim=1)  # [1, hidden_dim]
-                site_features.append(selected_features)
+                # Get pooled scan representation and pathology scores
+                pooled_site_features = site_output['pooled_site_features']  # [1, hidden_dim]
+                site_features.append(pooled_site_features)
                 
                 if self.use_pathology_loss and site_output['pathology_scores'] is not None:
                     site_pathology_scores.append(site_output['pathology_scores'])
+
+                if collect_probe_data:
+                    probe_data['frame_features'].append({
+                        'batch_index': b,
+                        'site_position': n,
+                        'site_index': site_idx,
+                        'clip_features': site_output['clip_features'].squeeze(0).detach(),
+                    })
+                    probe_data['scan_features'].append({
+                        'batch_index': b,
+                        'site_position': n,
+                        'site_index': site_idx,
+                        'scan_features': pooled_site_features.squeeze(0).detach(),
+                        'selected_indices': site_output['selected_indices'].squeeze(0).detach(),
+                    })
                 
                 # Store RL data
                 site_rl_data.append({
@@ -1124,6 +1150,9 @@ class MultiTaskModel(nn.Module):
         else:
             all_pathology_scores = None
         
+        if collect_probe_data:
+            return all_site_features, all_pathology_scores, all_site_rl_data, probe_data
+
         return all_site_features, all_pathology_scores, all_site_rl_data
     
     def forward(self, inputs):
@@ -1193,6 +1222,8 @@ class MultiTaskModel(nn.Module):
             'patient_pathology_scores': patient_pathology_scores,
             'pathology_scores': pathology_scores,
             'mil_attention': mil_attention,
+            'patient_features': patient_features,
+            'integrated_features': integrated_features,
             'site_features': site_features,
             'site_rl_data': site_rl_data
         }

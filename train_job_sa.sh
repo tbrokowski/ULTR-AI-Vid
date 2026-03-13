@@ -148,10 +148,7 @@ echo "  skip_finetuning:   ${SKIP_FINETUNING}"
 echo "  skip_benin_eval:   ${SKIP_BENIN_EVAL}"
 echo "  skip_pathology:    ${SKIP_PATHOLOGY}"
 
-SANITIZED_LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:/opt/amazon/aws-ofi-nccl/lib:/opt/amazon/efa/lib:/usr/local/lib/python3.12/dist-packages/torch/lib:/usr/local/lib/python3.12/dist-packages/torch_tensorrt/lib:/usr/local/cuda/targets/sbsa-linux/lib:/usr/local/cuda/lib64:/usr/local/cuda/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64"
-
 # Prefer the node's NVIDIA driver libraries over the stale CUDA compat libs baked into the EDF image.
 srun --environment=/users/lxflk/.edf/ultrai.toml \
-     env LD_LIBRARY_PATH="${SANITIZED_LD_LIBRARY_PATH}" \
      python3 finetune_sa.py \
      "${PY_ARGS[@]}"

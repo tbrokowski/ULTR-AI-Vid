@@ -4,7 +4,7 @@ device: "cuda"
 train: true
 evaluate_best_valid_model: true
 
-model_weights: "/users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold2/checkpoint_best.pth"
+model_weights: "/users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold3/checkpoint_best.pth"
 #model_weights: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3_full_train2/fold2/checkpoint_best.pth"
 best_model_path: null
 resume_from_checkpoint: null
@@ -62,9 +62,9 @@ use_frame_history: true
 frame_selector_max_norm: 0.5
 
 root_dir: "/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned"
-labels_csv: "/users/lxflk/ULTR-AI-Vid/rsa_pathology_labels.csv"
+labels_csv: "/users/lxflk/ULTR-AI-Vid/Data/labels/rsa_pathology_labels.csv"
 file_metadata_csv: "/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned/processed_files.csv"
-sa_clinical_data: "/users/lxflk/ULTR-AI-Vid/Data/clinical_data/verosdata.csv"
+sa_clinical_data: "/users/lxflk/ULTR-AI-Vid/Data/clinical_data/TrUSTSouthAfrica_DATA_2026-01-23_1807.csv"
 split_csv: null
 image_folder: "images"
 video_folder: "/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned/videos"
@@ -141,9 +141,7 @@ eval_metric_goal: "max"
 early_stopping_patience: 8
 
 log_dir: "/users/lxflk/ULTR-AI-Vid/logs"
-save_dir: "/users/lxflk/ULTR-AI-Vid/models"
 checkpoint_dir: "/users/lxflk/ULTR-AI-Vid/checkpoints/sa_finetune"
-pred_save_dir: "/users/lxflk/ULTR-AI-Vid/predictions"
 
 task: "TB Label"
 

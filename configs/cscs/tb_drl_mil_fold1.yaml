@@ -116,7 +116,7 @@ use_site_positional_encoding: true
 backbone: "clip"
 freeze_backbone: false
 pretrained: true
-local_weights_dir: "/users/lxflk/ULTR-AI-Vid/NetworkArchitecture/CLIP_weights"
+local_weights_dir: "/users/lxflk/CLIP_weights/"
 
 # ==========================================
 # TRAINING CONFIGURATION
@@ -165,9 +165,7 @@ early_stopping_patience: 8
 # DIRECTORIES
 # ==========================================
 log_dir: "/users/lxflk/ULTR-AI-Vid/logs"
-save_dir: "/users/lxflk/ULTR-AI-Vid/models"
 checkpoint_dir: "/users/lxflk/ULTR-AI-Vid/checkpoints"
-pred_save_dir: "/users/lxflk/ULTR-AI-Vid/predictions"
 
 # ==========================================
 # TASK SPECIFIC CONFIGURATION

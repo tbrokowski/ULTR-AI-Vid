@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --time=09:59:59
+#SBATCH --time=00:30:00
 #SBATCH --partition=normal
 #SBATCH -A a127
 #SBATCH --job-name=ultrai_train
