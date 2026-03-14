@@ -111,6 +111,15 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Output directory inside the repo; a unique directory is created if it already exists",
     )
+    parser.add_argument(
+        "--feature-dir",
+        type=str,
+        default=None,
+        help=(
+            "Optional directory for raw feature arrays and metadata; "
+            "defaults to checkpoints/domain_shift_probe_features/<run-name>"
+        ),
+    )
     parser.add_argument("--device", type=str, default=None, help="Device override, e.g. cpu or cuda")
     parser.add_argument("--batch-size", type=int, default=None, help="Batch size override")
     parser.add_argument("--num-workers", type=int, default=None, help="DataLoader worker override")
@@ -192,6 +201,21 @@ def resolve_output_dir(requested_output_dir: Optional[str], checkpoint_path: Pat
         if not candidate.exists():
             return candidate
         suffix += 1
+
+
+def resolve_feature_dir(requested_feature_dir: Optional[str], output_dir: Path) -> Path:
+    repo_root = Path(__file__).resolve().parent
+
+    if requested_feature_dir is not None:
+        return resolve_repo_relative(requested_feature_dir)
+
+    results_root = repo_root / "domain_shift_probe_results"
+    try:
+        relative_run_dir = output_dir.relative_to(results_root)
+    except ValueError:
+        relative_run_dir = Path(output_dir.name)
+
+    return repo_root / "checkpoints" / "domain_shift_probe_features" / relative_run_dir
 
 
 def resolve_default_sa_split_csv(explicit_path: Optional[str]) -> Optional[Path]:
@@ -666,8 +690,7 @@ def run_domain_classifier(
     return summary
 
 
-def save_feature_payloads(output_dir: Path, combined_payload: Dict[str, Dict[str, object]]) -> None:
-    features_dir = output_dir / "features"
+def save_feature_payloads(features_dir: Path, combined_payload: Dict[str, Dict[str, object]]) -> None:
     features_dir.mkdir(parents=True, exist_ok=True)
     for level_name, payload in combined_payload.items():
         spec = LEVEL_SPECS[level_name]
@@ -831,6 +854,7 @@ def save_auroc_bar_plot(output_dir: Path, summaries: Dict[str, Dict[str, object]
 
 def save_manifest(
     output_dir: Path,
+    feature_dir: Optional[Path],
     args: argparse.Namespace,
     benin_config: MultiTaskConfig,
     sa_config: MultiTaskConfig,
@@ -859,6 +883,7 @@ def save_manifest(
         "max_plot_samples_per_domain": sanitize_cap(args.max_plot_samples_per_domain),
         "save_features": args.save_features,
         "save_plots": args.save_plots,
+        "feature_dir": str(feature_dir) if feature_dir is not None else None,
     }
     manifest_path = output_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
@@ -869,6 +894,7 @@ def main() -> None:
     args = parse_args()
     checkpoint_path = resolve_repo_relative(args.checkpoint)
     output_dir = resolve_output_dir(args.output_dir, checkpoint_path)
+    feature_dir = resolve_feature_dir(args.feature_dir, output_dir) if args.save_features else None
     setup_logging(output_dir)
     start_time = time.time()
 
@@ -883,6 +909,7 @@ def main() -> None:
         sa_split_csv = resolve_default_sa_split_csv(args.sa_split_csv)
 
         logger.info("Output directory: %s", output_dir)
+        logger.info("Feature directory: %s", feature_dir if feature_dir is not None else "(not saving features)")
         logger.info("Checkpoint: %s", checkpoint_path)
         logger.info("Model config: %s", resolve_repo_relative(args.model_config or args.benin_config))
         logger.info("Benin config: %s", resolve_repo_relative(args.benin_config))
@@ -918,7 +945,7 @@ def main() -> None:
             split_csv_override=sa_split_csv,
         )
 
-        save_manifest(output_dir, args, benin_config, sa_config, model_config)
+        save_manifest(output_dir, feature_dir, args, benin_config, sa_config, model_config)
         logger.info("Manifest saved to %s", output_dir / "manifest.json")
 
         model = load_model(model_config, checkpoint_path)
@@ -969,8 +996,8 @@ def main() -> None:
 
         if args.save_features:
             logger.info("Saving extracted feature payloads")
-            save_feature_payloads(output_dir, combined_payload)
-            logger.info("Feature payloads saved under %s", output_dir / "features")
+            save_feature_payloads(feature_dir, combined_payload)
+            logger.info("Feature payloads saved under %s", feature_dir)
 
         summaries = {}
         repeats_payload = {}

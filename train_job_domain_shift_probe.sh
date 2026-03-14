@@ -16,6 +16,7 @@ MODEL_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml"
 BENIN_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml"
 SA_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/sa_finetune.yaml"
 OUTPUT_DIR="/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test"
+FEATURE_DIR=""
 
 BENIN_SPLIT="test"
 SA_SPLIT="test"
@@ -46,6 +47,7 @@ Options:
   --benin-config PATH                  Benin dataset config
   --sa-config PATH                     SA dataset config
   --output-dir PATH                    Output directory inside this repo
+  --feature-dir PATH                   Optional feature cache directory (defaults under checkpoints/)
 
   --benin-split {train,val,test,all}   Benin split to probe
   --sa-split {train,val,test,all}      SA split to probe
@@ -92,6 +94,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output-dir)
       OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --feature-dir)
+      FEATURE_DIR="$2"
       shift 2
       ;;
     --benin-split)
@@ -189,6 +195,10 @@ if [[ -n "${BENIN_SPLIT_CSV}" ]]; then
   PY_ARGS+=(--benin-split-csv "${BENIN_SPLIT_CSV}")
 fi
 
+if [[ -n "${FEATURE_DIR}" ]]; then
+  PY_ARGS+=(--feature-dir "${FEATURE_DIR}")
+fi
+
 if [[ -n "${SA_SPLIT_CSV}" ]]; then
   PY_ARGS+=(--sa-split-csv "${SA_SPLIT_CSV}")
 fi
@@ -227,6 +237,7 @@ echo "  model_config:                  ${MODEL_CONFIG}"
 echo "  benin_config:                  ${BENIN_CONFIG}"
 echo "  sa_config:                     ${SA_CONFIG}"
 echo "  output_dir:                    ${OUTPUT_DIR}"
+echo "  feature_dir override:          ${FEATURE_DIR:-checkpoints/domain_shift_probe_features/<run-name>}"
 echo "  benin_split:                   ${BENIN_SPLIT}"
 echo "  sa_split:                      ${SA_SPLIT}"
 echo "  max_patients_per_domain:       ${MAX_PATIENTS_PER_DOMAIN:-all}"

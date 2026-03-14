@@ -1,0 +1,80 @@
+2026-03-14 18:23:06,629 - domain_shift_probe - INFO - Output directory: /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test
+2026-03-14 18:23:06,629 - domain_shift_probe - INFO - Feature directory: /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/benin_pretrained_fold3_test
+2026-03-14 18:23:06,629 - domain_shift_probe - INFO - Checkpoint: /users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold3/checkpoint_best.pth
+2026-03-14 18:23:06,629 - domain_shift_probe - INFO - Model config: /users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml
+2026-03-14 18:23:06,630 - domain_shift_probe - INFO - Benin config: /users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml
+2026-03-14 18:23:06,630 - domain_shift_probe - INFO - SA config: /users/lxflk/ULTR-AI-Vid/configs/cscs/sa_finetune.yaml
+2026-03-14 18:23:06,630 - domain_shift_probe - INFO - Resolved Benin split CSV: None
+2026-03-14 18:23:06,630 - domain_shift_probe - INFO - Resolved SA split CSV: /users/lxflk/ULTR-AI-Vid/sa_finetuning_results/splits/split_full.csv
+2026-03-14 18:23:06,633 - config - INFO - Loading configuration from /users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml
+2026-03-14 18:23:06,643 - config - INFO - Multi-task configuration initialized:
+2026-03-14 18:23:06,643 - config - INFO -   Active tasks: ['TB Label']
+2026-03-14 18:23:06,643 - config - INFO -   Frame selection strategy: RL
+2026-03-14 18:23:06,643 - config - INFO -   Use pathology loss: True
+2026-03-14 18:23:06,643 - config - INFO -   Device: cuda
+2026-03-14 18:23:06,643 - config - INFO - Loading configuration from /users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml
+2026-03-14 18:23:06,648 - config - INFO - Multi-task configuration initialized:
+2026-03-14 18:23:06,648 - config - INFO -   Active tasks: ['TB Label']
+2026-03-14 18:23:06,648 - config - INFO -   Frame selection strategy: RL
+2026-03-14 18:23:06,648 - config - INFO -   Use pathology loss: True
+2026-03-14 18:23:06,648 - config - INFO -   Device: cuda
+2026-03-14 18:23:06,651 - config - INFO - Loading configuration from /users/lxflk/ULTR-AI-Vid/configs/cscs/sa_finetune.yaml
+2026-03-14 18:23:06,662 - config - INFO - Multi-task configuration initialized:
+2026-03-14 18:23:06,662 - config - INFO -   Active tasks: ['TB Label']
+2026-03-14 18:23:06,662 - config - INFO -   Frame selection strategy: RL
+2026-03-14 18:23:06,662 - config - INFO -   Use pathology loss: True
+2026-03-14 18:23:06,662 - config - INFO -   Device: cuda
+2026-03-14 18:23:06,667 - domain_shift_probe - INFO - Manifest saved to /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test/manifest.json
+2026-03-14 18:23:06,667 - domain_shift_probe - INFO - Loading model from /users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold3/checkpoint_best.pth
+2026-03-14 18:23:06,667 - NetworkArchitecture.CLIP_DRL_Aug11 - INFO - MultiTaskModel configured for tasks: ['TB Label']
+2026-03-14 18:23:06,667 - NetworkArchitecture.CLIP_DRL_Aug11 - INFO - Using pathology loss: True
+2026-03-14 18:23:06,667 - NetworkArchitecture.CLIP_DRL_Aug11 - INFO - Frame selection strategy: RL
+2026-03-14 18:23:08,651 - NetworkArchitecture.CLIP_DRL_Aug11 - INFO - Loading weights from /users/lxflk/CLIP_weights/model.safetensors
+2026-03-14 18:23:08,944 - NetworkArchitecture.CLIP_DRL_Aug11 - INFO - Successfully matched 199/199 weights
+2026-03-14 18:23:09,783 - NetworkArchitecture.CLIP_DRL_Aug11 - INFO - Using original FrameSelectionAgent for RL strategy
+2026-03-14 18:23:11,635 - domain_shift_probe - INFO - Model loaded successfully
+2026-03-14 18:23:12,037 - domain_shift_probe - INFO - Benin test split dataset size: 100 patients
+2026-03-14 18:23:12,173 - py.warnings - WARNING - /users/lxflk/ULTR-AI-Vid/dataset_sa.py:390: FutureWarning: Downcasting behavior in `replace` is deprecated and will be removed in a future version. To retain the old behavior, explicitly call `result.infer_objects(copy=False)`. To opt-in to the future behavior, set `pd.set_option('future.no_silent_downcasting', True)`
+  val_ids = split_df['valid_ids'].astype(str).replace('', np.nan).dropna().tolist()
+
+2026-03-14 18:23:12,498 - domain_shift_probe - INFO - SA test split dataset size: 104 patients
+2026-03-14 18:23:12,499 - domain_shift_probe - INFO - Benin dataset size: 100 patients across 50 batches
+2026-03-14 18:23:12,499 - domain_shift_probe - INFO - SA dataset size: 104 patients across 52 batches
+2026-03-14 18:23:12,499 - domain_shift_probe - INFO - Extracting benin features
+2026-03-14 18:23:19,308 - domain_shift_probe - INFO - benin progress: batch 1/50 | frame_rows=1472 scan_rows=46 patient_rows=2
+2026-03-14 18:23:26,975 - domain_shift_probe - INFO - benin progress: batch 10/50 | frame_rows=14048 scan_rows=439 patient_rows=20
+2026-03-14 18:23:35,274 - domain_shift_probe - INFO - benin progress: batch 20/50 | frame_rows=27008 scan_rows=844 patient_rows=40
+2026-03-14 18:23:43,973 - domain_shift_probe - INFO - benin progress: batch 30/50 | frame_rows=41152 scan_rows=1286 patient_rows=60
+2026-03-14 18:23:50,050 - domain_shift_probe - INFO - benin progress: batch 40/50 | frame_rows=54048 scan_rows=1689 patient_rows=80
+2026-03-14 18:23:57,933 - domain_shift_probe - INFO - benin progress: batch 50/50 | frame_rows=65824 scan_rows=2057 patient_rows=100
+2026-03-14 18:23:58,059 - domain_shift_probe - INFO - benin clip_frame samples: 65824
+2026-03-14 18:23:58,059 - domain_shift_probe - INFO - benin scan samples: 2057
+2026-03-14 18:23:58,059 - domain_shift_probe - INFO - benin patient samples: 100
+2026-03-14 18:23:58,065 - domain_shift_probe - INFO - Extracting sa features
+2026-03-14 18:24:01,029 - domain_shift_probe - INFO - sa progress: batch 1/52 | frame_rows=320 scan_rows=10 patient_rows=2
+2026-03-14 18:24:09,275 - domain_shift_probe - INFO - sa progress: batch 10/52 | frame_rows=5312 scan_rows=166 patient_rows=20
+2026-03-14 18:24:15,032 - domain_shift_probe - INFO - sa progress: batch 20/52 | frame_rows=11008 scan_rows=344 patient_rows=40
+2026-03-14 18:24:22,503 - domain_shift_probe - INFO - sa progress: batch 30/52 | frame_rows=17056 scan_rows=533 patient_rows=60
+2026-03-14 18:24:28,946 - domain_shift_probe - INFO - sa progress: batch 40/52 | frame_rows=21984 scan_rows=687 patient_rows=80
+2026-03-14 18:24:32,948 - domain_shift_probe - INFO - sa progress: batch 50/52 | frame_rows=26592 scan_rows=831 patient_rows=100
+2026-03-14 18:24:35,159 - domain_shift_probe - INFO - sa progress: batch 52/52 | frame_rows=27616 scan_rows=863 patient_rows=104
+2026-03-14 18:24:35,277 - domain_shift_probe - INFO - sa clip_frame samples: 27616
+2026-03-14 18:24:35,277 - domain_shift_probe - INFO - sa scan samples: 863
+2026-03-14 18:24:35,277 - domain_shift_probe - INFO - sa patient samples: 104
+2026-03-14 18:24:35,308 - domain_shift_probe - INFO - Combined clip_frame rows=93440 features=768
+2026-03-14 18:24:35,308 - domain_shift_probe - INFO - Combined scan rows=2920 features=512
+2026-03-14 18:24:35,308 - domain_shift_probe - INFO - Combined patient rows=204 features=512
+2026-03-14 18:24:35,308 - domain_shift_probe - INFO - Saving extracted feature payloads
+2026-03-14 18:24:35,671 - domain_shift_probe - INFO - Feature payloads saved under /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/benin_pretrained_fold3_test
+2026-03-14 18:24:35,671 - domain_shift_probe - INFO - Running domain classifier for clip_frame
+2026-03-14 18:24:43,166 - domain_shift_probe - INFO - CLIP frame embeddings AUROC: 0.9109 +/- 0.0096
+2026-03-14 18:24:43,166 - domain_shift_probe - INFO - Running domain classifier for scan
+2026-03-14 18:24:43,390 - domain_shift_probe - INFO - Scan representations AUROC: 0.8684 +/- 0.0093
+2026-03-14 18:24:43,390 - domain_shift_probe - INFO - Running domain classifier for patient
+2026-03-14 18:24:43,428 - domain_shift_probe - INFO - Patient representations AUROC: 1.0000 +/- 0.0000
+2026-03-14 18:24:43,882 - domain_shift_probe - INFO - Saved metrics to /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test/domain_classifier_metrics.json
+2026-03-14 18:24:43,882 - domain_shift_probe - INFO - Saved repeats to /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test/domain_classifier_repeats.json
+2026-03-14 18:24:43,882 - domain_shift_probe - INFO - Saved summary to /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test/summary.txt
+2026-03-14 18:24:43,882 - domain_shift_probe - INFO - Saved AUROC plot to /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test/domain_probe_auroc.png
+2026-03-14 18:24:43,882 - domain_shift_probe - INFO - Saved PCA overview to /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test/embedding_pca_overview.png
+2026-03-14 18:24:43,882 - domain_shift_probe - INFO - Domain shift probe completed successfully in 1.62 minutes

@@ -1,4 +1,5 @@
 checkpoints/
+# Domain-shift probe feature caches live under checkpoints/domain_shift_probe_features/
 __pycache__/
 .vscode/
 logs/

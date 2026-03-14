@@ -1,0 +1,23 @@
+Domain Shift Probe Summary
+
+Representation note
+  Scan representation here is the current code path's pooled selected-frame site vector before site integration.
+
+CLIP frame embeddings
+  AUROC: 0.9111 +/- 0.0096
+  Accuracy: 0.8400 +/- 0.0122
+  Rows / Patients: 93440 / 204
+
+Scan representations
+  AUROC: 0.9116 +/- 0.0180
+  Accuracy: 0.8406 +/- 0.0155
+  Rows / Patients: 2920 / 204
+
+Patient representations
+  AUROC: 1.0000 +/- 0.0000
+  Accuracy: 1.0000 +/- 0.0000
+  Rows / Patients: 204 / 204
+
+Interpretation
+- High separability already at raw CLIP frame embeddings: appearance/encoder shift is strong and SimCLR-style SSL is plausible.
+- This probe cannot rule out population-specific signal shifts; if separation appears mainly at later levels, inspect site distribution and missingness before assuming SSL will solve it.
