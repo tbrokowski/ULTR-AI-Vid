@@ -1459,6 +1459,11 @@ class VideoTransformerMultiTaskModel(nn.Module):
 
 def create_ablation_model(model_type, config):
     """Factory function to create ablation models."""
+    model_aliases = {
+        # Legacy config name used across the older DRL MIL training configs.
+        'tb_rl_mil': 'original',
+    }
+    resolved_model_type = model_aliases.get(model_type, model_type)
     
     model_map = {
         'original': MultiTaskModel,
@@ -1471,11 +1476,14 @@ def create_ablation_model(model_type, config):
         'video_transformer': VideoTransformerMultiTaskModel,  # Using ViViT
     }
     
-    if model_type not in model_map:
+    if resolved_model_type not in model_map:
         raise ValueError(f"Unknown model type: {model_type}. Available: {list(model_map.keys())}")
     
-    logger.info(f"Creating {model_type} model using PyTorch backbones (ViViT for video_transformer)")
-    return model_map[model_type](config)
+    logger.info(
+        "Creating %s model using PyTorch backbones (ViViT for video_transformer)",
+        resolved_model_type,
+    )
+    return model_map[resolved_model_type](config)
 
 
 # Aliases for backward compatibility

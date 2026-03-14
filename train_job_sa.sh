@@ -19,8 +19,8 @@ mkdir -p logs
 CONFIG="configs/cscs/sa_finetune.yaml"
 OUTPUT_DIR="/users/lxflk/ULTR-AI-Vid/sa_finetuning_results"
 CHECKPOINT_DIR="/users/lxflk/ULTR-AI-Vid/checkpoints/sa_finetune"
-BENIN_CHECKPOINT="/users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold2/checkpoint_best.pth"
-BENIN_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold2.yaml"
+BENIN_CHECKPOINT="/users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold3/checkpoint_best.pth"
+BENIN_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml"
 
 SKIP_ZERO_SHOT=false
 SKIP_FINETUNING=false

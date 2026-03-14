@@ -499,6 +499,8 @@ def save_comprehensive_predictions(
     os.makedirs(output_dir, exist_ok=True)
     
     trainer.model.eval()
+    if hasattr(trainer, '_reset_frame_selector_state'):
+        trainer._reset_frame_selector_state(clear_history=True)
     patient_records = []
     site_records = []
     complex_data = {
@@ -638,7 +640,10 @@ def save_comprehensive_predictions(
                 continue
     
     # Create DataFrames
-    patient_df = pd.DataFrame(patient_records)
+    patient_df = pd.DataFrame(
+        patient_records,
+        columns=['patient_id', 'num_valid_sites', 'tb_label', 'tb_logit', 'tb_prob', 'tb_pred']
+    )
     site_df = pd.DataFrame(site_records) if site_records else pd.DataFrame()
     
     # Save CSVs

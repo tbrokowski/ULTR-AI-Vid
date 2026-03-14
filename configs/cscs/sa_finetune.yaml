@@ -4,8 +4,6 @@ device: "cuda"
 train: true
 evaluate_best_valid_model: true
 
-model_weights: "/users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold3/checkpoint_best.pth"
-#model_weights: "/capstor/store/cscs/swissai/a127/ultr-ai/ablation_results/attention_pool_extra3_full_train2/fold2/checkpoint_best.pth"
 best_model_path: null
 resume_from_checkpoint: null
 reset_optimizers: true
@@ -87,7 +85,7 @@ mode: "video"
 pooling: "attention"
 
 model_type: "tb_rl_mil"
-model_name: "sa_finetune_fold2_init"
+model_name: "sa_finetune_fold3_init"
 
 hidden_dim: 512
 dropout_rate: 0.3

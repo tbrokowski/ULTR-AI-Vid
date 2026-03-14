@@ -1144,6 +1144,36 @@ class AblationTrainer:
         
         if is_main_process():
             logger.info(f"Mixed precision training: {self.use_amp}")
+
+    def _reset_frame_selector_state(self, clear_history=False, reset_temperature=False):
+        """Clear cached RL frame-selector state that can retain GPU tensors."""
+        selector = getattr(self.model_without_ddp, 'frame_selector', None)
+        if selector is None:
+            return
+
+        if hasattr(selector, 'saved_actions'):
+            selector.saved_actions = []
+
+        if hasattr(selector, 'reset_rewards'):
+            try:
+                selector.reset_rewards()
+            except Exception:
+                pass
+
+        if clear_history:
+            if hasattr(selector, 'clear_history'):
+                try:
+                    selector.clear_history()
+                except Exception:
+                    pass
+            elif hasattr(selector, 'frame_history'):
+                selector.frame_history = {}
+
+        if reset_temperature and hasattr(selector, 'reset_temperature'):
+            try:
+                selector.reset_temperature()
+            except Exception:
+                pass
     
     def train_epoch(self, epoch):
         """
@@ -1220,6 +1250,7 @@ class AblationTrainer:
                 return True  # Assume OOM to be safe
 
         def _cleanup_after_oom():
+            self._reset_frame_selector_state(clear_history=True)
             if self.backbone_optimizer:
                 self.backbone_optimizer.zero_grad()
             if self.patient_pipeline_optimizer:
@@ -1649,6 +1680,7 @@ class AblationTrainer:
                     continue
                 
                 # Memory cleanup
+                self._reset_frame_selector_state()
                 if batch_idx % 2 == 0 and torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 
@@ -1694,6 +1726,7 @@ class AblationTrainer:
                     raise e
         
         progress_bar.close()
+        self._reset_frame_selector_state(clear_history=True)
         
         # Gather metrics from all processes
         if self.is_distributed:
@@ -1785,6 +1818,7 @@ class AblationTrainer:
         """Validation with distributed support."""
         if loader is None:
             loader = self.val_loader
+        self._reset_frame_selector_state(clear_history=True)
         
         # Check if loader is empty
         if loader is None or len(loader) == 0:
@@ -1936,6 +1970,7 @@ class AblationTrainer:
                     # Clean up memory
                     del site_videos, site_indices, site_masks, site_findings, inputs
                     del tb_labels, pneumonia_labels, covid_labels, outputs, loss
+                    self._reset_frame_selector_state()
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 
@@ -2267,6 +2302,7 @@ class AblationTrainer:
             self.epochs_without_improvement = 0
         
         for epoch in range(start_epoch, self.config.num_epochs):
+            self._reset_frame_selector_state(clear_history=True, reset_temperature=True)
             if is_main_process():
                 logger.info(f"Epoch {epoch+1}/{self.config.num_epochs}")
             
@@ -2362,6 +2398,7 @@ class AblationTrainer:
     def _evaluate_best_model(self):
         """Evaluate the best model (simplified version - implement full version as needed)."""
         logger.info("Evaluating best TB ablation model on all splits...")
+        self._reset_frame_selector_state(clear_history=True)
         
         # Clear GPU cache before evaluation to avoid OOM
         gc.collect()

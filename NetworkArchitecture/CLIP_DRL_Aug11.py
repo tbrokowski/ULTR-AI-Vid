@@ -159,6 +159,24 @@ class FrameSelectionAgent(nn.Module):
         self.pathology_rewards = []
         self.saved_actions = []
         self.frame_history = {}
+        self._nonfinite_warning_count = 0
+
+    def _warn_nonfinite(self, context):
+        """Warn a few times when selector activations become non-finite."""
+        if self._nonfinite_warning_count < 5:
+            logger.warning("FrameSelectionAgent encountered non-finite values in %s; applying safe fallback", context)
+            self._nonfinite_warning_count += 1
+
+    def _sanitize_tensor(self, tensor, context, nan=0.0, posinf=1e4, neginf=-1e4, clamp_value=None):
+        """Replace non-finite values while preserving autograd where possible."""
+        if tensor is None:
+            return None
+        if not torch.isfinite(tensor).all():
+            self._warn_nonfinite(context)
+            tensor = torch.nan_to_num(tensor, nan=nan, posinf=posinf, neginf=neginf)
+        if clamp_value is not None:
+            tensor = tensor.clamp(min=-clamp_value, max=clamp_value)
+        return tensor
 
     def reset_data_after_update(self):
         """Reset data after policy parameters are updated.
@@ -227,7 +245,8 @@ class FrameSelectionAgent(nn.Module):
             self.frame_history[key] = []
         
         # Add current features to history (store tensors detached)
-        self.frame_history[key].append(features.detach())
+        safe_features = torch.nan_to_num(features.detach(), nan=0.0, posinf=0.0, neginf=0.0)
+        self.frame_history[key].append(safe_features)
         
         # Limit history length
         max_history = 5
@@ -266,6 +285,7 @@ class FrameSelectionAgent(nn.Module):
         
         # Stack history items
         history_tensor = torch.cat(history, dim=0)  # [history_len, hidden_dim]
+        history_tensor = self._sanitize_tensor(history_tensor, "history_tensor", nan=0.0, posinf=0.0, neginf=0.0, clamp_value=1e3)
         
         # Add batch dimension
         history_tensor = history_tensor.unsqueeze(0)  # [1, history_len, hidden_dim]
@@ -275,6 +295,7 @@ class FrameSelectionAgent(nn.Module):
         
         # Project to match feature dimensions
         history_embedding = self.history_projection(hidden.squeeze(0))  # [1, hidden_dim]
+        history_embedding = self._sanitize_tensor(history_embedding, "history_embedding", nan=0.0, posinf=0.0, neginf=0.0, clamp_value=1e3)
         
         return history_embedding
     
@@ -294,6 +315,7 @@ class FrameSelectionAgent(nn.Module):
             encoded_features: Encoded features [B, T, output_dim]
         """
         batch_size, seq_len = features.shape[:2]
+        features = self._sanitize_tensor(features, "frame_selector_input", nan=0.0, posinf=1e3, neginf=-1e3, clamp_value=1e3)
         
         # Handle missing mask
         if mask is None:
@@ -324,12 +346,16 @@ class FrameSelectionAgent(nn.Module):
 
         # Expand positional embedding to match feature dimension using pre-declared layer
         pos_emb_expanded = self.pos_expand(pos_emb)  # [B, T, feature_dim]
+        pos_emb_expanded = self._sanitize_tensor(pos_emb_expanded, "positional_embedding", nan=0.0, posinf=1e2, neginf=-1e2, clamp_value=1e2)
 
         # Add positional encoding to input features
         features_with_pos = features + pos_emb_expanded
+        features_with_pos = self._sanitize_tensor(features_with_pos, "features_with_pos", nan=0.0, posinf=1e3, neginf=-1e3, clamp_value=1e3)
 
         # Extract multi-scale features (using enhanced features)
         multiscale_features, base_features = self.extract_multiscale_features(features_with_pos)
+        multiscale_features = self._sanitize_tensor(multiscale_features, "multiscale_features", nan=0.0, posinf=1e3, neginf=-1e3, clamp_value=1e3)
+        base_features = self._sanitize_tensor(base_features, "base_features", nan=0.0, posinf=1e3, neginf=-1e3, clamp_value=1e3)
     
         
         # Initialize outputs
@@ -348,6 +374,7 @@ class FrameSelectionAgent(nn.Module):
             
             # Get history embedding
             history_emb = self.get_history_embedding(b_idx, s_idx, features.device)
+            history_emb = self._sanitize_tensor(history_emb, "history_emb_batch", nan=0.0, posinf=1e3, neginf=-1e3, clamp_value=1e3)
             
             ############## CHANGE HERE 
             # Apply masking to find valid frames
@@ -367,6 +394,7 @@ class FrameSelectionAgent(nn.Module):
 
             # Get features for valid frames
             valid_features = multiscale_features[b, valid_indices]
+            valid_features = self._sanitize_tensor(valid_features, "valid_features", nan=0.0, posinf=1e3, neginf=-1e3, clamp_value=1e3)
             
             # Create policy inputs (combine features with history info)
             # Expand history embedding to match feature dimensions
@@ -374,13 +402,18 @@ class FrameSelectionAgent(nn.Module):
             
             # Concatenate with features
             policy_inputs = torch.cat([valid_features, expanded_history], dim=1)
+            policy_inputs = self._sanitize_tensor(policy_inputs, "policy_inputs", nan=0.0, posinf=1e3, neginf=-1e3, clamp_value=1e3)
             
             # Get action logits and state value
-            frame_logits = self.policy_net(policy_inputs).squeeze(-1).float() 
+            frame_logits = self.policy_net(policy_inputs).squeeze(-1).float()
+            frame_logits = self._sanitize_tensor(frame_logits, "frame_logits_pre_noise", nan=0.0, posinf=50.0, neginf=-50.0, clamp_value=50.0)
             
             # Add exploration bonus based on temperature
-            exploration_bonus = torch.randn_like(frame_logits) * self.temperature * 0.1
+            safe_temperature = float(self.temperature) if np.isfinite(self.temperature) else 1.0
+            safe_temperature = max(safe_temperature, 1e-3)
+            exploration_bonus = torch.randn_like(frame_logits) * safe_temperature * 0.1
             frame_logits = frame_logits + exploration_bonus
+            frame_logits = self._sanitize_tensor(frame_logits, "frame_logits", nan=0.0, posinf=50.0, neginf=-50.0, clamp_value=50.0)
             
             # Update action logits for valid frames
             action_logits[b, valid_indices] = frame_logits
@@ -396,11 +429,20 @@ class FrameSelectionAgent(nn.Module):
 
             avg_features = valid_features.mean(dim=0, keepdim=True)
             avg_state_input = torch.cat([avg_features, history_emb], dim=1)
+            avg_state_input = self._sanitize_tensor(avg_state_input, "avg_state_input", nan=0.0, posinf=1e3, neginf=-1e3, clamp_value=1e3)
             state_value = self.value_net(avg_state_input)  # This should have gradients
+            state_value = self._sanitize_tensor(state_value, "state_value", nan=0.0, posinf=1e2, neginf=-1e2, clamp_value=1e2)
             state_values_list.append(state_value)
             
             # Generate output features for all frames
-            encoded_features[b] = self.output_projection(base_features[b])
+            encoded_features[b] = self._sanitize_tensor(
+                self.output_projection(base_features[b]),
+                "encoded_features",
+                nan=0.0,
+                posinf=1e3,
+                neginf=-1e3,
+                clamp_value=1e3
+            )
         
         # FIXED: Stack state values to preserve gradients
         if state_values_list:
@@ -424,6 +466,9 @@ class FrameSelectionAgent(nn.Module):
             # TRAINING: Full exploration + gradients + action storage
             #==================================================
             temperature = self.temperature  # Full temperature
+            if not np.isfinite(temperature) or temperature <= 0:
+                self._warn_nonfinite("temperature")
+                temperature = 1.0
             
             # Ensure gradients flow
             if not logits.requires_grad:
@@ -432,8 +477,19 @@ class FrameSelectionAgent(nn.Module):
                     logits = logits + dummy_param.sum() * 0.0
             
             # Sample from distribution
-            scaled_logits = logits / temperature
+            safe_logits = self._sanitize_tensor(logits, "select_action_logits", nan=0.0, posinf=50.0, neginf=-50.0, clamp_value=50.0)
+            scaled_logits = safe_logits / temperature
             probs = F.softmax(scaled_logits, dim=-1)
+            probs = self._sanitize_tensor(probs, "select_action_probs", nan=0.0, posinf=1.0, neginf=0.0)
+            probs_sum = probs.sum(dim=-1, keepdim=True)
+            invalid_probs = (
+                (not torch.isfinite(probs).all())
+                or (probs_sum <= 0).any()
+                or (not torch.isfinite(probs_sum).all())
+            )
+            if invalid_probs:
+                self._warn_nonfinite("select_action_probs_simplex")
+                probs = torch.full_like(safe_logits, 1.0 / safe_logits.shape[-1])
             dist = torch.distributions.Categorical(probs=probs)
             
             action = dist.sample()
@@ -454,7 +510,7 @@ class FrameSelectionAgent(nn.Module):
                     action_data = {
                         'batch_idx': b_idx,
                         'site_idx': s_idx,
-                        'logits': logits[i],
+                        'logits': safe_logits[i],
                         'action': action[i],
                         'log_prob': log_prob[i],
                         'entropy': entropy[i]
@@ -508,13 +564,14 @@ class FrameSelectionAgent(nn.Module):
         # EVALUATION: Deterministic (greedy) argmax over logits
         #==================================================
             with torch.no_grad():
+                safe_logits = self._sanitize_tensor(logits, "eval_logits", nan=0.0, posinf=50.0, neginf=-50.0, clamp_value=50.0)
                 # Greedy selection (no temperature, no sampling)
-                action = logits.argmax(dim=-1)  # [B]
+                action = safe_logits.argmax(dim=-1)  # [B]
                 
                 # Optional: compute log_prob for metrics/analytics
                 # (not used for gradients or reward attribution)
                 log_prob = torch.gather(
-                    F.log_softmax(logits, dim=-1),
+                    F.log_softmax(safe_logits, dim=-1),
                     dim=-1,
                     index=action.unsqueeze(-1)
                 ).squeeze(-1)  # [B]
