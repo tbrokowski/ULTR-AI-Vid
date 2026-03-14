@@ -16,6 +16,66 @@ from PIL import ImageEnhance, ImageFilter
 
 NUM_PATH_CLASSES = 4
 
+SA_SITE_ALIASES = {
+    # TrUST raw site codes -> internal canonical site codes.
+    "RA": "APXD",
+    "RAS": "QASD",
+    "RAI": "QAID",
+    "RLS": "QSLD",
+    "RL": "QLD",
+    "LA": "APXG",
+    "LAS": "QASG",
+    "LAI": "QAIG",
+    "LLS": "QSLG",
+    "LL": "QLG",
+    "RPS": "QPSD",
+    "RPI": "QPID",
+    "LPS": "QPSG",
+    "LPI": "QPIG",
+
+    # Internal aliases used elsewhere in the repo.
+    "QLID": "QLD",
+    "QLIG": "QLG",
+
+    # A few rare variants present in the processed SA metadata.
+    "LLI": "QLG",
+    "RP1": "QPID",
+}
+
+SA_CANONICAL_SITES = {
+    "QAID",
+    "QAIG",
+    "QASD",
+    "QASG",
+    "QLD",
+    "QLG",
+    "QPID",
+    "QPIG",
+    "QPSD",
+    "QPSG",
+    "APXD",
+    "APXG",
+    "QSLD",
+    "QSLG",
+    "SAD",
+    "SLD",
+    "SAG",
+    "SLG",
+    "SPD",
+    "SPG",
+    "UNKNOWN",
+}
+
+
+def normalize_sa_site_code(site: object) -> str:
+    code = str(site or "UNKNOWN").strip().upper() or "UNKNOWN"
+    mapped = SA_SITE_ALIASES.get(code, code)
+    if mapped == "<PAD>":
+        return "UNKNOWN"
+    if mapped in SA_CANONICAL_SITES:
+        return mapped
+    return "UNKNOWN"
+
 class UltrasoundPreprocessing(object):
     def __call__(self, img):
         enhancer = ImageEnhance.Contrast(img)
@@ -263,6 +323,22 @@ class PatientLevelDataset(Dataset):
             ("UNKNOWN", 21),
         ])
 
+        if self.selected_sites:
+            normalized_selected_sites = []
+            for site in self.selected_sites:
+                normalized_site = normalize_sa_site_code(site)
+                if normalized_site not in normalized_selected_sites:
+                    normalized_selected_sites.append(normalized_site)
+            self.selected_sites = normalized_selected_sites
+
+        if self.site_order is not None:
+            normalized_site_order = []
+            for site in self.site_order:
+                normalized_site = normalize_sa_site_code(site)
+                if normalized_site not in normalized_site_order:
+                    normalized_site_order.append(normalized_site)
+            self.site_order = normalized_site_order
+
         self.labels_df = pd.read_csv(labels_csv)
         self.file_metadata_df = pd.read_csv(file_metadata_csv)
 
@@ -342,13 +418,14 @@ class PatientLevelDataset(Dataset):
             self._filter_by_split()
 
         self._apply_depth_filter()
+        self.file_metadata_df['normalized_site'] = self.file_metadata_df['Site'].apply(normalize_sa_site_code)
 
         self._extract_site_labels()
         
         if self.selected_sites:
             before_count = len(self.file_metadata_df)
             self.file_metadata_df = self.file_metadata_df[
-                self.file_metadata_df['Site'].isin(self.selected_sites)
+                self.file_metadata_df['normalized_site'].isin(self.selected_sites)
             ]
             after_count = len(self.file_metadata_df)
             if after_count == 0 and before_count > 0:
@@ -578,15 +655,7 @@ class PatientLevelDataset(Dataset):
 
         for col in self.labels_df.columns:
             if '_' in col and col not in label_exclusion:
-                site = col.split('_')[0]
-                if site == 'QLID':
-                    site = 'QLD'
-                elif site == 'QLIG':
-                    site = 'QLG'
-                elif site == 'QSLD':
-                    site = 'QSLD'
-                elif site == 'QSLG':
-                    site = 'QSLG'
+                site = normalize_sa_site_code(col.split('_')[0])
                 self.site_codes.add(site)
         
         self.finding_columns = [
@@ -669,7 +738,11 @@ class PatientLevelDataset(Dataset):
         
         # Apply site findings lookup
         self.file_metadata_df['site_findings'] = self.file_metadata_df.apply(
-            lambda row: self._get_site_findings(row['patient_id'], row['Site']), axis=1
+            lambda row: self._get_site_findings(
+                row['patient_id'],
+                row.get('normalized_site', row['Site']),
+            ),
+            axis=1,
         )
         
         # Debug: Check how many files have pathology findings
@@ -680,44 +753,15 @@ class PatientLevelDataset(Dataset):
         # Show sample of unique site names from file_metadata
         unique_sites = self.file_metadata_df['Site'].unique()[:15]
         print(f"  Unique site names in file_metadata (sample): {list(unique_sites)}")
+        normalized_sites = self.file_metadata_df['normalized_site'].unique()[:15]
+        print(f"  Normalized site names in file_metadata (sample): {list(normalized_sites)}")
         
         # Show sample of site codes extracted from labels
         sample_site_codes = list(self.site_codes)[:10]
         print(f"  Site codes extracted from pathology labels: {sample_site_codes}")
     
     def _get_site_findings(self, patient_id, site):
-        # Map TrUST site codes (from processed_files.csv) to pathology label site codes
-        # This mapping matches create_sa_pathology_labels.py SITE_MAPPING
-        site_mapping = {
-            'RA': 'APXD',    # Right anterior
-            'RAS': 'QASD',   # Right anterior superior
-            'RAI': 'QAID',   # Right anterior inferior
-            'RLS': 'QSLD',   # Right lateral superior
-            'RL': 'QLID',    # Right lateral inferior -> QLD
-            'LA': 'APXG',    # Left anterior
-            'LAS': 'QASG',   # Left anterior superior
-            'LAI': 'QAIG',   # Left anterior inferior
-            'LLS': 'QSLG',   # Left lateral superior
-            'LL': 'QLIG',    # Left lateral inferior -> QLG
-            'RPS': 'QPSD',   # Right posterior superior
-            'RPI': 'QPID',   # Right posterior inferior
-            'LPS': 'QPSG',   # Left posterior superior
-            'LPI': 'QPIG',   # Left posterior inferior
-            # Handle case variations
-            'ra': 'APXD', 'ras': 'QASD', 'rai': 'QAID', 'rls': 'QSLD', 'rl': 'QLID',
-            'la': 'APXG', 'las': 'QASG', 'lai': 'QAIG', 'lls': 'QSLG', 'll': 'QLIG',
-            'rps': 'QPSD', 'rpi': 'QPID', 'lps': 'QPSG', 'lpi': 'QPIG'
-        }
-        
-        # Apply TrUST site name mapping first
-        mapped_site = site_mapping.get(site, site)
-        
-        # Then apply additional internal mappings (QLID->QLD, QLIG->QLG)
-        if mapped_site == 'QLID':
-            mapped_site = 'QLD'
-        elif mapped_site == 'QLIG':
-            mapped_site = 'QLG'
-        
+        mapped_site = normalize_sa_site_code(site)
         if patient_id in self.site_labels and mapped_site in self.site_labels[patient_id]:
             return self.site_labels[patient_id][mapped_site].get('findings', {})
         return {}
@@ -825,7 +869,8 @@ class PatientLevelDataset(Dataset):
             patient_files_by_site = {}
             for _, file_info in group.iterrows():
                 file_key = file_info['file_key']
-                site = str(file_info['Site']).upper()
+                raw_site = str(file_info['Site']).upper()
+                site = file_info.get('normalized_site', normalize_sa_site_code(raw_site))
                 
                 file_exists = False
                 if (self.mode == 'video' and file_key in self.video_paths) or \
@@ -840,16 +885,11 @@ class PatientLevelDataset(Dataset):
                     depth = int(file_info['Depth'])
                     site_findings = file_info.get('site_findings', {})
                     
-                    mapped_site = site
-                    if site == 'QLID':
-                        mapped_site = 'QLD'
-                    elif site == 'QLIG':
-                        mapped_site = 'QLG'
-                    
                     patient_files_by_site[site].append({
                         'file_key': file_key,
                         'site': site,
-                        'site_index': self.site_mapping.get(mapped_site, 0),
+                        'raw_site': raw_site,
+                        'site_index': self.site_mapping.get(site, self.site_mapping['UNKNOWN']),
                         'depth': depth,
                         'site_findings': site_findings,
                         'has_video': file_key in self.video_paths,
@@ -860,16 +900,7 @@ class PatientLevelDataset(Dataset):
             selected_files = []
             
             for site in ordered_sites:
-                possible_sites = [site]
-                if site == 'QLD':
-                    possible_sites.append('QLID')
-                elif site == 'QLG':
-                    possible_sites.append('QLIG')
-                
-                site_files = []
-                for possible_site in possible_sites:
-                    if possible_site in patient_files_by_site:
-                        site_files.extend(patient_files_by_site[possible_site])
+                site_files = list(patient_files_by_site.get(site, []))
                 
                 if site_files:
                     if self.files_per_site == 'all':
@@ -1032,12 +1063,7 @@ class PatientLevelDataset(Dataset):
             
             patient_sites = set()
             for file_info in files:
-                site = file_info['site']
-                mapped_site = site
-                if site == 'QLID':
-                    mapped_site = 'QLD'
-                elif site == 'QLIG':
-                    mapped_site = 'QLG'
+                mapped_site = normalize_sa_site_code(file_info['site'])
                     
                 if mapped_site in stats['site_coverage']:
                     stats['site_coverage'][mapped_site]['total_files'] += 1

@@ -4,14 +4,14 @@ Representation note
   Scan representation here is the current code path's pooled selected-frame site vector before site integration.
 
 CLIP frame embeddings
-  AUROC: 0.9111 +/- 0.0096
-  Accuracy: 0.8400 +/- 0.0122
-  Rows / Patients: 93440 / 204
+  AUROC: 0.8962 +/- 0.0068
+  Accuracy: 0.8084 +/- 0.0079
+  Rows / Patients: 199520 / 204
 
 Scan representations
-  AUROC: 0.9116 +/- 0.0180
-  Accuracy: 0.8406 +/- 0.0155
-  Rows / Patients: 2920 / 204
+  AUROC: 0.8958 +/- 0.0079
+  Accuracy: 0.8111 +/- 0.0100
+  Rows / Patients: 6235 / 204
 
 Patient representations
   AUROC: 1.0000 +/- 0.0000
@@ -20,4 +20,5 @@ Patient representations
 
 Interpretation
 - High separability already at raw CLIP frame embeddings: appearance/encoder shift is strong and SimCLR-style SSL is plausible.
+- Separability increases again at the patient level: the model may be exploiting domain-specific site presence/importance patterns, which SimCLR alone is unlikely to fix.
 - This probe cannot rule out population-specific signal shifts; if separation appears mainly at later levels, inspect site distribution and missingness before assuming SSL will solve it.

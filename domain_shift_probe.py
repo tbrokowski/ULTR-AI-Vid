@@ -39,6 +39,7 @@ from torch.utils.data import ConcatDataset, DataLoader, Subset
 import dataset as benin_dataset
 import dataset_sa as sa_dataset
 from config import MultiTaskConfig, load_config
+from domain_shift_plot_utils import site_metadata_from_index
 from NetworkArchitecture.CLIP_DRL_Aug11 import MultiTaskModel
 
 logger = logging.getLogger("domain_shift_probe")
@@ -377,14 +378,21 @@ def append_patient_features(
     patient_ids: Sequence[str],
     patient_features: torch.Tensor,
     site_counts: Optional[torch.Tensor],
+    tb_labels: Optional[torch.Tensor],
 ) -> None:
     patient_array = patient_features.detach().cpu().numpy().astype(np.float32, copy=False)
     store["patient"]["feature_chunks"].append(patient_array)
 
     for idx, patient_id in enumerate(patient_ids):
         num_sites = int(site_counts[idx].item()) if site_counts is not None else None
+        tb_label = int(tb_labels[idx].detach().cpu().item()) if tb_labels is not None else None
         store["patient"]["metadata_rows"].append(
-            {"domain": domain_name, "patient_id": str(patient_id), "num_sites": num_sites}
+            {
+                "domain": domain_name,
+                "patient_id": str(patient_id),
+                "num_sites": num_sites,
+                "tb_label": tb_label,
+            }
         )
 
 
@@ -394,10 +402,13 @@ def append_scan_features(
     patient_ids: Sequence[str],
     scan_probe_rows: List[Dict],
     mil_attention: torch.Tensor,
+    tb_labels: Optional[torch.Tensor],
 ) -> None:
     for item in scan_probe_rows:
         batch_index = int(item["batch_index"])
         site_position = int(item["site_position"])
+        tb_label = int(tb_labels[batch_index].detach().cpu().item()) if tb_labels is not None else None
+        site_meta = site_metadata_from_index(item["site_index"])
         feature_row = item["scan_features"].detach().cpu().numpy().astype(np.float32, copy=False)
 
         store["scan"]["feature_chunks"].append(feature_row[None, :])
@@ -405,8 +416,13 @@ def append_scan_features(
             {
                 "domain": domain_name,
                 "patient_id": str(patient_ids[batch_index]),
+                "tb_label": tb_label,
                 "site_position": site_position,
                 "site_index": int(item["site_index"]),
+                "site_code": site_meta["site_code"],
+                "site_laterality": site_meta["site_laterality"],
+                "site_region": site_meta["site_region"],
+                "site_family": site_meta["site_family"],
                 "mil_attention": float(mil_attention[batch_index, site_position].detach().cpu().item()),
                 "selected_indices": ";".join(str(int(x)) for x in item["selected_indices"].tolist()),
             }
@@ -418,9 +434,12 @@ def append_frame_features(
     domain_name: str,
     patient_ids: Sequence[str],
     frame_probe_rows: List[Dict],
+    tb_labels: Optional[torch.Tensor],
 ) -> None:
     for item in frame_probe_rows:
         batch_index = int(item["batch_index"])
+        tb_label = int(tb_labels[batch_index].detach().cpu().item()) if tb_labels is not None else None
+        site_meta = site_metadata_from_index(item["site_index"])
         clip_features = item["clip_features"].detach().cpu().numpy().astype(np.float32, copy=False)
 
         if clip_features.size == 0:
@@ -432,8 +451,13 @@ def append_frame_features(
                 {
                     "domain": domain_name,
                     "patient_id": str(patient_ids[batch_index]),
+                    "tb_label": tb_label,
                     "site_position": int(item["site_position"]),
                     "site_index": int(item["site_index"]),
+                    "site_code": site_meta["site_code"],
+                    "site_laterality": site_meta["site_laterality"],
+                    "site_region": site_meta["site_region"],
+                    "site_family": site_meta["site_family"],
                     "frame_index": int(frame_index),
                 }
             )
@@ -494,9 +518,29 @@ def extract_domain_features(
 
                 patient_features, mil_attention = model.patient_mil(integrated_features, inputs["site_masks"])
 
-        append_patient_features(store, domain_name, patient_ids, patient_features, batch.get("site_counts"))
-        append_scan_features(store, domain_name, patient_ids, probe_data["scan_features"], mil_attention)
-        append_frame_features(store, domain_name, patient_ids, probe_data["frame_features"])
+        append_patient_features(
+            store,
+            domain_name,
+            patient_ids,
+            patient_features,
+            batch.get("site_counts"),
+            batch.get("tb_labels"),
+        )
+        append_scan_features(
+            store,
+            domain_name,
+            patient_ids,
+            probe_data["scan_features"],
+            mil_attention,
+            batch.get("tb_labels"),
+        )
+        append_frame_features(
+            store,
+            domain_name,
+            patient_ids,
+            probe_data["frame_features"],
+            batch.get("tb_labels"),
+        )
 
         if batch_idx == 0 or (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == total_batches:
             logger.info(
