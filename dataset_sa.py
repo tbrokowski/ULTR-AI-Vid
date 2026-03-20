@@ -465,6 +465,8 @@ class PatientLevelDataset(Dataset):
             val_ids = []
             if 'valid_ids' in split_df.columns:
                 val_ids = split_df['valid_ids'].astype(str).replace('', np.nan).dropna().tolist()
+            elif 'val_ids' in split_df.columns:
+                val_ids = split_df['val_ids'].astype(str).replace('', np.nan).dropna().tolist()
             
             # Normalize IDs - remove any whitespace and convert to string
             train_ids = [str(pid).strip() for pid in train_ids if pid and str(pid).strip() and str(pid).strip() != 'nan']
@@ -717,24 +719,23 @@ class PatientLevelDataset(Dataset):
                     for col in self.finding_columns:
                         if col.startswith(f"{prefix}_") and not pd.isna(row[col]) and row[col] != -1:
                             finding_type = col[len(prefix)+1:]
-                            
-                            if finding_type == 'A-line' and row[col] == 1:
-                                mapped_value = 1
-                            elif finding_type == 'B-lines' and row[col] == 1:
-                                mapped_value = 1
-                            elif finding_type == 'Confluent B-lines' and row[col] == 1:
-                                mapped_value = 1
-                            elif finding_type == 'small Consolidations or Nodules' and row[col] == 1:
-                                mapped_value = 1
-                            elif finding_type == 'large Consolidations' and row[col] == 1:
-                                mapped_value = 1
-                            elif finding_type == 'Pleural effusion' and row[col] == 1:
-                                mapped_value = 1
-                            else:
-                                mapped_value = -1
-                                
-                            if mapped_value != -1:
-                                self.site_labels[patient_id][site]['findings'][finding_type] = mapped_value
+
+                            if finding_type not in {
+                                'A-line',
+                                'B-lines',
+                                'Confluent B-lines',
+                                'small Consolidations or Nodules',
+                                'large Consolidations',
+                                'Pleural effusion',
+                            }:
+                                continue
+
+                            mapped_value = int(row[col])
+                            existing_value = self.site_labels[patient_id][site]['findings'].get(finding_type, -1)
+                            self.site_labels[patient_id][site]['findings'][finding_type] = max(
+                                existing_value,
+                                mapped_value,
+                            )
         
         # Apply site findings lookup
         self.file_metadata_df['site_findings'] = self.file_metadata_df.apply(
@@ -996,28 +997,30 @@ class PatientLevelDataset(Dataset):
             return torch.empty(0, 3, 224, 224)
     
     def _get_findings_onehot(self, findings_dict, num_classes=NUM_PATH_CLASSES):
-        one_hot = torch.zeros(num_classes)
+        one_hot = torch.full((num_classes,), -1.0)
         
         if not findings_dict or not isinstance(findings_dict, dict):
             return one_hot
         
-        if 'A-line' in findings_dict and findings_dict['A-line'] == 1:
-            one_hot[0] = 1
+        if findings_dict.get('A-line') in [0, 1]:
+            one_hot[0] = float(findings_dict['A-line'])
         
-        if 'large Consolidations' in findings_dict and findings_dict['large Consolidations'] == 1:
-            one_hot[1] = 1
+        if findings_dict.get('large Consolidations') in [0, 1]:
+            one_hot[1] = float(findings_dict['large Consolidations'])
 
-        if ('Pleural effusion' in findings_dict and findings_dict['Pleural effusion'] == 1):
-            one_hot[2] = 1
+        if findings_dict.get('Pleural effusion') in [0, 1]:
+            one_hot[2] = float(findings_dict['Pleural effusion'])
         
-        other_conditions = [
-            ('B-lines' in findings_dict and findings_dict['B-lines'] == 1),
-            ('Confluent B-lines' in findings_dict and findings_dict['Confluent B-lines'] == 1),
-            ('small Consolidations or Nodules' in findings_dict and findings_dict['small Consolidations or Nodules'] == 1),
+        other_values = [
+            findings_dict[key]
+            for key in ['B-lines', 'Confluent B-lines', 'small Consolidations or Nodules']
+            if findings_dict.get(key) in [0, 1]
         ]
         
-        if any(other_conditions):
+        if any(value == 1 for value in other_values):
             one_hot[3] = 1
+        elif other_values:
+            one_hot[3] = 0
         
         return one_hot
 
@@ -1128,7 +1131,7 @@ class PatientLevelDataset(Dataset):
                     video = torch.zeros(self.frame_sampling, 3, 224, 224)
                 if self.mode in ['image', 'both']:
                     image = torch.zeros(3, 224, 224)
-                findings_onehot = torch.zeros(NUM_PATH_CLASSES)
+                findings_onehot = torch.full((NUM_PATH_CLASSES,), -1.0)
             
             site_data.append({
                 'file_key': file_key,
@@ -1152,7 +1155,7 @@ class PatientLevelDataset(Dataset):
                 'site_indices': torch.zeros(1, dtype=torch.long),
                 'site_videos': torch.zeros(1, self.frame_sampling, 3, 224, 224),
                 'site_images': torch.zeros(1, 3, 224, 224),
-                'site_findings': torch.zeros(1, NUM_PATH_CLASSES),
+                'site_findings': torch.full((1, NUM_PATH_CLASSES), -1.0),
                 'is_real_mask': torch.zeros(1, dtype=torch.bool),
                 'is_valid': False,
                 '_uses_controlled_selection': self._uses_controlled_selection
@@ -1235,7 +1238,7 @@ def collate_patient_batch(batch):
     
     site_counts = torch.tensor([sample['num_sites'] for sample in valid_batch], dtype=torch.long)
     site_indices = torch.zeros(batch_size, max_sites, dtype=torch.long)
-    site_findings = torch.zeros(batch_size, max_sites, NUM_PATH_CLASSES)
+    site_findings = torch.full((batch_size, max_sites, NUM_PATH_CLASSES), -1.0)
     
     batch_padding_masks = torch.zeros(batch_size, max_sites, dtype=torch.bool)
     real_data_masks = torch.zeros(batch_size, max_sites, dtype=torch.bool)

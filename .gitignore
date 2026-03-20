@@ -3,3 +3,7 @@ checkpoints/
 __pycache__/
 .vscode/
 logs/
+HF_Token.txt
+core
+core.*
+core_*

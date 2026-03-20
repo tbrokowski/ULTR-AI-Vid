@@ -1,19 +1,20 @@
 {
   "subset_name": "full",
-  "n_train": 155,
+  "n_train": 124,
+  "n_val": 31,
   "n_test": 104,
-  "best_metric": 0.6777777777777778,
-  "best_epoch": 12,
-  "auroc": 0.6513605442176871,
-  "auprc": 0.29998575498575497,
+  "best_metric": 0.8793103448275862,
+  "best_epoch": 1,
+  "auroc": 0.9030612244897959,
+  "auprc": 0.40654761904761905,
   "test_metrics": {
-    "accuracy": 0.9423076923076923,
-    "precision": 0.0,
-    "recall": 0.0,
-    "specificity": 1.0,
-    "f1": 0.0,
-    "auc": 0.6972789115646258,
-    "auprc": 0.33237486913957504
+    "accuracy": 0.057692307692307696,
+    "precision": 0.057692307692307696,
+    "recall": 1.0,
+    "specificity": 0.0,
+    "f1": 0.10909090909090909,
+    "auc": 0.9030612244897959,
+    "auprc": 0.40654761904761905
   },
   "prediction_files": {
     "patient_csv": "/users/lxflk/ULTR-AI-Vid/sa_finetuning_results/finetune_full/finetuned_full_patient_predictions.csv",

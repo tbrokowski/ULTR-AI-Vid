@@ -22,7 +22,7 @@ task_pos_weights:
   "Covid Label": 6.0
 
 use_pathology_loss: true
-pathology_weight: 0.6
+pathology_weight: 0.0
 pathology_pos_weights: [1.0, 4.0, 15.0, 1.8]
 num_pathologies: 4
 pathology_classes:
@@ -99,7 +99,7 @@ use_site_positional_encoding: true
 backbone: "clip"
 freeze_backbone: false
 pretrained: true
-local_weights_dir: "/users/lxflk/ULTR-AI-Vid/NetworkArchitecture/CLIP_weights"
+local_weights_dir: "/users/lxflk/CLIP_weights"
 
 num_epochs: 20
 accumulation_steps: 8

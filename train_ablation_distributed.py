@@ -41,7 +41,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.utils.data.distributed import DistributedSampler
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -805,6 +805,58 @@ class AblationTrainer:
             torch.cuda.manual_seed_all(seed)
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
+
+    def _build_weighted_train_sampler(self, dataset):
+        """Oversample TB-positive patients at the sampler level."""
+        patients = getattr(dataset, 'patients', None)
+        if not patients:
+            return None
+
+        tb_labels = []
+        for patient in patients:
+            patient_labels = patient.get('patient_labels', {}) if isinstance(patient, dict) else {}
+            try:
+                tb_labels.append(int(patient_labels.get('TB Label', -1)))
+            except (TypeError, ValueError):
+                tb_labels.append(-1)
+
+        tb_labels = np.asarray(tb_labels, dtype=np.int64)
+        positive_mask = tb_labels == 1
+        negative_mask = tb_labels == 0
+
+        num_positive = int(positive_mask.sum())
+        num_negative = int(negative_mask.sum())
+
+        if num_positive == 0 or num_negative == 0:
+            if is_main_process():
+                logger.warning(
+                    "Skipping weighted oversampling because class counts are pos=%d, neg=%d",
+                    num_positive,
+                    num_negative,
+                )
+            return None
+
+        positive_multiplier = max(1, int(getattr(self.config, 'positive_class_multiplier', 1)))
+        sample_weights = np.ones(len(tb_labels), dtype=np.float64)
+        sample_weights[positive_mask] = float(positive_multiplier)
+
+        num_samples = num_negative + (num_positive * positive_multiplier)
+        sampler = WeightedRandomSampler(
+            weights=torch.as_tensor(sample_weights, dtype=torch.double),
+            num_samples=num_samples,
+            replacement=True,
+        )
+
+        if is_main_process():
+            logger.info(
+                "Using WeightedRandomSampler for train set: pos=%d, neg=%d, multiplier=%d, samples/epoch=%d",
+                num_positive,
+                num_negative,
+                positive_multiplier,
+                num_samples,
+            )
+
+        return sampler
     
     def _setup_data(self):
         """Set up the data module with distributed samplers."""
@@ -854,6 +906,8 @@ class AblationTrainer:
             self.train_sampler = None
             self.val_sampler = None
             self.test_sampler = None
+            if getattr(self.config, 'oversample_positive_class', False):
+                self.train_sampler = self._build_weighted_train_sampler(self.data_module.patient_train)
         
         # Create data loaders
         train_shuffle = (self.train_sampler is None)
@@ -902,6 +956,8 @@ class AblationTrainer:
             logger.info(f"Validation dataset size: {len(self.data_module.patient_val)}")
             logger.info(f"Test dataset size: {len(self.data_module.patient_test)}")
             logger.info(f"Training batches per epoch: {len(self.train_loader)}")
+            if isinstance(self.train_sampler, WeightedRandomSampler):
+                logger.info(f"Weighted sampler samples per epoch: {self.train_sampler.num_samples}")
     
     def _setup_model(self):
         """Set up the ablation model with DDP support."""
@@ -2222,6 +2278,7 @@ class AblationTrainer:
     
     def save_checkpoint(self, epoch, metrics, is_best=False):
         """Save checkpoint (only on main process)."""
+        metrics = dict(metrics or {})
         if not is_main_process():
             return None
         
@@ -2367,7 +2424,9 @@ class AblationTrainer:
                         logger.info(f"No improvement. Best {eval_metric_key}: {self.best_metric:.4f} from epoch {self.best_epoch+1}")
             
             # Save checkpoint (only on main process)
-            self.save_checkpoint(epoch, val_metrics, is_best)
+            checkpoint_metrics = dict(metric_source or {})
+            checkpoint_metrics.setdefault('loss', fallback_loss)
+            self.save_checkpoint(epoch, checkpoint_metrics, is_best)
             
             # Synchronize all processes
             if self.is_distributed:

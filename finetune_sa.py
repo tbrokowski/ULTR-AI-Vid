@@ -18,6 +18,8 @@ import json
 import yaml
 import logging
 import argparse
+import importlib
+import importlib.util
 import pandas as pd
 import numpy as np
 import torch
@@ -42,16 +44,45 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+_THIS_DIR = Path(__file__).resolve().parent
+_ORIGINAL_DATASET_MODULE_PATH = _THIS_DIR / "dataset.py"
+
 # ============================================================================
 # CRITICAL: Module patch must happen BEFORE any imports from train_ablation_distributed
 # ============================================================================
 # This ensures that when train_ablation_distributed imports 'dataset',
 # it actually gets dataset_sa instead
+def _load_module_from_path(module_name: str, module_path: Path):
+    """Load a module from disk so we can swap dataset backends explicitly."""
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load module {module_name} from {module_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _set_dataset_module(module_path: Path, label: str):
+    """Swap the active dataset module and reload the trainer if needed."""
+    module = _load_module_from_path("dataset", module_path)
+
+    if "train_ablation_distributed" in sys.modules:
+        importlib.reload(sys.modules["train_ablation_distributed"])
+
+    logger.info(f"✓ Patched dataset module to use {label} data from {module_path}")
+    return module
+
+
 def _patch_dataset_module():
     """Patch sys.modules to use dataset_sa for SA data loading."""
-    import dataset_sa
-    sys.modules['dataset'] = dataset_sa
-    logger.info("✓ Patched dataset module to use dataset_sa for SA data")
+    return _set_dataset_module(_THIS_DIR / "dataset_sa.py", "SA")
+
+
+def _restore_original_dataset_module():
+    """Restore the original Benin dataset loader."""
+    return _set_dataset_module(_ORIGINAL_DATASET_MODULE_PATH, "default")
 
 # ============================================================================
 # Data Loading Functions
@@ -307,6 +338,53 @@ def create_finetuning_subsets(
         subsets[subset_name] = subset_df
     
     return subsets
+
+
+def create_train_val_split(
+    train_pool_df: pd.DataFrame,
+    val_size: float = 0.2,
+    random_state: int = 42
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Create an internal train/val split for SA fine-tuning.
+
+    Falls back to an empty validation set if the subset is too small to split
+    reliably while preserving labels.
+    """
+    if val_size <= 0 or len(train_pool_df) < 2:
+        return train_pool_df.copy().reset_index(drop=True), train_pool_df.iloc[0:0].copy()
+
+    stratify_labels = None
+    if (
+        'TB_Label' in train_pool_df.columns
+        and train_pool_df['TB_Label'].nunique() > 1
+        and train_pool_df['TB_Label'].value_counts().min() >= 2
+    ):
+        stratify_labels = train_pool_df['TB_Label']
+
+    try:
+        train_split_df, val_split_df = train_test_split(
+            train_pool_df,
+            test_size=val_size,
+            stratify=stratify_labels,
+            random_state=random_state,
+        )
+    except ValueError as exc:
+        logger.warning(f"  Could not create stratified val split ({exc}); using train-only split")
+        return train_pool_df.copy().reset_index(drop=True), train_pool_df.iloc[0:0].copy()
+
+    train_split_df = train_split_df.reset_index(drop=True)
+    val_split_df = val_split_df.reset_index(drop=True)
+
+    logger.info(
+        "  Internal split: train=%d (TB+=%d), val=%d (TB+=%d)",
+        len(train_split_df),
+        int(train_split_df['TB_Label'].sum()) if 'TB_Label' in train_split_df.columns else -1,
+        len(val_split_df),
+        int(val_split_df['TB_Label'].sum()) if 'TB_Label' in val_split_df.columns else -1,
+    )
+
+    return train_split_df, val_split_df
 
 
 def map_patient_ids_to_metadata_format(
@@ -699,6 +777,8 @@ def evaluate_benin_zero_shot(
     logger.info("Step 6: Evaluating Benin Model (Zero-shot)")
     logger.info(f"{'='*60}")
     logger.info("Evaluating Benin model (zero-shot) on test set...")
+
+    _patch_dataset_module()
     
     # Map test IDs to file metadata format
     test_ids = map_patient_ids_to_metadata_format(test_ids, config.file_metadata_csv)
@@ -856,7 +936,7 @@ def create_oversampled_split_csv(
     # Create split CSV
     split_df = pd.DataFrame({
         'train_ids': pd.Series(oversampled_train_ids),
-        'val_ids': pd.Series(dtype=str),
+        'valid_ids': pd.Series(dtype=str),
         'test_ids': pd.Series(dtype=str)
     })
     
@@ -890,8 +970,10 @@ def run_finetuning_experiment(
     logger.info(f"\n{'='*60}")
     logger.info("Starting fine-tuning experiment")
     logger.info(f"{'='*60}")
-    
+
     os.makedirs(output_dir, exist_ok=True)
+
+    _patch_dataset_module()
     
     from train_ablation_distributed import setup_distributed, cleanup_distributed, AblationTrainer, Config
     
@@ -910,17 +992,30 @@ def run_finetuning_experiment(
             logger.info(f"\n{'='*60}")
             logger.info(f"Fine-tuning subset: {subset_name}")
             logger.info(f"{'='*60}")
-            
-            # Map train IDs to file metadata format
+
+            split_random_state = getattr(config, 'split_random_state', 42)
+            val_size = getattr(config, 'val_size', 0.2)
+            train_split_df, val_split_df = create_train_val_split(
+                train_subset_df,
+                val_size=val_size,
+                random_state=split_random_state,
+            )
+
+            # Map split IDs to file metadata format
             train_ids = map_patient_ids_to_metadata_format(
-                train_subset_df['patient_id'].tolist(),
+                train_split_df['patient_id'].tolist(),
+                config.file_metadata_csv
+            )
+            val_ids = map_patient_ids_to_metadata_format(
+                val_split_df['patient_id'].tolist(),
                 config.file_metadata_csv
             )
             
             # Get TB labels for class imbalance handling
-            tb_pos_count = train_subset_df['TB_Label'].sum()
-            tb_neg_count = (train_subset_df['TB_Label'] == 0).sum()
+            tb_pos_count = train_split_df['TB_Label'].sum()
+            tb_neg_count = (train_split_df['TB_Label'] == 0).sum()
             logger.info(f"  Train: {len(train_ids)} patients (TB+: {tb_pos_count}, TB-: {tb_neg_count})")
+            logger.info(f"  Val: {len(val_ids)} patients")
             logger.info(f"  Test: {len(test_ids)} patients")
             
             # Create directories: results go to output_dir, checkpoints go to checkpoint_dir
@@ -931,36 +1026,23 @@ def run_finetuning_experiment(
             logger.info(f"  Results directory: {subset_results_dir}")
             logger.info(f"  Checkpoint directory: {subset_checkpoint_dir}")
             
-            # Create split CSV with optional oversampling
+            # Create split CSV for trainer-side sampling
             subset_split_csv = os.path.join(subset_results_dir, "split.csv")
             
             # Check if oversampling is enabled in config
             oversample_enabled = getattr(config, 'oversample_positive_class', False)
-            positive_multiplier = getattr(config, 'positive_class_multiplier', 10)
-            
             if oversample_enabled and tb_pos_count > 0:
-                logger.info(f"  📊 Applying oversampling to address class imbalance...")
-                train_ids_for_split = create_oversampled_split_csv(
-                    train_ids=train_ids,
-                    train_df=train_subset_df,
-                    output_path=subset_split_csv,
-                    positive_class_multiplier=positive_multiplier,
-                    file_metadata_csv=None  # Already mapped
-                )
-                # Note: Oversampled split CSV already created, but we need to add test_ids
-                split_df = pd.read_csv(subset_split_csv)
-                split_df['test_ids'] = pd.Series(test_ids)
-                split_df.to_csv(subset_split_csv, index=False)
+                logger.info("  Weighted train oversampling enabled in trainer")
             else:
-                if not oversample_enabled:
-                    logger.info(f"  Oversampling disabled in config")
-                create_split_csv(
-                    train_ids=train_ids,
-                    val_ids=[],
-                    test_ids=test_ids,
-                    output_path=subset_split_csv,
-                    file_metadata_csv=None  # Already mapped above
-                )
+                logger.info("  Weighted train oversampling disabled")
+
+            create_split_csv(
+                train_ids=train_ids,
+                val_ids=val_ids,
+                test_ids=test_ids,
+                output_path=subset_split_csv,
+                file_metadata_csv=None  # Already mapped above
+            )
             
             # Update config
             subset_config = Config()
@@ -974,7 +1056,7 @@ def run_finetuning_experiment(
             subset_config.pred_save_dir = os.path.join(subset_results_dir, 'predictions')  # Local predictions
             subset_config.model_weights = benin_checkpoint_path
             subset_config.reset_optimizers = True
-            subset_config.use_train_metric_when_no_val = True
+            subset_config.use_train_metric_when_no_val = len(val_ids) == 0
             
             if not hasattr(subset_config, 'active_tasks') or 'TB Label' not in subset_config.active_tasks:
                 subset_config.active_tasks = ["TB Label"]
@@ -1040,7 +1122,8 @@ def run_finetuning_experiment(
             
             subset_result = {
                 'subset_name': subset_name,
-                'n_train': len(train_subset_df),
+                'n_train': len(train_split_df),
+                'n_val': len(val_split_df),
                 'n_test': len(test_ids),
                 'best_metric': best_metric,
                 'best_epoch': best_epoch,
@@ -1105,13 +1188,8 @@ def evaluate_on_benin_test(
     logger.info(f"{'='*60}")
     
     os.makedirs(output_dir, exist_ok=True)
-    
-    
-    import importlib
-    if 'dataset' in sys.modules and hasattr(sys.modules['dataset'], '__file__'):
-        # Reload the original dataset module
-        import dataset as original_dataset
-        sys.modules['dataset'] = original_dataset
+
+    _restore_original_dataset_module()
     
     from train_ablation_distributed import setup_distributed, cleanup_distributed, AblationTrainer, Config
     
@@ -1216,7 +1294,7 @@ def evaluate_on_benin_test(
                 logger.info(f"  Delta - AUROC: {results['comparison']['auroc_delta']:.4f}, AUPRC: {results['comparison']['auprc_delta']:.4f}")
         
         # Save results
-        results_path = os.path.join(eval_config.experiment_dir, 'benin_fold2_test_results_finetuned.json')
+        results_path = os.path.join(eval_config.experiment_dir, 'benin_test_results_finetuned.json')
         with open(results_path, 'w') as f:
             json.dump(results, f, indent=2, default=str)
         
@@ -1493,25 +1571,35 @@ def main():
     logger.info(f"\n{'='*60}")
     logger.info("Step 4: Creating Training Subsets")
     logger.info(f"{'='*60}")
-    train_subsets = create_finetuning_subsets(train_df)
+    train_subsets = create_finetuning_subsets(
+        train_df,
+        subset_sizes=getattr(config, 'subset_sizes', [1.0]),
+        random_state=getattr(config, 'split_random_state', 42),
+    )
     
     # Step 5: Create split CSVs
     logger.info(f"\n{'='*60}")
     logger.info("Step 5: Creating Split CSVs")
     logger.info(f"{'='*60}")
     for subset_name, subset_df in train_subsets.items():
-        train_ids = subset_df['patient_id'].tolist()
+        train_split_df, val_split_df = create_train_val_split(
+            subset_df,
+            val_size=getattr(config, 'val_size', 0.2),
+            random_state=getattr(config, 'split_random_state', 42),
+        )
+        train_ids = train_split_df['patient_id'].tolist()
+        val_ids = val_split_df['patient_id'].tolist()
         test_ids_list = test_df['patient_id'].tolist()
         
         split_csv_path = os.path.join(args.output_dir, 'splits', f'split_{subset_name}.csv')
         create_split_csv(
             train_ids=train_ids,
-            val_ids=[],
+            val_ids=val_ids,
             test_ids=test_ids_list,
             output_path=split_csv_path,
             file_metadata_csv=config.file_metadata_csv
         )
-        logger.info(f"  ✅ {subset_name}: {len(train_ids)} train, {len(test_ids_list)} test")
+        logger.info(f"  ✅ {subset_name}: {len(train_ids)} train, {len(val_ids)} val, {len(test_ids_list)} test")
     
     # Step 6: Evaluate Benin model zero-shot (optional)
     test_ids_list = test_df['patient_id'].tolist()

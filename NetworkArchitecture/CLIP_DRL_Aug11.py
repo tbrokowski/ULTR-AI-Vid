@@ -409,10 +409,11 @@ class FrameSelectionAgent(nn.Module):
             frame_logits = self._sanitize_tensor(frame_logits, "frame_logits_pre_noise", nan=0.0, posinf=50.0, neginf=-50.0, clamp_value=50.0)
             
             # Add exploration bonus based on temperature
-            safe_temperature = float(self.temperature) if np.isfinite(self.temperature) else 1.0
-            safe_temperature = max(safe_temperature, 1e-3)
-            exploration_bonus = torch.randn_like(frame_logits) * safe_temperature * 0.1
-            frame_logits = frame_logits + exploration_bonus
+            if self.training:
+                safe_temperature = float(self.temperature) if np.isfinite(self.temperature) else 1.0
+                safe_temperature = max(safe_temperature, 1e-3)
+                exploration_bonus = torch.randn_like(frame_logits) * safe_temperature * 0.1
+                frame_logits = frame_logits + exploration_bonus
             frame_logits = self._sanitize_tensor(frame_logits, "frame_logits", nan=0.0, posinf=50.0, neginf=-50.0, clamp_value=50.0)
             
             # Update action logits for valid frames
@@ -841,9 +842,16 @@ class MultiTaskModel(nn.Module):
         self.use_pathology_loss = getattr(config, 'use_pathology_loss', True)
         self.task_weights = getattr(config, 'task_weights', {'TB Label': 1.0})
         self.selection_strategy = getattr(config, 'selection_strategy', 'RL')
+        self.pathology_weight = float(getattr(config, 'pathology_weight', 1.0))
+        pathology_pos_weights = getattr(config, 'pathology_pos_weights', [1.0] * self.num_pathologies)
+        if isinstance(pathology_pos_weights, (list, tuple)):
+            self.pathology_pos_weights = [float(weight) for weight in pathology_pos_weights]
+        else:
+            self.pathology_pos_weights = [float(pathology_pos_weights)] * self.num_pathologies
         
         logger.info(f"MultiTaskModel configured for tasks: {self.active_tasks}")
         logger.info(f"Using pathology loss: {self.use_pathology_loss}")
+        logger.info(f"Pathology loss weight: {self.pathology_weight}")
         logger.info(f"Frame selection strategy: {self.selection_strategy}")
         
         # CLIP Vision Encoder
@@ -1362,9 +1370,10 @@ class MultiTaskModel(nn.Module):
                 valid_mask = path_label_i >= 0
                 
                 if valid_mask.any():
-                    # Positive weights for different pathologies
-                    pos_weights_path = [1.0, 4.0, 4.0, 4.0, 15.0]
-                    pos_weight = torch.tensor(pos_weights_path[i % len(pos_weights_path)], device=pathology_scores.device)
+                    pos_weight = torch.tensor(
+                        self.pathology_pos_weights[i % len(self.pathology_pos_weights)],
+                        device=pathology_scores.device,
+                    )
                     
                     # Binary cross-entropy loss
                     loss_name = f'pathology_{i}_loss'
@@ -1378,8 +1387,7 @@ class MultiTaskModel(nn.Module):
                     loss_dict[loss_name] = p_loss.item()
                     
                     # Add to total loss
-                    pathology_weight = 0.2
-                    total_loss += pathology_weight * p_loss
+                    total_loss += self.pathology_weight * p_loss
         
         # Ensure total_loss is a proper tensor with gradients
         if isinstance(total_loss, (int, float)):
