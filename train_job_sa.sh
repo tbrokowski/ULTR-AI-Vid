@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --time=04:00:00
+#SBATCH --time=05:00:00
 #SBATCH --partition=normal
 #SBATCH -A a127
 #SBATCH --gpus=1

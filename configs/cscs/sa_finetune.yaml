@@ -22,7 +22,7 @@ task_pos_weights:
   "Covid Label": 6.0
 
 use_pathology_loss: true
-pathology_weight: 0.0
+pathology_weight: 0.2
 pathology_pos_weights: [1.0, 4.0, 15.0, 1.8]
 num_pathologies: 4
 pathology_classes:

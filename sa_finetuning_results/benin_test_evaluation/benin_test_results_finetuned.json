@@ -1,16 +1,16 @@
 {
   "model": "sa_finetuned_on_benin",
   "n_test": 100,
-  "auroc": 0.42359932088285235,
-  "auprc": 0.3343057011133757,
+  "auroc": 0.41468590831918506,
+  "auprc": 0.33170215547474696,
   "test_metrics": {
     "accuracy": 0.38,
     "precision": 0.38,
     "recall": 1.0,
     "specificity": 0.0,
     "f1": 0.5507246376811594,
-    "auc": 0.42359932088285235,
-    "auprc": 0.3343057011133757
+    "auc": 0.41468590831918506,
+    "auprc": 0.33170215547474696
   },
   "prediction_files": {
     "patient_csv": "/users/lxflk/ULTR-AI-Vid/sa_finetuning_results/benin_test_evaluation/sa_finetuned_benin_test_patient_predictions.csv",
