@@ -1,0 +1,64 @@
+{
+  "feature_dir": "/users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test",
+  "output_root": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots",
+  "manifest": null,
+  "domain_filter": "benin",
+  "domain_scope": "benin_only",
+  "projection_specs": [
+    {
+      "embedding_method": "tsne",
+      "n_components": 2
+    }
+  ],
+  "cluster_method": "none",
+  "max_samples_per_combination": 600,
+  "max_samples_per_site_group": 250,
+  "max_samples_per_site_domain_combination": 250,
+  "normalize": "l2",
+  "pca_dim": 50,
+  "perplexity": 30.0,
+  "learning_rate": 200.0,
+  "random_state": 42,
+  "plots": [
+    {
+      "plot_kind": "domain_tb",
+      "plot_mode": "overall",
+      "group_name": null,
+      "title": "All sites (Benin only)\nCLIP frame embeddings (t-SNE, 2D)",
+      "domain_filter": "benin",
+      "domain_scope": "benin_only",
+      "embedding_method": "tsne",
+      "n_components": 2,
+      "n_points": 1200,
+      "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/benin_only/figures/clip_frame_tsne_2d_benin_only_overall.png",
+      "points_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/benin_only/points/clip_frame_tsne_2d_benin_only_overall_points.csv",
+      "output_dir": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/benin_only",
+      "counts": {
+        "benin|tb_0": 600,
+        "benin|tb_1": 600
+      },
+      "perplexity": 30.0,
+      "learning_rate": 200.0
+    },
+    {
+      "plot_kind": "site_domain_overlay",
+      "plot_mode": "laterality",
+      "group_name": null,
+      "title": "All sites by laterality with domain markers (Benin only)\nCLIP frame embeddings (t-SNE, 2D)",
+      "domain_filter": "benin",
+      "domain_scope": "benin_only",
+      "embedding_method": "tsne",
+      "n_components": 2,
+      "n_points": 500,
+      "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/benin_only/figures/clip_frame_tsne_2d_benin_only_site_domain_overlay_laterality.png",
+      "points_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/benin_only/points/clip_frame_tsne_2d_benin_only_site_domain_overlay_laterality_points.csv",
+      "output_dir": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/benin_only",
+      "counts": {
+        "right|benin": 250,
+        "left|benin": 250
+      },
+      "perplexity": 30.0,
+      "learning_rate": 200.0
+    }
+  ]
+}

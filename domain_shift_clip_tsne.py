@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Create t-SNE plots for cached domain-shift CLIP frame embeddings.
+"""Create embedding plots for cached domain-shift CLIP frame embeddings.
 
 This script is the inspection companion to `domain_shift_probe.py`.
 It reads cached CLIP frame embeddings from:
@@ -8,14 +8,19 @@ It reads cached CLIP frame embeddings from:
 - `clip_frame_features.npy`
 - `clip_frame_metadata.csv`
 
-and creates several t-SNE visualizations.
+and creates several embedding visualizations.
+
+Outputs are organized by projection and domain scope, for example:
+- `embedding_plots/tsne_2d/all_domains/...`
+- `embedding_plots/tsne_2d/sa_only/...`
+- `embedding_plots/umap_3d/benin_only/...`
 
 Plot families
 -------------
 There are four plot families in this script:
 
 1. Overall domain/TB plot
-   - Output: `clip_frame_tsne_overall.png`
+   - Output stem example: `clip_frame_tsne_2d_all_domains_overall`
    - Uses all anatomical sites together.
    - Marker shape encodes domain:
      - Benin -> circle
@@ -25,22 +30,22 @@ There are four plot families in this script:
      - TB positive -> red
 
 2. Site-filtered domain/TB plots
-   - Outputs like:
-     - `clip_frame_tsne_laterality_right.png`
-     - `clip_frame_tsne_region_anterior.png`
-     - `clip_frame_tsne_site_code_QASD.png`
+   - Output stems like:
+     - `clip_frame_tsne_2d_sa_only_laterality_right`
+     - `clip_frame_umap_3d_all_domains_region_anterior`
+     - `clip_frame_tsne_2d_benin_only_site_code_qasd`
    - These still use domain marker + TB color.
    - The difference is that rows are filtered to one anatomical subset first.
 
 3. Overall site-legend plot
-   - Output like:
-     - `clip_frame_tsne_site_legend_site_code.png`
+   - Output stem like:
+     - `clip_frame_tsne_2d_all_domains_site_legend_site_code`
    - Uses all rows together, but now color/legend show anatomical site or site
      group rather than domain/TB.
 
 4. Overall site+domain overlay plot
-   - Output like:
-     - `clip_frame_tsne_site_domain_overlay_region.png`
+   - Output stem like:
+     - `clip_frame_tsne_2d_all_domains_site_domain_overlay_region`
    - Uses all rows together.
    - Point color shows anatomical site or site group.
    - Marker shape still shows domain.
@@ -103,6 +108,10 @@ Most important arguments
   Controls the filtered domain/TB plots.
   Use `none` to disable them.
 
+- `--domain-filter`
+  Restrict outputs to `all`, `benin`, or `sa`.
+  This scope is reflected in both folder names and filenames.
+
 - `--site-groups`
   Optional manual subset for `--site-plot-mode`.
   Example:
@@ -137,19 +146,46 @@ Most important arguments
   PCA dimension before t-SNE. Default `50`.
   Set `<= 0` to disable PCA.
 
+- `--embedding-methods`
+  Which projections to create. Default keeps the original behavior: `tsne`.
+  Add `umap` to also write UMAP outputs.
+
+- `--cluster-method`
+  Optional clustering on the final 2D/3D coordinates.
+  Use `kmeans` or `dbscan`.
+
 Typical commands
 ----------------
-Overall domain/TB plot only:
-`python domain_shift_clip_tsne.py --run-name benin_pretrained_fold3_test --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode none`
-
-Overall domain/TB + per-laterality domain/TB plots:
-`python domain_shift_clip_tsne.py --run-name benin_pretrained_fold3_test --site-plot-mode laterality --site-legend-mode none --site-domain-overlay-mode none`
-
-Overall plot with anatomical sites in the legend:
-`python domain_shift_clip_tsne.py --run-name benin_pretrained_fold3_test --site-plot-mode none --site-legend-mode site_code --site-domain-overlay-mode none`
-
-Overall plot with regions by color and Benin/SA by marker:
-`python domain_shift_clip_tsne.py --run-name benin_pretrained_fold3_test --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode region`
+python domain_shift_clip_tsne.py \
+  --feature-dir /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test \
+  --domain-filter sa \
+  --site-plot-mode none \
+  --site-legend-mode none \
+  --site-domain-overlay-mode none
+  
+python domain_shift_clip_tsne.py \
+  --feature-dir /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test \
+  --domain-filter sa \
+  --site-plot-mode none \
+  --site-legend-mode none \
+  --site-domain-overlay-mode site_code
+  
+python domain_shift_clip_tsne.py \
+  --feature-dir /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test \
+  --domain-filter sa \
+  --site-plot-mode none \
+  --site-legend-mode none \
+  --site-domain-overlay-mode region
+  
+python domain_shift_clip_tsne.py \
+  --feature-dir /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test \
+  --site-plot-mode none \
+  --site-legend-mode none \
+  --site-domain-overlay-mode region \
+  --embedding-methods tsne umap \
+  --umap-dims 2 3 \
+  --cluster-method kmeans \
+  --num-clusters 4
 """
 
 import argparse
@@ -165,8 +201,22 @@ import numpy as np
 import yaml
 from matplotlib import pyplot as plt
 from matplotlib.lines import Line2D
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+
+try:
+    import umap
+except ImportError:
+    umap = None
+
+try:
+    from sklearn.cluster import DBSCAN, KMeans
+    from sklearn.decomposition import PCA
+    from sklearn.manifold import TSNE
+except ImportError as exc:
+    raise ImportError(
+        "scikit-learn is required for domain_shift_clip_tsne.py. "
+        "Install scikit-learn in the environment used to run this script."
+    ) from exc
 
 from domain_shift_plot_utils import (
     default_site_groups,
@@ -184,9 +234,11 @@ DEFAULT_FEATURE_ROOT = REPO_ROOT / "checkpoints" / "domain_shift_probe_features"
 DEFAULT_RESULTS_ROOT = REPO_ROOT / "domain_shift_probe_results"
 FEATURE_FILE = "clip_frame_features.npy"
 METADATA_FILE = "clip_frame_metadata.csv"
+PLOT_MIN_SAMPLES = 12
 
 DOMAIN_LABELS = {"benin": "Benin", "sa": "SA"}
 DOMAIN_MARKERS = {"benin": "o", "sa": "^"}
+DOMAIN_ORDER = ["benin", "sa"]
 TB_LABELS = {0: "TB negative", 1: "TB positive"}
 TB_COLORS = {0: "#2E8B57", 1: "#D73027"}
 GROUP_LABELS = {
@@ -205,20 +257,19 @@ GROUP_LABELS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Create t-SNE plots from cached CLIP frame embeddings. "
+            "Create t-SNE and optional UMAP plots from cached CLIP frame embeddings. "
             "Supports overall domain/TB plots, filtered domain/TB plots, "
-            "overall anatomy-legend plots, and overall anatomy-color + domain-marker plots."
+            "overall anatomy-legend plots, overall anatomy-color + domain-marker plots, "
+            "single-domain filtering, and optional clustering on the final coordinates."
         ),
         epilog=(
             "Examples:\n"
-            "  Overall domain/TB only:\n"
-            "    python domain_shift_clip_tsne.py --run-name benin_pretrained_fold3_test --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode none\n\n"
-            "  Overall + laterality-filtered domain/TB:\n"
-            "    python domain_shift_clip_tsne.py --run-name benin_pretrained_fold3_test --site-plot-mode laterality --site-legend-mode none --site-domain-overlay-mode none\n\n"
-            "  Overall anatomy legend plot:\n"
-            "    python domain_shift_clip_tsne.py --run-name benin_pretrained_fold3_test --site-plot-mode none --site-legend-mode site_code --site-domain-overlay-mode none\n\n"
-            "  Overall region colors + domain markers:\n"
-            "    python domain_shift_clip_tsne.py --run-name benin_pretrained_fold3_test --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode region"
+            "  SA-only overall domain/TB plot:\n"
+            "    python domain_shift_clip_tsne.py --run-name sa_finetuned_full_test --domain-filter sa --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode none\n\n"
+            "  SA-only region overlay:\n"
+            "    python domain_shift_clip_tsne.py --run-name sa_finetuned_full_test --domain-filter sa --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode region\n\n"
+            "  2D t-SNE + 2D/3D UMAP with KMeans clustering:\n"
+            "    python domain_shift_clip_tsne.py --run-name sa_finetuned_full_test --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode region --embedding-methods tsne umap --umap-dims 2 3 --cluster-method kmeans --num-clusters 4"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -238,7 +289,10 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=str,
         default=None,
-        help="Directory where plots and sampled coordinates will be written",
+        help=(
+            "Root directory where plots, sampled coordinates, and clustering results will be written. "
+            "If omitted, defaults to results/<run>/embedding_plots/ when available."
+        ),
     )
     parser.add_argument(
         "--manifest",
@@ -275,6 +329,13 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=250,
         help="Maximum sampled rows per (site-group, domain) combination in the overlay plot",
+    )
+    parser.add_argument(
+        "--domain-filter",
+        type=str,
+        default="all",
+        choices=["all", "benin", "sa"],
+        help="Restrict all plots to a single domain or keep all domains together",
     )
     parser.add_argument(
         "--site-plot-mode",
@@ -362,6 +423,84 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=200.0,
         help="t-SNE learning rate",
+    )
+    parser.add_argument(
+        "--embedding-methods",
+        nargs="+",
+        default=["tsne"],
+        choices=["tsne", "umap"],
+        help="Embedding methods to run. Default keeps the existing behavior: t-SNE only.",
+    )
+    parser.add_argument(
+        "--tsne-dims",
+        nargs="+",
+        type=int,
+        default=[2],
+        choices=[2, 3],
+        help="Output dimensionalities for t-SNE runs",
+    )
+    parser.add_argument(
+        "--umap-dims",
+        nargs="+",
+        type=int,
+        default=[2, 3],
+        choices=[2, 3],
+        help="Output dimensionalities for UMAP runs",
+    )
+    parser.add_argument(
+        "--umap-n-neighbors",
+        type=int,
+        default=30,
+        help="Requested UMAP number of neighbors; automatically reduced when needed",
+    )
+    parser.add_argument(
+        "--umap-min-dist",
+        type=float,
+        default=0.1,
+        help="UMAP min_dist parameter",
+    )
+    parser.add_argument(
+        "--umap-metric",
+        type=str,
+        default="euclidean",
+        help="UMAP distance metric",
+    )
+    parser.add_argument(
+        "--cluster-method",
+        type=str,
+        default="none",
+        choices=["none", "kmeans", "dbscan"],
+        help="Optional clustering to run on the final low-dimensional coordinates",
+    )
+    parser.add_argument(
+        "--num-clusters",
+        type=int,
+        default=4,
+        help="Cluster count for KMeans",
+    )
+    parser.add_argument(
+        "--dbscan-eps",
+        type=float,
+        default=0.75,
+        help="DBSCAN eps value when --cluster-method dbscan",
+    )
+    parser.add_argument(
+        "--dbscan-min-samples",
+        type=int,
+        default=10,
+        help="DBSCAN min_samples value when --cluster-method dbscan",
+    )
+    parser.add_argument(
+        "--view-elev",
+        type=float,
+        default=22.0,
+        help="Elevation angle for saved 3D plots",
+    )
+    parser.add_argument(
+        "--view-azim",
+        type=float,
+        default=38.0,
+        help="Azimuth angle for saved 3D plots",
     )
     parser.add_argument(
         "--point-size",
@@ -469,9 +608,9 @@ def resolve_output_dir(args: argparse.Namespace, feature_dir: Path) -> Path:
     else:
         results_dir = resolve_associated_results_dir(feature_dir)
         if results_dir is not None:
-            output_dir = results_dir / "tsne_plots"
+            output_dir = results_dir / "embedding_plots"
         else:
-            output_dir = feature_dir / "tsne_plots"
+            output_dir = feature_dir / "embedding_plots"
 
     if output_dir is None:
         raise ValueError("Unable to resolve output directory")
@@ -683,31 +822,231 @@ def effective_perplexity(requested: float, n_samples: int) -> float:
     return max(2.0, min(requested, float(n_samples - 1) / 3.0))
 
 
-def compute_tsne(
-    features: np.ndarray,
-    perplexity: float,
-    learning_rate: float,
-    seed: int,
-) -> np.ndarray:
-    tsne_kwargs = {
-        "n_components": 2,
-        "init": "pca",
-        "perplexity": perplexity,
-        "learning_rate": learning_rate,
-        "random_state": seed,
+def effective_umap_neighbors(requested: int, n_samples: int) -> int:
+    if n_samples <= 2:
+        raise ValueError("Need at least 3 samples for UMAP")
+    return max(2, min(int(requested), n_samples - 1))
+
+
+def projection_display_name(method: str) -> str:
+    return "t-SNE" if method == "tsne" else "UMAP"
+
+
+def projection_axis_label(method: str, axis_index: int) -> str:
+    return "{0} {1}".format(projection_display_name(method), axis_index)
+
+
+def domain_scope_slug(domain_filter: str) -> str:
+    if domain_filter == "all":
+        return "all_domains"
+    return "{0}_only".format(domain_filter)
+
+
+def domain_scope_title_suffix(domain_filter: str) -> str:
+    if domain_filter == "all":
+        return ""
+    return " ({0} only)".format(DOMAIN_LABELS[domain_filter])
+
+
+def domains_in_rows(rows: Sequence[Dict[str, object]]) -> List[str]:
+    available = {str(row.get("domain", "")).strip().lower() for row in rows}
+    ordered = [domain_name for domain_name in DOMAIN_ORDER if domain_name in available]
+    extras = sorted(available.difference(DOMAIN_ORDER))
+    return ordered + extras
+
+
+def filter_rows_by_domain(
+    rows: Sequence[Dict[str, object]],
+    domain_filter: str,
+) -> List[Dict[str, object]]:
+    if domain_filter == "all":
+        return list(rows)
+    return [row for row in rows if str(row.get("domain", "")).strip().lower() == domain_filter]
+
+
+def unique_ints(values: Sequence[int]) -> List[int]:
+    ordered: List[int] = []
+    for value in values:
+        int_value = int(value)
+        if int_value not in ordered:
+            ordered.append(int_value)
+    return ordered
+
+
+def projection_specs_from_args(args: argparse.Namespace) -> List[Tuple[str, int]]:
+    specs: List[Tuple[str, int]] = []
+    if "tsne" in args.embedding_methods:
+        specs.extend(("tsne", n_components) for n_components in unique_ints(args.tsne_dims))
+    if "umap" in args.embedding_methods:
+        specs.extend(("umap", n_components) for n_components in unique_ints(args.umap_dims))
+    return specs
+
+
+def projection_seed_offset(method: str, n_components: int) -> int:
+    if method == "tsne":
+        return n_components * 1000
+    return 5000 + n_components * 1000
+
+
+def resolve_projection_output_dirs(
+    output_root: Path,
+    method: str,
+    n_components: int,
+    domain_filter: str,
+) -> Dict[str, Path]:
+    run_dir = output_root / "{0}_{1}d".format(method, n_components) / domain_scope_slug(domain_filter)
+    figures_dir = run_dir / "figures"
+    points_dir = run_dir / "points"
+    clusters_dir = run_dir / "clusters"
+    for directory in [run_dir, figures_dir, points_dir, clusters_dir]:
+        directory.mkdir(parents=True, exist_ok=True)
+    return {
+        "run_dir": run_dir,
+        "figures_dir": figures_dir,
+        "points_dir": points_dir,
+        "clusters_dir": clusters_dir,
     }
-    if "max_iter" in inspect.signature(TSNE.__init__).parameters:
-        tsne_kwargs["max_iter"] = 1000
-    else:
-        tsne_kwargs["n_iter"] = 1000
-    tsne = TSNE(**tsne_kwargs)
-    return tsne.fit_transform(features)
+
+
+def build_plot_stem(
+    method: str,
+    n_components: int,
+    domain_filter: str,
+    suffix: str,
+) -> str:
+    return "clip_frame_{0}_{1}d_{2}_{3}".format(
+        sanitize_slug(method),
+        int(n_components),
+        domain_scope_slug(domain_filter),
+        sanitize_slug(suffix),
+    )
+
+
+def compute_embedding(
+    features: np.ndarray,
+    method: str,
+    n_components: int,
+    args: argparse.Namespace,
+    seed: int,
+) -> Tuple[np.ndarray, Dict[str, object]]:
+    if method == "tsne":
+        perplexity = effective_perplexity(args.perplexity, features.shape[0])
+        tsne_kwargs = {
+            "n_components": n_components,
+            "init": "pca",
+            "perplexity": perplexity,
+            "learning_rate": args.learning_rate,
+            "random_state": seed,
+        }
+        if "max_iter" in inspect.signature(TSNE.__init__).parameters:
+            tsne_kwargs["max_iter"] = 1000
+        else:
+            tsne_kwargs["n_iter"] = 1000
+        coords = TSNE(**tsne_kwargs).fit_transform(features)
+        return coords, {
+            "embedding_method": method,
+            "n_components": n_components,
+            "perplexity": perplexity,
+            "learning_rate": args.learning_rate,
+        }
+
+    if method == "umap":
+        if umap is None:
+            raise ImportError(
+                "UMAP support requires the 'umap-learn' package. "
+                "Install umap-learn in the environment used to run this script."
+            )
+        n_neighbors = effective_umap_neighbors(args.umap_n_neighbors, features.shape[0])
+        reducer = umap.UMAP(
+            n_components=n_components,
+            n_neighbors=n_neighbors,
+            min_dist=args.umap_min_dist,
+            metric=args.umap_metric,
+            random_state=seed,
+        )
+        coords = reducer.fit_transform(features)
+        return coords, {
+            "embedding_method": method,
+            "n_components": n_components,
+            "n_neighbors": n_neighbors,
+            "min_dist": args.umap_min_dist,
+            "metric": args.umap_metric,
+        }
+
+    raise ValueError("Unsupported embedding method: {0}".format(method))
+
+
+def compute_clusters(
+    coords: np.ndarray,
+    method: str,
+    args: argparse.Namespace,
+    seed: int,
+) -> Tuple[np.ndarray, Dict[str, object]]:
+    if method == "kmeans":
+        if coords.shape[0] < args.num_clusters:
+            raise ValueError(
+                "KMeans requested {0} clusters but only {1} points are available".format(
+                    args.num_clusters,
+                    coords.shape[0],
+                )
+            )
+        clusterer = KMeans(n_clusters=args.num_clusters, random_state=seed, n_init=10)
+        labels = clusterer.fit_predict(coords)
+        return labels, {
+            "cluster_method": method,
+            "requested_num_clusters": args.num_clusters,
+            "n_clusters_found": int(len(set(int(label) for label in labels.tolist()))),
+        }
+
+    if method == "dbscan":
+        clusterer = DBSCAN(eps=args.dbscan_eps, min_samples=args.dbscan_min_samples)
+        labels = clusterer.fit_predict(coords)
+        non_noise_clusters = {int(label) for label in labels.tolist() if int(label) >= 0}
+        return labels, {
+            "cluster_method": method,
+            "eps": args.dbscan_eps,
+            "min_samples": args.dbscan_min_samples,
+            "n_clusters_found": int(len(non_noise_clusters)),
+            "noise_points": int(np.sum(labels == -1)),
+        }
+
+    raise ValueError("Unsupported cluster method: {0}".format(method))
+
+
+def cluster_display_label(cluster_id: int) -> str:
+    if int(cluster_id) < 0:
+        return "Noise"
+    return "Cluster {0}".format(int(cluster_id))
+
+
+def build_cluster_colors(cluster_ids: Sequence[int]) -> Dict[int, object]:
+    ordered_clusters = [int(cluster_id) for cluster_id in cluster_ids if int(cluster_id) >= 0]
+    colors: Dict[int, object] = {}
+    if ordered_clusters:
+        cmap = plt.get_cmap("tab20", len(ordered_clusters))
+        for index, cluster_id in enumerate(ordered_clusters):
+            colors[int(cluster_id)] = cmap(index)
+    for cluster_id in cluster_ids:
+        if int(cluster_id) < 0:
+            colors[int(cluster_id)] = "#9E9E9E"
+    return colors
+
+
+def cluster_counts_text(cluster_labels: Sequence[int]) -> str:
+    counts = Counter(int(label) for label in cluster_labels)
+    cluster_ids = sorted(counts, key=lambda label: (label < 0, label))
+    return "\n".join(
+        "{0}: {1}".format(cluster_display_label(cluster_id), int(counts[cluster_id]))
+        for cluster_id in cluster_ids
+    )
 
 
 def plot_counts_text(rows: Sequence[Dict[str, object]]) -> str:
     counts = Counter((str(row["domain"]), int(row["tb_label"])) for row in rows)
     lines = []
-    for domain_name in ["benin", "sa"]:
+    for domain_name in domains_in_rows(rows):
+        if domain_name not in DOMAIN_LABELS:
+            continue
         for tb_label in [0, 1]:
             value = counts.get((domain_name, tb_label), 0)
             lines.append("{0}, {1}: {2}".format(DOMAIN_LABELS[domain_name], TB_LABELS[tb_label], value))
@@ -747,7 +1086,13 @@ def group_names_for_mode(
     return [group_name for group_name in groups if group_name in available_groups]
 
 
-def save_points_csv(path: Path, rows: Sequence[Dict[str, object]], coords: np.ndarray) -> None:
+def save_points_csv(
+    path: Path,
+    rows: Sequence[Dict[str, object]],
+    coords: np.ndarray,
+    coord_prefix: str,
+    extra_columns: Optional[Dict[str, Sequence[object]]] = None,
+) -> None:
     fieldnames = [
         "domain",
         "patient_id",
@@ -760,30 +1105,113 @@ def save_points_csv(path: Path, rows: Sequence[Dict[str, object]], coords: np.nd
         "site_family",
         "site_position",
         "frame_index",
-        "tsne_1",
-        "tsne_2",
     ]
+    coord_fieldnames = ["{0}_{1}".format(coord_prefix, axis_index + 1) for axis_index in range(coords.shape[1])]
+    fieldnames.extend(coord_fieldnames)
+    extra_columns = extra_columns or {}
+    fieldnames.extend(list(extra_columns.keys()))
+
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
-        for row, coord in zip(rows, coords):
-            writer.writerow(
-                {
-                    "domain": row["domain"],
-                    "patient_id": row["patient_id"],
-                    "tb_label": row["tb_label"],
-                    "tb_status": row["tb_status"],
-                    "site_index": row["site_index"],
-                    "site_code": row["site_code"],
-                    "site_laterality": row["site_laterality"],
-                    "site_region": row["site_region"],
-                    "site_family": row["site_family"],
-                    "site_position": row["site_position"],
-                    "frame_index": row["frame_index"],
-                    "tsne_1": float(coord[0]),
-                    "tsne_2": float(coord[1]),
-                }
-            )
+        for row_index, (row, coord) in enumerate(zip(rows, coords)):
+            record = {
+                "domain": row["domain"],
+                "patient_id": row["patient_id"],
+                "tb_label": row["tb_label"],
+                "tb_status": row["tb_status"],
+                "site_index": row["site_index"],
+                "site_code": row["site_code"],
+                "site_laterality": row["site_laterality"],
+                "site_region": row["site_region"],
+                "site_family": row["site_family"],
+                "site_position": row["site_position"],
+                "frame_index": row["frame_index"],
+            }
+            for axis_index, fieldname in enumerate(coord_fieldnames):
+                record[fieldname] = float(coord[axis_index])
+            for column_name, values in extra_columns.items():
+                record[column_name] = values[row_index]
+            writer.writerow(record)
+
+
+def save_cluster_csv(
+    path: Path,
+    rows: Sequence[Dict[str, object]],
+    coords: np.ndarray,
+    coord_prefix: str,
+    cluster_labels: Sequence[int],
+) -> None:
+    save_points_csv(
+        path,
+        rows,
+        coords,
+        coord_prefix=coord_prefix,
+        extra_columns={"cluster_id": [int(label) for label in cluster_labels]},
+    )
+
+
+def create_projection_axes(n_components: int, figsize_2d: Tuple[float, float], figsize_3d: Tuple[float, float]):
+    if n_components == 3:
+        fig = plt.figure(figsize=figsize_3d)
+        ax = fig.add_subplot(111, projection="3d")
+        return fig, ax
+    fig, ax = plt.subplots(figsize=figsize_2d)
+    return fig, ax
+
+
+def configure_projection_axis(
+    ax,
+    method: str,
+    n_components: int,
+    title: str,
+    view_elev: float,
+    view_azim: float,
+) -> None:
+    ax.set_title(title, fontsize=13, pad=12)
+    ax.set_xlabel(projection_axis_label(method, 1))
+    ax.set_ylabel(projection_axis_label(method, 2))
+    if n_components == 3:
+        ax.set_zlabel(projection_axis_label(method, 3))
+        ax.view_init(elev=view_elev, azim=view_azim)
+    ax.grid(alpha=0.18, linewidth=0.5)
+
+
+def scatter_projected_points(
+    ax,
+    coords: np.ndarray,
+    mask: np.ndarray,
+    n_components: int,
+    point_size: float,
+    alpha: float,
+    color,
+    marker: str,
+    linewidths: float,
+) -> None:
+    scatter_kwargs = {
+        "s": point_size,
+        "alpha": alpha,
+        "color": color,
+        "marker": marker,
+        "edgecolors": "white",
+        "linewidths": linewidths,
+    }
+    if n_components == 3:
+        ax.scatter(coords[mask, 0], coords[mask, 1], coords[mask, 2], **scatter_kwargs)
+        return
+    ax.scatter(coords[mask, 0], coords[mask, 1], **scatter_kwargs)
+
+
+def annotate_projection_text(ax, n_components: int, text: str) -> None:
+    text_kwargs = {
+        "fontsize": 9,
+        "verticalalignment": "bottom",
+        "bbox": {"facecolor": "white", "alpha": 0.85, "edgecolor": "#cccccc"},
+    }
+    if n_components == 3:
+        ax.text2D(0.015, 0.015, text, transform=ax.transAxes, **text_kwargs)
+        return
+    ax.text(0.015, 0.015, text, transform=ax.transAxes, **text_kwargs)
 
 
 def build_site_group_colors(group_names: Sequence[str]) -> Dict[str, object]:
@@ -804,13 +1232,23 @@ def render_domain_tb_plot(
     rows: Sequence[Dict[str, object]],
     title: str,
     output_path: Path,
+    embedding_method: str,
+    n_components: int,
     point_size: float,
     alpha: float,
     dpi: int,
+    view_elev: float,
+    view_azim: float,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(8.8, 7.4))
+    fig, ax = create_projection_axes(
+        n_components,
+        figsize_2d=(8.8, 7.4),
+        figsize_3d=(9.8, 8.2),
+    )
 
-    for domain_name in ["benin", "sa"]:
+    for domain_name in domains_in_rows(rows):
+        if domain_name not in DOMAIN_LABELS:
+            continue
         for tb_label in [0, 1]:
             mask = np.array(
                 [
@@ -821,21 +1259,26 @@ def render_domain_tb_plot(
             )
             if not np.any(mask):
                 continue
-            ax.scatter(
-                coords[mask, 0],
-                coords[mask, 1],
-                s=point_size,
+            scatter_projected_points(
+                ax,
+                coords,
+                mask,
+                n_components=n_components,
+                point_size=point_size,
                 alpha=alpha,
-                c=TB_COLORS[tb_label],
+                color=TB_COLORS[tb_label],
                 marker=DOMAIN_MARKERS[domain_name],
-                edgecolors="white",
                 linewidths=0.35,
             )
 
-    ax.set_title(title, fontsize=13, pad=12)
-    ax.set_xlabel("t-SNE 1")
-    ax.set_ylabel("t-SNE 2")
-    ax.grid(alpha=0.18, linewidth=0.5)
+    configure_projection_axis(
+        ax,
+        method=embedding_method,
+        n_components=n_components,
+        title=title,
+        view_elev=view_elev,
+        view_azim=view_azim,
+    )
 
     domain_handles = [
         Line2D(
@@ -849,7 +1292,8 @@ def render_domain_tb_plot(
             linestyle="None",
             label=DOMAIN_LABELS[domain_name],
         )
-        for domain_name in ["benin", "sa"]
+        for domain_name in domains_in_rows(rows)
+        if domain_name in DOMAIN_LABELS
     ]
     tb_handles = [
         Line2D(
@@ -870,15 +1314,7 @@ def render_domain_tb_plot(
     ax.add_artist(legend_domain)
     ax.legend(handles=tb_handles, title="TB label", loc="lower right", frameon=True)
 
-    ax.text(
-        0.015,
-        0.015,
-        plot_counts_text(rows),
-        transform=ax.transAxes,
-        fontsize=9,
-        verticalalignment="bottom",
-        bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "#cccccc"},
-    )
+    annotate_projection_text(ax, n_components, plot_counts_text(rows))
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
@@ -892,11 +1328,19 @@ def render_site_legend_plot(
     group_names: Sequence[str],
     title: str,
     output_path: Path,
+    embedding_method: str,
+    n_components: int,
     point_size: float,
     alpha: float,
     dpi: int,
+    view_elev: float,
+    view_azim: float,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(10.6, 7.4))
+    fig, ax = create_projection_axes(
+        n_components,
+        figsize_2d=(10.6, 7.4),
+        figsize_3d=(11.4, 8.5),
+    )
     colors = build_site_group_colors(group_names)
 
     handles = []
@@ -905,14 +1349,15 @@ def render_site_legend_plot(
         if not np.any(mask):
             continue
         color = colors[group_name]
-        ax.scatter(
-            coords[mask, 0],
-            coords[mask, 1],
-            s=point_size,
+        scatter_projected_points(
+            ax,
+            coords,
+            mask,
+            n_components=n_components,
+            point_size=point_size,
             alpha=alpha,
-            c=[color],
+            color=color,
             marker="o",
-            edgecolors="white",
             linewidths=0.25,
         )
         handles.append(
@@ -929,10 +1374,14 @@ def render_site_legend_plot(
             )
         )
 
-    ax.set_title(title, fontsize=13, pad=12)
-    ax.set_xlabel("t-SNE 1")
-    ax.set_ylabel("t-SNE 2")
-    ax.grid(alpha=0.18, linewidth=0.5)
+    configure_projection_axis(
+        ax,
+        method=embedding_method,
+        n_components=n_components,
+        title=title,
+        view_elev=view_elev,
+        view_azim=view_azim,
+    )
     ax.legend(
         handles=handles,
         title="Anatomical site" if group_by == "site_code" else "Site group",
@@ -954,16 +1403,26 @@ def render_site_domain_overlay_plot(
     group_names: Sequence[str],
     title: str,
     output_path: Path,
+    embedding_method: str,
+    n_components: int,
     point_size: float,
     alpha: float,
     dpi: int,
+    view_elev: float,
+    view_azim: float,
 ) -> None:
-    fig, ax = plt.subplots(figsize=(10.8, 7.5))
+    fig, ax = create_projection_axes(
+        n_components,
+        figsize_2d=(10.8, 7.5),
+        figsize_3d=(11.6, 8.6),
+    )
     colors = build_site_group_colors(group_names)
 
     for group_name in group_names:
         color = colors[group_name]
-        for domain_name in ["benin", "sa"]:
+        for domain_name in domains_in_rows(rows):
+            if domain_name not in DOMAIN_LABELS:
+                continue
             mask = np.array(
                 [
                     (site_group_value(row, group_by) == group_name) and (str(row["domain"]) == domain_name)
@@ -973,21 +1432,26 @@ def render_site_domain_overlay_plot(
             )
             if not np.any(mask):
                 continue
-            ax.scatter(
-                coords[mask, 0],
-                coords[mask, 1],
-                s=point_size,
+            scatter_projected_points(
+                ax,
+                coords,
+                mask,
+                n_components=n_components,
+                point_size=point_size,
                 alpha=alpha,
-                c=[color],
+                color=color,
                 marker=DOMAIN_MARKERS[domain_name],
-                edgecolors="white",
                 linewidths=0.30,
             )
 
-    ax.set_title(title, fontsize=13, pad=12)
-    ax.set_xlabel("t-SNE 1")
-    ax.set_ylabel("t-SNE 2")
-    ax.grid(alpha=0.18, linewidth=0.5)
+    configure_projection_axis(
+        ax,
+        method=embedding_method,
+        n_components=n_components,
+        title=title,
+        view_elev=view_elev,
+        view_azim=view_azim,
+    )
 
     domain_handles = [
         Line2D(
@@ -1001,7 +1465,8 @@ def render_site_domain_overlay_plot(
             linestyle="None",
             label=DOMAIN_LABELS[domain_name],
         )
-        for domain_name in ["benin", "sa"]
+        for domain_name in domains_in_rows(rows)
+        if domain_name in DOMAIN_LABELS
     ]
     site_handles = [
         Line2D(
@@ -1028,6 +1493,109 @@ def render_site_domain_overlay_plot(
         frameon=True,
         fontsize=9,
     )
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+
+
+def render_cluster_plot(
+    coords: np.ndarray,
+    rows: Sequence[Dict[str, object]],
+    cluster_labels: Sequence[int],
+    title: str,
+    output_path: Path,
+    embedding_method: str,
+    n_components: int,
+    point_size: float,
+    alpha: float,
+    dpi: int,
+    view_elev: float,
+    view_azim: float,
+) -> None:
+    fig, ax = create_projection_axes(
+        n_components,
+        figsize_2d=(10.4, 7.4),
+        figsize_3d=(11.3, 8.4),
+    )
+    cluster_ids = sorted({int(label) for label in cluster_labels}, key=lambda label: (label < 0, label))
+    colors = build_cluster_colors(cluster_ids)
+
+    for cluster_id in cluster_ids:
+        for domain_name in domains_in_rows(rows):
+            if domain_name not in DOMAIN_LABELS:
+                continue
+            mask = np.array(
+                [
+                    (int(cluster_label) == int(cluster_id)) and (str(row["domain"]) == domain_name)
+                    for row, cluster_label in zip(rows, cluster_labels)
+                ],
+                dtype=bool,
+            )
+            if not np.any(mask):
+                continue
+            scatter_projected_points(
+                ax,
+                coords,
+                mask,
+                n_components=n_components,
+                point_size=point_size,
+                alpha=alpha,
+                color=colors[int(cluster_id)],
+                marker=DOMAIN_MARKERS[domain_name],
+                linewidths=0.30,
+            )
+
+    configure_projection_axis(
+        ax,
+        method=embedding_method,
+        n_components=n_components,
+        title=title,
+        view_elev=view_elev,
+        view_azim=view_azim,
+    )
+
+    domain_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker=DOMAIN_MARKERS[domain_name],
+            color="black",
+            markerfacecolor="white",
+            markeredgecolor="black",
+            markersize=8,
+            linestyle="None",
+            label=DOMAIN_LABELS[domain_name],
+        )
+        for domain_name in domains_in_rows(rows)
+        if domain_name in DOMAIN_LABELS
+    ]
+    cluster_handles = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color=colors[int(cluster_id)],
+            markerfacecolor=colors[int(cluster_id)],
+            markeredgecolor=colors[int(cluster_id)],
+            markersize=7,
+            linestyle="None",
+            label=cluster_display_label(int(cluster_id)),
+        )
+        for cluster_id in cluster_ids
+    ]
+
+    legend_domain = ax.legend(handles=domain_handles, title="Domain", loc="upper right", frameon=True)
+    ax.add_artist(legend_domain)
+    ax.legend(
+        handles=cluster_handles,
+        title="Clusters",
+        loc="center left",
+        bbox_to_anchor=(1.02, 0.5),
+        frameon=True,
+        fontsize=9,
+    )
+    annotate_projection_text(ax, n_components, cluster_counts_text(cluster_labels))
 
     fig.tight_layout()
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
@@ -1075,12 +1643,12 @@ def main() -> None:
     setup_logging()
 
     feature_dir = resolve_feature_dir(args)
-    output_dir = resolve_output_dir(args, feature_dir)
+    output_root = resolve_output_dir(args, feature_dir)
     manifest_path = resolve_manifest_path(args, feature_dir)
     manifest = load_json(manifest_path) if manifest_path is not None else None
 
     LOGGER.info("Feature directory: %s", feature_dir)
-    LOGGER.info("Output directory: %s", output_dir)
+    LOGGER.info("Output root: %s", output_root)
     if manifest_path is not None:
         LOGGER.info("Manifest: %s", manifest_path)
 
@@ -1111,6 +1679,9 @@ def main() -> None:
 
     enriched_rows, enrich_stats = enrich_metadata_rows(rows, label_lookups)
     enriched_rows = drop_invalid_rows(enriched_rows)
+    scoped_rows = filter_rows_by_domain(enriched_rows, args.domain_filter)
+    if not scoped_rows:
+        raise ValueError("No rows remain after applying --domain-filter {0}".format(args.domain_filter))
 
     LOGGER.info(
         "Loaded %d CLIP frame rows (%d unknown-site rows, %d missing TB labels before filtering)",
@@ -1119,18 +1690,33 @@ def main() -> None:
         enrich_stats.get("tb_labels_missing", 0),
     )
     LOGGER.info("Using %d valid rows after metadata enrichment", len(enriched_rows))
+    LOGGER.info(
+        "Using %d rows after domain filtering (%s)",
+        len(scoped_rows),
+        domain_scope_slug(args.domain_filter),
+    )
 
     plot_specs = build_plot_specs(
-        enriched_rows,
+        scoped_rows,
         args.site_plot_mode,
         args.site_groups,
         args.include_unknown_site_groups,
     )
+    projection_specs = projection_specs_from_args(args)
+    if not projection_specs:
+        raise ValueError("No projections selected. Adjust --embedding-methods/--tsne-dims/--umap-dims.")
 
     summary = {
         "feature_dir": str(feature_dir),
-        "output_dir": str(output_dir),
+        "output_root": str(output_root),
         "manifest": str(manifest_path) if manifest_path is not None else None,
+        "domain_filter": args.domain_filter,
+        "domain_scope": domain_scope_slug(args.domain_filter),
+        "projection_specs": [
+            {"embedding_method": method, "n_components": n_components}
+            for method, n_components in projection_specs
+        ],
+        "cluster_method": args.cluster_method,
         "max_samples_per_combination": args.max_samples_per_combination,
         "max_samples_per_site_group": args.max_samples_per_site_group,
         "max_samples_per_site_domain_combination": args.max_samples_per_site_domain_combination,
@@ -1142,305 +1728,551 @@ def main() -> None:
         "plots": [],
     }
 
-    # Domain/TB plots: one overall plus optional filtered subsets.
-    for plot_index, (plot_mode, plot_title, group_name) in enumerate(plot_specs):
-        plot_rows = filter_rows_for_plot(enriched_rows, plot_mode, group_name)
-        if len(plot_rows) < 12:
-            LOGGER.warning("Skipping %s: only %d eligible rows", plot_title, len(plot_rows))
-            continue
-
-        domains_present = sorted({str(row["domain"]) for row in plot_rows})
-        tb_present = sorted({int(row["tb_label"]) for row in plot_rows})
-        if len(domains_present) < 2:
-            LOGGER.warning(
-                "%s includes only one domain after filtering: %s",
-                plot_title,
-                ", ".join(domains_present) if domains_present else "(none)",
-            )
-        if len(tb_present) < 2:
-            LOGGER.warning(
-                "%s includes only one TB class after filtering: %s",
-                plot_title,
-                ", ".join(TB_LABELS[tb_label] for tb_label in tb_present) if tb_present else "(none)",
-            )
-
-        sampled_positions = sample_indices_domain_tb(
-            plot_rows,
-            max_samples_per_combination=args.max_samples_per_combination,
-            seed=args.random_state + plot_index,
+    for projection_index, (embedding_method, n_components) in enumerate(projection_specs):
+        coord_prefix = sanitize_slug(embedding_method)
+        method_display = projection_display_name(embedding_method)
+        projection_dirs = resolve_projection_output_dirs(
+            output_root,
+            embedding_method,
+            n_components,
+            args.domain_filter,
         )
-        if sampled_positions.size < 12:
-            LOGGER.warning("Skipping %s: only %d sampled rows", plot_title, sampled_positions.size)
-            continue
-
-        sampled_rows = [plot_rows[position] for position in sampled_positions.tolist()]
-        feature_indices = np.asarray([int(row["row_index"]) for row in sampled_rows], dtype=np.int64)
-        sampled_features = np.asarray(features[feature_indices], dtype=np.float32)
-        processed_features = preprocess_features(
-            sampled_features,
-            normalize=args.normalize,
-            pca_dim=args.pca_dim,
-            seed=args.random_state,
-        )
-        perplexity = effective_perplexity(args.perplexity, processed_features.shape[0])
-        coords = compute_tsne(
-            processed_features,
-            perplexity=perplexity,
-            learning_rate=args.learning_rate,
-            seed=args.random_state + plot_index,
-        )
-
-        suffix = "overall" if group_name is None else sanitize_slug("{0}_{1}".format(plot_mode, group_name))
-        image_path = output_dir / "clip_frame_tsne_{0}.png".format(suffix)
-        csv_path = output_dir / "clip_frame_tsne_{0}_points.csv".format(suffix)
-
-        render_domain_tb_plot(
-            coords,
-            sampled_rows,
-            title="{0}\nCLIP frame embeddings".format(plot_title),
-            output_path=image_path,
-            point_size=args.point_size,
-            alpha=args.alpha,
-            dpi=args.dpi,
-        )
-        save_points_csv(csv_path, sampled_rows, coords)
-
-        counts = Counter((str(row["domain"]), int(row["tb_label"])) for row in sampled_rows)
         LOGGER.info(
-            "Saved %s (%d points, perplexity=%.2f) to %s",
-            plot_title,
-            len(sampled_rows),
-            perplexity,
-            image_path,
+            "Generating %s %dD plots in %s",
+            method_display,
+            n_components,
+            projection_dirs["run_dir"],
         )
 
-        summary["plots"].append(
-            {
+        # Domain/TB plots: one overall plus optional filtered subsets.
+        for plot_index, (plot_mode, plot_title, group_name) in enumerate(plot_specs):
+            plot_rows = filter_rows_for_plot(scoped_rows, plot_mode, group_name)
+            if len(plot_rows) < PLOT_MIN_SAMPLES:
+                LOGGER.warning("Skipping %s: only %d eligible rows", plot_title, len(plot_rows))
+                continue
+
+            domains_present = sorted({str(row["domain"]) for row in plot_rows})
+            tb_present = sorted({int(row["tb_label"]) for row in plot_rows})
+            if args.domain_filter == "all" and len(domains_present) < 2:
+                LOGGER.warning(
+                    "%s includes only one domain after filtering: %s",
+                    plot_title,
+                    ", ".join(domains_present) if domains_present else "(none)",
+                )
+            if len(tb_present) < 2:
+                LOGGER.warning(
+                    "%s includes only one TB class after filtering: %s",
+                    plot_title,
+                    ", ".join(TB_LABELS[tb_label] for tb_label in tb_present) if tb_present else "(none)",
+                )
+
+            sampled_positions = sample_indices_domain_tb(
+                plot_rows,
+                max_samples_per_combination=args.max_samples_per_combination,
+                seed=args.random_state + plot_index,
+            )
+            if sampled_positions.size < PLOT_MIN_SAMPLES:
+                LOGGER.warning("Skipping %s: only %d sampled rows", plot_title, sampled_positions.size)
+                continue
+
+            sampled_rows = [plot_rows[position] for position in sampled_positions.tolist()]
+            feature_indices = np.asarray([int(row["row_index"]) for row in sampled_rows], dtype=np.int64)
+            sampled_features = np.asarray(features[feature_indices], dtype=np.float32)
+            processed_features = preprocess_features(
+                sampled_features,
+                normalize=args.normalize,
+                pca_dim=args.pca_dim,
+                seed=args.random_state,
+            )
+            embedding_seed = args.random_state + projection_seed_offset(embedding_method, n_components) + plot_index
+            coords, embedding_meta = compute_embedding(
+                processed_features,
+                method=embedding_method,
+                n_components=n_components,
+                args=args,
+                seed=embedding_seed,
+            )
+
+            suffix = "overall" if group_name is None else "{0}_{1}".format(plot_mode, group_name)
+            plot_stem = build_plot_stem(embedding_method, n_components, args.domain_filter, suffix)
+            image_path = projection_dirs["figures_dir"] / "{0}.png".format(plot_stem)
+            csv_path = projection_dirs["points_dir"] / "{0}_points.csv".format(plot_stem)
+            full_title = "{0}{1}\nCLIP frame embeddings ({2}, {3}D)".format(
+                plot_title,
+                domain_scope_title_suffix(args.domain_filter),
+                method_display,
+                n_components,
+            )
+
+            render_domain_tb_plot(
+                coords,
+                sampled_rows,
+                title=full_title,
+                output_path=image_path,
+                embedding_method=embedding_method,
+                n_components=n_components,
+                point_size=args.point_size,
+                alpha=args.alpha,
+                dpi=args.dpi,
+                view_elev=args.view_elev,
+                view_azim=args.view_azim,
+            )
+            save_points_csv(csv_path, sampled_rows, coords, coord_prefix=coord_prefix)
+
+            counts = Counter((str(row["domain"]), int(row["tb_label"])) for row in sampled_rows)
+            LOGGER.info(
+                "Saved %s (%d points, %s %dD) to %s",
+                plot_title,
+                len(sampled_rows),
+                method_display,
+                n_components,
+                image_path,
+            )
+
+            plot_record = {
                 "plot_kind": "domain_tb",
                 "plot_mode": plot_mode,
                 "group_name": group_name,
-                "title": plot_title,
+                "title": full_title,
+                "domain_filter": args.domain_filter,
+                "domain_scope": domain_scope_slug(args.domain_filter),
+                "embedding_method": embedding_method,
+                "n_components": n_components,
                 "n_points": len(sampled_rows),
-                "perplexity": perplexity,
                 "image_path": str(image_path),
                 "points_csv": str(csv_path),
+                "output_dir": str(projection_dirs["run_dir"]),
                 "counts": {
                     "{0}|tb_{1}".format(domain_name, tb_label): int(counts.get((domain_name, tb_label), 0))
-                    for domain_name in ["benin", "sa"]
+                    for domain_name in domains_in_rows(sampled_rows)
+                    if domain_name in DOMAIN_LABELS
                     for tb_label in [0, 1]
                 },
             }
-        )
+            plot_record.update(embedding_meta)
 
-    # Overall anatomy legend plot.
-    if args.site_legend_mode != "none":
-        site_legend_groups = group_names_for_mode(
-            enriched_rows,
-            args.site_legend_mode,
-            args.site_legend_groups,
-            args.include_unknown_site_groups,
-        )
-        site_legend_group_set = set(site_legend_groups)
-        site_legend_rows = [
-            row for row in enriched_rows if site_group_value(row, args.site_legend_mode) in site_legend_group_set
-        ]
+            if args.cluster_method != "none":
+                try:
+                    cluster_labels, cluster_meta = compute_clusters(
+                        coords,
+                        method=args.cluster_method,
+                        args=args,
+                        seed=embedding_seed + 100000,
+                    )
+                except ValueError as exc:
+                    LOGGER.warning("Skipping clustering for %s: %s", plot_title, exc)
+                else:
+                    cluster_path = projection_dirs["clusters_dir"] / "{0}_{1}_clusters.png".format(
+                        plot_stem,
+                        sanitize_slug(args.cluster_method),
+                    )
+                    cluster_csv_path = projection_dirs["clusters_dir"] / "{0}_{1}_clusters.csv".format(
+                        plot_stem,
+                        sanitize_slug(args.cluster_method),
+                    )
+                    render_cluster_plot(
+                        coords,
+                        sampled_rows,
+                        cluster_labels=cluster_labels,
+                        title="{0}\nClusters ({1})".format(full_title, args.cluster_method.upper()),
+                        output_path=cluster_path,
+                        embedding_method=embedding_method,
+                        n_components=n_components,
+                        point_size=args.point_size,
+                        alpha=args.alpha,
+                        dpi=args.dpi,
+                        view_elev=args.view_elev,
+                        view_azim=args.view_azim,
+                    )
+                    save_cluster_csv(
+                        cluster_csv_path,
+                        sampled_rows,
+                        coords,
+                        coord_prefix=coord_prefix,
+                        cluster_labels=cluster_labels,
+                    )
+                    cluster_counts = Counter(int(label) for label in cluster_labels)
+                    plot_record["cluster"] = {
+                        **cluster_meta,
+                        "image_path": str(cluster_path),
+                        "cluster_csv": str(cluster_csv_path),
+                        "counts": {
+                            ("noise" if cluster_id < 0 else "cluster_{0}".format(cluster_id)): int(
+                                cluster_counts[cluster_id]
+                            )
+                            for cluster_id in sorted(cluster_counts)
+                        },
+                    }
 
-        if len(site_legend_rows) < 12:
-            LOGGER.warning(
-                "Skipping site-legend plot for %s: only %d eligible rows",
+            summary["plots"].append(plot_record)
+
+        # Overall anatomy legend plot.
+        if args.site_legend_mode != "none":
+            site_legend_groups = group_names_for_mode(
+                scoped_rows,
                 args.site_legend_mode,
-                len(site_legend_rows),
+                args.site_legend_groups,
+                args.include_unknown_site_groups,
             )
-        else:
-            sampled_positions = sample_indices_site_group(
-                site_legend_rows,
-                group_by=args.site_legend_mode,
-                max_samples_per_group=args.max_samples_per_site_group,
-                seed=args.random_state + 100,
-            )
-            if sampled_positions.size < 12:
+            site_legend_group_set = set(site_legend_groups)
+            site_legend_rows = [
+                row for row in scoped_rows if site_group_value(row, args.site_legend_mode) in site_legend_group_set
+            ]
+
+            if len(site_legend_rows) < PLOT_MIN_SAMPLES:
                 LOGGER.warning(
-                    "Skipping site-legend plot for %s: only %d sampled rows",
+                    "Skipping site-legend plot for %s: only %d eligible rows",
                     args.site_legend_mode,
-                    sampled_positions.size,
+                    len(site_legend_rows),
                 )
             else:
-                sampled_rows = [site_legend_rows[position] for position in sampled_positions.tolist()]
-                feature_indices = np.asarray([int(row["row_index"]) for row in sampled_rows], dtype=np.int64)
-                sampled_features = np.asarray(features[feature_indices], dtype=np.float32)
-                processed_features = preprocess_features(
-                    sampled_features,
-                    normalize=args.normalize,
-                    pca_dim=args.pca_dim,
-                    seed=args.random_state,
-                )
-                perplexity = effective_perplexity(args.perplexity, processed_features.shape[0])
-                coords = compute_tsne(
-                    processed_features,
-                    perplexity=perplexity,
-                    learning_rate=args.learning_rate,
+                sampled_positions = sample_indices_site_group(
+                    site_legend_rows,
+                    group_by=args.site_legend_mode,
+                    max_samples_per_group=args.max_samples_per_site_group,
                     seed=args.random_state + 100,
                 )
+                if sampled_positions.size < PLOT_MIN_SAMPLES:
+                    LOGGER.warning(
+                        "Skipping site-legend plot for %s: only %d sampled rows",
+                        args.site_legend_mode,
+                        sampled_positions.size,
+                    )
+                else:
+                    sampled_rows = [site_legend_rows[position] for position in sampled_positions.tolist()]
+                    feature_indices = np.asarray([int(row["row_index"]) for row in sampled_rows], dtype=np.int64)
+                    sampled_features = np.asarray(features[feature_indices], dtype=np.float32)
+                    processed_features = preprocess_features(
+                        sampled_features,
+                        normalize=args.normalize,
+                        pca_dim=args.pca_dim,
+                        seed=args.random_state,
+                    )
+                    embedding_seed = args.random_state + projection_seed_offset(embedding_method, n_components) + 100
+                    coords, embedding_meta = compute_embedding(
+                        processed_features,
+                        method=embedding_method,
+                        n_components=n_components,
+                        args=args,
+                        seed=embedding_seed,
+                    )
 
-                image_path = output_dir / "clip_frame_tsne_site_legend_{0}.png".format(
-                    sanitize_slug(args.site_legend_mode)
-                )
-                csv_path = output_dir / "clip_frame_tsne_site_legend_{0}_points.csv".format(
-                    sanitize_slug(args.site_legend_mode)
-                )
-                render_site_legend_plot(
-                    coords,
-                    sampled_rows,
-                    group_by=args.site_legend_mode,
-                    group_names=site_legend_groups,
-                    title="All sites by {0}\nCLIP frame embeddings".format(
-                        "anatomical site" if args.site_legend_mode == "site_code" else args.site_legend_mode
-                    ),
-                    output_path=image_path,
-                    point_size=args.point_size,
-                    alpha=args.alpha,
-                    dpi=args.dpi,
-                )
-                save_points_csv(csv_path, sampled_rows, coords)
+                    plot_stem = build_plot_stem(
+                        embedding_method,
+                        n_components,
+                        args.domain_filter,
+                        "site_legend_{0}".format(args.site_legend_mode),
+                    )
+                    image_path = projection_dirs["figures_dir"] / "{0}.png".format(plot_stem)
+                    csv_path = projection_dirs["points_dir"] / "{0}_points.csv".format(plot_stem)
+                    full_title = "All sites by {0}{1}\nCLIP frame embeddings ({2}, {3}D)".format(
+                        "anatomical site" if args.site_legend_mode == "site_code" else args.site_legend_mode,
+                        domain_scope_title_suffix(args.domain_filter),
+                        method_display,
+                        n_components,
+                    )
 
-                group_counts = Counter(site_group_value(row, args.site_legend_mode) for row in sampled_rows)
-                LOGGER.info(
-                    "Saved site-legend plot for %s (%d points, perplexity=%.2f) to %s",
-                    args.site_legend_mode,
-                    len(sampled_rows),
-                    perplexity,
-                    image_path,
-                )
+                    render_site_legend_plot(
+                        coords,
+                        sampled_rows,
+                        group_by=args.site_legend_mode,
+                        group_names=site_legend_groups,
+                        title=full_title,
+                        output_path=image_path,
+                        embedding_method=embedding_method,
+                        n_components=n_components,
+                        point_size=args.point_size,
+                        alpha=args.alpha,
+                        dpi=args.dpi,
+                        view_elev=args.view_elev,
+                        view_azim=args.view_azim,
+                    )
+                    save_points_csv(csv_path, sampled_rows, coords, coord_prefix=coord_prefix)
 
-                summary["plots"].append(
-                    {
+                    group_counts = Counter(site_group_value(row, args.site_legend_mode) for row in sampled_rows)
+                    LOGGER.info(
+                        "Saved site-legend plot for %s (%d points, %s %dD) to %s",
+                        args.site_legend_mode,
+                        len(sampled_rows),
+                        method_display,
+                        n_components,
+                        image_path,
+                    )
+
+                    plot_record = {
                         "plot_kind": "site_legend",
                         "plot_mode": args.site_legend_mode,
                         "group_name": None,
-                        "title": "All sites by {0}".format(args.site_legend_mode),
+                        "title": full_title,
+                        "domain_filter": args.domain_filter,
+                        "domain_scope": domain_scope_slug(args.domain_filter),
+                        "embedding_method": embedding_method,
+                        "n_components": n_components,
                         "n_points": len(sampled_rows),
-                        "perplexity": perplexity,
                         "image_path": str(image_path),
                         "points_csv": str(csv_path),
+                        "output_dir": str(projection_dirs["run_dir"]),
                         "counts": {
                             group_name: int(group_counts.get(group_name, 0))
                             for group_name in site_legend_groups
                         },
                     }
-                )
+                    plot_record.update(embedding_meta)
 
-    # Overall anatomy-color + domain-marker overlay plot.
-    if args.site_domain_overlay_mode != "none":
-        overlay_groups = group_names_for_mode(
-            enriched_rows,
-            args.site_domain_overlay_mode,
-            args.site_domain_overlay_groups,
-            args.include_unknown_site_groups,
-        )
-        overlay_group_set = set(overlay_groups)
-        overlay_rows = [
-            row for row in enriched_rows if site_group_value(row, args.site_domain_overlay_mode) in overlay_group_set
-        ]
+                    if args.cluster_method != "none":
+                        try:
+                            cluster_labels, cluster_meta = compute_clusters(
+                                coords,
+                                method=args.cluster_method,
+                                args=args,
+                                seed=embedding_seed + 100000,
+                            )
+                        except ValueError as exc:
+                            LOGGER.warning("Skipping clustering for site-legend plot %s: %s", args.site_legend_mode, exc)
+                        else:
+                            cluster_path = projection_dirs["clusters_dir"] / "{0}_{1}_clusters.png".format(
+                                plot_stem,
+                                sanitize_slug(args.cluster_method),
+                            )
+                            cluster_csv_path = projection_dirs["clusters_dir"] / "{0}_{1}_clusters.csv".format(
+                                plot_stem,
+                                sanitize_slug(args.cluster_method),
+                            )
+                            render_cluster_plot(
+                                coords,
+                                sampled_rows,
+                                cluster_labels=cluster_labels,
+                                title="{0}\nClusters ({1})".format(full_title, args.cluster_method.upper()),
+                                output_path=cluster_path,
+                                embedding_method=embedding_method,
+                                n_components=n_components,
+                                point_size=args.point_size,
+                                alpha=args.alpha,
+                                dpi=args.dpi,
+                                view_elev=args.view_elev,
+                                view_azim=args.view_azim,
+                            )
+                            save_cluster_csv(
+                                cluster_csv_path,
+                                sampled_rows,
+                                coords,
+                                coord_prefix=coord_prefix,
+                                cluster_labels=cluster_labels,
+                            )
+                            cluster_counts = Counter(int(label) for label in cluster_labels)
+                            plot_record["cluster"] = {
+                                **cluster_meta,
+                                "image_path": str(cluster_path),
+                                "cluster_csv": str(cluster_csv_path),
+                                "counts": {
+                                    ("noise" if cluster_id < 0 else "cluster_{0}".format(cluster_id)): int(
+                                        cluster_counts[cluster_id]
+                                    )
+                                    for cluster_id in sorted(cluster_counts)
+                                },
+                            }
 
-        if len(overlay_rows) < 12:
-            LOGGER.warning(
-                "Skipping site-domain overlay plot for %s: only %d eligible rows",
+                    summary["plots"].append(plot_record)
+
+        # Overall anatomy-color + domain-marker overlay plot.
+        if args.site_domain_overlay_mode != "none":
+            overlay_groups = group_names_for_mode(
+                scoped_rows,
                 args.site_domain_overlay_mode,
-                len(overlay_rows),
+                args.site_domain_overlay_groups,
+                args.include_unknown_site_groups,
             )
-        else:
-            overlay_domains_present = sorted({str(row["domain"]) for row in overlay_rows})
-            if len(overlay_domains_present) < 2:
+            overlay_group_set = set(overlay_groups)
+            overlay_rows = [
+                row for row in scoped_rows if site_group_value(row, args.site_domain_overlay_mode) in overlay_group_set
+            ]
+
+            if len(overlay_rows) < PLOT_MIN_SAMPLES:
                 LOGGER.warning(
-                    "Site-domain overlay for %s includes only one domain after filtering: %s",
+                    "Skipping site-domain overlay plot for %s: only %d eligible rows",
                     args.site_domain_overlay_mode,
-                    ", ".join(overlay_domains_present) if overlay_domains_present else "(none)",
-                )
-            sampled_positions = sample_indices_site_domain_group(
-                overlay_rows,
-                group_by=args.site_domain_overlay_mode,
-                max_samples_per_group=args.max_samples_per_site_domain_combination,
-                seed=args.random_state + 200,
-            )
-            if sampled_positions.size < 12:
-                LOGGER.warning(
-                    "Skipping site-domain overlay plot for %s: only %d sampled rows",
-                    args.site_domain_overlay_mode,
-                    sampled_positions.size,
+                    len(overlay_rows),
                 )
             else:
-                sampled_rows = [overlay_rows[position] for position in sampled_positions.tolist()]
-                feature_indices = np.asarray([int(row["row_index"]) for row in sampled_rows], dtype=np.int64)
-                sampled_features = np.asarray(features[feature_indices], dtype=np.float32)
-                processed_features = preprocess_features(
-                    sampled_features,
-                    normalize=args.normalize,
-                    pca_dim=args.pca_dim,
-                    seed=args.random_state,
-                )
-                perplexity = effective_perplexity(args.perplexity, processed_features.shape[0])
-                coords = compute_tsne(
-                    processed_features,
-                    perplexity=perplexity,
-                    learning_rate=args.learning_rate,
+                overlay_domains_present = sorted({str(row["domain"]) for row in overlay_rows})
+                if args.domain_filter == "all" and len(overlay_domains_present) < 2:
+                    LOGGER.warning(
+                        "Site-domain overlay for %s includes only one domain after filtering: %s",
+                        args.site_domain_overlay_mode,
+                        ", ".join(overlay_domains_present) if overlay_domains_present else "(none)",
+                    )
+                sampled_positions = sample_indices_site_domain_group(
+                    overlay_rows,
+                    group_by=args.site_domain_overlay_mode,
+                    max_samples_per_group=args.max_samples_per_site_domain_combination,
                     seed=args.random_state + 200,
                 )
+                if sampled_positions.size < PLOT_MIN_SAMPLES:
+                    LOGGER.warning(
+                        "Skipping site-domain overlay plot for %s: only %d sampled rows",
+                        args.site_domain_overlay_mode,
+                        sampled_positions.size,
+                    )
+                else:
+                    sampled_rows = [overlay_rows[position] for position in sampled_positions.tolist()]
+                    feature_indices = np.asarray([int(row["row_index"]) for row in sampled_rows], dtype=np.int64)
+                    sampled_features = np.asarray(features[feature_indices], dtype=np.float32)
+                    processed_features = preprocess_features(
+                        sampled_features,
+                        normalize=args.normalize,
+                        pca_dim=args.pca_dim,
+                        seed=args.random_state,
+                    )
+                    embedding_seed = args.random_state + projection_seed_offset(embedding_method, n_components) + 200
+                    coords, embedding_meta = compute_embedding(
+                        processed_features,
+                        method=embedding_method,
+                        n_components=n_components,
+                        args=args,
+                        seed=embedding_seed,
+                    )
 
-                image_path = output_dir / "clip_frame_tsne_site_domain_overlay_{0}.png".format(
-                    sanitize_slug(args.site_domain_overlay_mode)
-                )
-                csv_path = output_dir / "clip_frame_tsne_site_domain_overlay_{0}_points.csv".format(
-                    sanitize_slug(args.site_domain_overlay_mode)
-                )
-                render_site_domain_overlay_plot(
-                    coords,
-                    sampled_rows,
-                    group_by=args.site_domain_overlay_mode,
-                    group_names=overlay_groups,
-                    title="All sites by {0} with domain markers\nCLIP frame embeddings".format(
+                    plot_stem = build_plot_stem(
+                        embedding_method,
+                        n_components,
+                        args.domain_filter,
+                        "site_domain_overlay_{0}".format(args.site_domain_overlay_mode),
+                    )
+                    image_path = projection_dirs["figures_dir"] / "{0}.png".format(plot_stem)
+                    csv_path = projection_dirs["points_dir"] / "{0}_points.csv".format(plot_stem)
+                    full_title = "All sites by {0} with domain markers{1}\nCLIP frame embeddings ({2}, {3}D)".format(
                         "anatomical site"
                         if args.site_domain_overlay_mode == "site_code"
-                        else args.site_domain_overlay_mode
-                    ),
-                    output_path=image_path,
-                    point_size=args.point_size,
-                    alpha=args.alpha,
-                    dpi=args.dpi,
-                )
-                save_points_csv(csv_path, sampled_rows, coords)
+                        else args.site_domain_overlay_mode,
+                        domain_scope_title_suffix(args.domain_filter),
+                        method_display,
+                        n_components,
+                    )
 
-                overlay_counts = Counter(
-                    (site_group_value(row, args.site_domain_overlay_mode), str(row["domain"])) for row in sampled_rows
-                )
-                LOGGER.info(
-                    "Saved site-domain overlay plot for %s (%d points, perplexity=%.2f) to %s",
-                    args.site_domain_overlay_mode,
-                    len(sampled_rows),
-                    perplexity,
-                    image_path,
-                )
+                    render_site_domain_overlay_plot(
+                        coords,
+                        sampled_rows,
+                        group_by=args.site_domain_overlay_mode,
+                        group_names=overlay_groups,
+                        title=full_title,
+                        output_path=image_path,
+                        embedding_method=embedding_method,
+                        n_components=n_components,
+                        point_size=args.point_size,
+                        alpha=args.alpha,
+                        dpi=args.dpi,
+                        view_elev=args.view_elev,
+                        view_azim=args.view_azim,
+                    )
+                    save_points_csv(csv_path, sampled_rows, coords, coord_prefix=coord_prefix)
 
-                summary["plots"].append(
-                    {
+                    overlay_counts = Counter(
+                        (site_group_value(row, args.site_domain_overlay_mode), str(row["domain"]))
+                        for row in sampled_rows
+                    )
+                    LOGGER.info(
+                        "Saved site-domain overlay plot for %s (%d points, %s %dD) to %s",
+                        args.site_domain_overlay_mode,
+                        len(sampled_rows),
+                        method_display,
+                        n_components,
+                        image_path,
+                    )
+
+                    plot_record = {
                         "plot_kind": "site_domain_overlay",
                         "plot_mode": args.site_domain_overlay_mode,
                         "group_name": None,
-                        "title": "All sites by {0} with domain markers".format(args.site_domain_overlay_mode),
+                        "title": full_title,
+                        "domain_filter": args.domain_filter,
+                        "domain_scope": domain_scope_slug(args.domain_filter),
+                        "embedding_method": embedding_method,
+                        "n_components": n_components,
                         "n_points": len(sampled_rows),
-                        "perplexity": perplexity,
                         "image_path": str(image_path),
                         "points_csv": str(csv_path),
+                        "output_dir": str(projection_dirs["run_dir"]),
                         "counts": {
                             "{0}|{1}".format(group_name, domain_name): int(
                                 overlay_counts.get((group_name, domain_name), 0)
                             )
                             for group_name in overlay_groups
-                            for domain_name in ["benin", "sa"]
+                            for domain_name in domains_in_rows(sampled_rows)
+                            if domain_name in DOMAIN_LABELS
                         },
                     }
-                )
+                    plot_record.update(embedding_meta)
 
-    summary_path = output_dir / "clip_frame_tsne_summary.json"
+                    if args.cluster_method != "none":
+                        try:
+                            cluster_labels, cluster_meta = compute_clusters(
+                                coords,
+                                method=args.cluster_method,
+                                args=args,
+                                seed=embedding_seed + 100000,
+                            )
+                        except ValueError as exc:
+                            LOGGER.warning(
+                                "Skipping clustering for site-domain overlay plot %s: %s",
+                                args.site_domain_overlay_mode,
+                                exc,
+                            )
+                        else:
+                            cluster_path = projection_dirs["clusters_dir"] / "{0}_{1}_clusters.png".format(
+                                plot_stem,
+                                sanitize_slug(args.cluster_method),
+                            )
+                            cluster_csv_path = projection_dirs["clusters_dir"] / "{0}_{1}_clusters.csv".format(
+                                plot_stem,
+                                sanitize_slug(args.cluster_method),
+                            )
+                            render_cluster_plot(
+                                coords,
+                                sampled_rows,
+                                cluster_labels=cluster_labels,
+                                title="{0}\nClusters ({1})".format(full_title, args.cluster_method.upper()),
+                                output_path=cluster_path,
+                                embedding_method=embedding_method,
+                                n_components=n_components,
+                                point_size=args.point_size,
+                                alpha=args.alpha,
+                                dpi=args.dpi,
+                                view_elev=args.view_elev,
+                                view_azim=args.view_azim,
+                            )
+                            save_cluster_csv(
+                                cluster_csv_path,
+                                sampled_rows,
+                                coords,
+                                coord_prefix=coord_prefix,
+                                cluster_labels=cluster_labels,
+                            )
+                            cluster_counts = Counter(int(label) for label in cluster_labels)
+                            plot_record["cluster"] = {
+                                **cluster_meta,
+                                "image_path": str(cluster_path),
+                                "cluster_csv": str(cluster_csv_path),
+                                "counts": {
+                                    ("noise" if cluster_id < 0 else "cluster_{0}".format(cluster_id)): int(
+                                        cluster_counts[cluster_id]
+                                    )
+                                    for cluster_id in sorted(cluster_counts)
+                                },
+                            }
+
+                    summary["plots"].append(plot_record)
+
+    summary_suffix_parts = [
+        domain_scope_slug(args.domain_filter),
+        sanitize_slug(
+            "_".join("{0}_{1}d".format(method, n_components) for method, n_components in projection_specs)
+        ),
+    ]
+    if args.cluster_method != "none":
+        summary_suffix_parts.append(sanitize_slug(args.cluster_method))
+    summary_path = output_root / "clip_frame_embedding_summary_{0}.json".format(
+        "_".join(summary_suffix_parts)
+    )
     with summary_path.open("w") as handle:
         json.dump(summary, handle, indent=2)
         handle.write("\n")

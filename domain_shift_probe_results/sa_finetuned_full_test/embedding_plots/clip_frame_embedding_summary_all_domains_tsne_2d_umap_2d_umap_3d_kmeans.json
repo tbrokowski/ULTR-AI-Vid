@@ -1,0 +1,258 @@
+{
+  "feature_dir": "/users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test",
+  "output_root": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots",
+  "manifest": null,
+  "domain_filter": "all",
+  "domain_scope": "all_domains",
+  "projection_specs": [
+    {
+      "embedding_method": "tsne",
+      "n_components": 2
+    },
+    {
+      "embedding_method": "umap",
+      "n_components": 2
+    },
+    {
+      "embedding_method": "umap",
+      "n_components": 3
+    }
+  ],
+  "cluster_method": "kmeans",
+  "max_samples_per_combination": 600,
+  "max_samples_per_site_group": 250,
+  "max_samples_per_site_domain_combination": 250,
+  "normalize": "l2",
+  "pca_dim": 50,
+  "perplexity": 30.0,
+  "learning_rate": 200.0,
+  "random_state": 42,
+  "plots": [
+    {
+      "plot_kind": "domain_tb",
+      "plot_mode": "overall",
+      "group_name": null,
+      "title": "All sites\nCLIP frame embeddings (t-SNE, 2D)",
+      "domain_filter": "all",
+      "domain_scope": "all_domains",
+      "embedding_method": "tsne",
+      "n_components": 2,
+      "n_points": 2400,
+      "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains/figures/clip_frame_tsne_2d_all_domains_overall.png",
+      "points_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains/points/clip_frame_tsne_2d_all_domains_overall_points.csv",
+      "output_dir": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains",
+      "counts": {
+        "benin|tb_0": 600,
+        "benin|tb_1": 600,
+        "sa|tb_0": 600,
+        "sa|tb_1": 600
+      },
+      "perplexity": 30.0,
+      "learning_rate": 200.0,
+      "cluster": {
+        "cluster_method": "kmeans",
+        "requested_num_clusters": 4,
+        "n_clusters_found": 4,
+        "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains/clusters/clip_frame_tsne_2d_all_domains_overall_kmeans_clusters.png",
+        "cluster_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains/clusters/clip_frame_tsne_2d_all_domains_overall_kmeans_clusters.csv",
+        "counts": {
+          "cluster_0": 662,
+          "cluster_1": 691,
+          "cluster_2": 412,
+          "cluster_3": 635
+        }
+      }
+    },
+    {
+      "plot_kind": "site_domain_overlay",
+      "plot_mode": "region",
+      "group_name": null,
+      "title": "All sites by region with domain markers\nCLIP frame embeddings (t-SNE, 2D)",
+      "domain_filter": "all",
+      "domain_scope": "all_domains",
+      "embedding_method": "tsne",
+      "n_components": 2,
+      "n_points": 2000,
+      "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains/figures/clip_frame_tsne_2d_all_domains_site_domain_overlay_region.png",
+      "points_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains/points/clip_frame_tsne_2d_all_domains_site_domain_overlay_region_points.csv",
+      "output_dir": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains",
+      "counts": {
+        "anterior|benin": 250,
+        "anterior|sa": 250,
+        "lateral|benin": 250,
+        "lateral|sa": 250,
+        "posterior|benin": 250,
+        "posterior|sa": 250,
+        "apical|benin": 250,
+        "apical|sa": 250
+      },
+      "perplexity": 30.0,
+      "learning_rate": 200.0,
+      "cluster": {
+        "cluster_method": "kmeans",
+        "requested_num_clusters": 4,
+        "n_clusters_found": 4,
+        "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains/clusters/clip_frame_tsne_2d_all_domains_site_domain_overlay_region_kmeans_clusters.png",
+        "cluster_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/tsne_2d/all_domains/clusters/clip_frame_tsne_2d_all_domains_site_domain_overlay_region_kmeans_clusters.csv",
+        "counts": {
+          "cluster_0": 565,
+          "cluster_1": 334,
+          "cluster_2": 563,
+          "cluster_3": 538
+        }
+      }
+    },
+    {
+      "plot_kind": "domain_tb",
+      "plot_mode": "overall",
+      "group_name": null,
+      "title": "All sites\nCLIP frame embeddings (UMAP, 2D)",
+      "domain_filter": "all",
+      "domain_scope": "all_domains",
+      "embedding_method": "umap",
+      "n_components": 2,
+      "n_points": 2400,
+      "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains/figures/clip_frame_umap_2d_all_domains_overall.png",
+      "points_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains/points/clip_frame_umap_2d_all_domains_overall_points.csv",
+      "output_dir": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains",
+      "counts": {
+        "benin|tb_0": 600,
+        "benin|tb_1": 600,
+        "sa|tb_0": 600,
+        "sa|tb_1": 600
+      },
+      "n_neighbors": 30,
+      "min_dist": 0.1,
+      "metric": "euclidean",
+      "cluster": {
+        "cluster_method": "kmeans",
+        "requested_num_clusters": 4,
+        "n_clusters_found": 4,
+        "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains/clusters/clip_frame_umap_2d_all_domains_overall_kmeans_clusters.png",
+        "cluster_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains/clusters/clip_frame_umap_2d_all_domains_overall_kmeans_clusters.csv",
+        "counts": {
+          "cluster_0": 462,
+          "cluster_1": 394,
+          "cluster_2": 746,
+          "cluster_3": 798
+        }
+      }
+    },
+    {
+      "plot_kind": "site_domain_overlay",
+      "plot_mode": "region",
+      "group_name": null,
+      "title": "All sites by region with domain markers\nCLIP frame embeddings (UMAP, 2D)",
+      "domain_filter": "all",
+      "domain_scope": "all_domains",
+      "embedding_method": "umap",
+      "n_components": 2,
+      "n_points": 2000,
+      "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains/figures/clip_frame_umap_2d_all_domains_site_domain_overlay_region.png",
+      "points_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains/points/clip_frame_umap_2d_all_domains_site_domain_overlay_region_points.csv",
+      "output_dir": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains",
+      "counts": {
+        "anterior|benin": 250,
+        "anterior|sa": 250,
+        "lateral|benin": 250,
+        "lateral|sa": 250,
+        "posterior|benin": 250,
+        "posterior|sa": 250,
+        "apical|benin": 250,
+        "apical|sa": 250
+      },
+      "n_neighbors": 30,
+      "min_dist": 0.1,
+      "metric": "euclidean",
+      "cluster": {
+        "cluster_method": "kmeans",
+        "requested_num_clusters": 4,
+        "n_clusters_found": 4,
+        "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains/clusters/clip_frame_umap_2d_all_domains_site_domain_overlay_region_kmeans_clusters.png",
+        "cluster_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_2d/all_domains/clusters/clip_frame_umap_2d_all_domains_site_domain_overlay_region_kmeans_clusters.csv",
+        "counts": {
+          "cluster_0": 559,
+          "cluster_1": 327,
+          "cluster_2": 688,
+          "cluster_3": 426
+        }
+      }
+    },
+    {
+      "plot_kind": "domain_tb",
+      "plot_mode": "overall",
+      "group_name": null,
+      "title": "All sites\nCLIP frame embeddings (UMAP, 3D)",
+      "domain_filter": "all",
+      "domain_scope": "all_domains",
+      "embedding_method": "umap",
+      "n_components": 3,
+      "n_points": 2400,
+      "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains/figures/clip_frame_umap_3d_all_domains_overall.png",
+      "points_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains/points/clip_frame_umap_3d_all_domains_overall_points.csv",
+      "output_dir": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains",
+      "counts": {
+        "benin|tb_0": 600,
+        "benin|tb_1": 600,
+        "sa|tb_0": 600,
+        "sa|tb_1": 600
+      },
+      "n_neighbors": 30,
+      "min_dist": 0.1,
+      "metric": "euclidean",
+      "cluster": {
+        "cluster_method": "kmeans",
+        "requested_num_clusters": 4,
+        "n_clusters_found": 4,
+        "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains/clusters/clip_frame_umap_3d_all_domains_overall_kmeans_clusters.png",
+        "cluster_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains/clusters/clip_frame_umap_3d_all_domains_overall_kmeans_clusters.csv",
+        "counts": {
+          "cluster_0": 666,
+          "cluster_1": 393,
+          "cluster_2": 410,
+          "cluster_3": 931
+        }
+      }
+    },
+    {
+      "plot_kind": "site_domain_overlay",
+      "plot_mode": "region",
+      "group_name": null,
+      "title": "All sites by region with domain markers\nCLIP frame embeddings (UMAP, 3D)",
+      "domain_filter": "all",
+      "domain_scope": "all_domains",
+      "embedding_method": "umap",
+      "n_components": 3,
+      "n_points": 2000,
+      "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains/figures/clip_frame_umap_3d_all_domains_site_domain_overlay_region.png",
+      "points_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains/points/clip_frame_umap_3d_all_domains_site_domain_overlay_region_points.csv",
+      "output_dir": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains",
+      "counts": {
+        "anterior|benin": 250,
+        "anterior|sa": 250,
+        "lateral|benin": 250,
+        "lateral|sa": 250,
+        "posterior|benin": 250,
+        "posterior|sa": 250,
+        "apical|benin": 250,
+        "apical|sa": 250
+      },
+      "n_neighbors": 30,
+      "min_dist": 0.1,
+      "metric": "euclidean",
+      "cluster": {
+        "cluster_method": "kmeans",
+        "requested_num_clusters": 4,
+        "n_clusters_found": 4,
+        "image_path": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains/clusters/clip_frame_umap_3d_all_domains_site_domain_overlay_region_kmeans_clusters.png",
+        "cluster_csv": "/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test/embedding_plots/umap_3d/all_domains/clusters/clip_frame_umap_3d_all_domains_site_domain_overlay_region_kmeans_clusters.csv",
+        "counts": {
+          "cluster_0": 665,
+          "cluster_1": 323,
+          "cluster_2": 496,
+          "cluster_3": 516
+        }
+      }
+    }
+  ]
+}
