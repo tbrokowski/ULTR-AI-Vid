@@ -4,13 +4,13 @@ Representation note
   Scan representation here is the current code path's pooled selected-frame site vector before site integration.
 
 CLIP frame embeddings
-  AUROC: 0.8962 +/- 0.0068
-  Accuracy: 0.8084 +/- 0.0079
+  AUROC: 0.8961 +/- 0.0068
+  Accuracy: 0.8081 +/- 0.0076
   Rows / Patients: 199520 / 204
 
 Scan representations
-  AUROC: 0.8958 +/- 0.0079
-  Accuracy: 0.8111 +/- 0.0100
+  AUROC: 0.8567 +/- 0.0114
+  Accuracy: 0.7850 +/- 0.0119
   Rows / Patients: 6235 / 204
 
 Patient representations

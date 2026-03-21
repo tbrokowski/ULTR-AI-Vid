@@ -21,5 +21,5 @@
   "max_plot_samples_per_domain": 2000,
   "save_features": true,
   "save_plots": true,
-  "feature_dir": "/users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/benin_pretrained_fold3_test"
+  "feature_dir": "/users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/benin_pretrained_fold3_test_01"
 }

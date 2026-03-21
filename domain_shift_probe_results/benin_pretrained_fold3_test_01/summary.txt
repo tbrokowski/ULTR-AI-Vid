@@ -9,13 +9,13 @@ CLIP frame embeddings
   Rows / Patients: 199520 / 204
 
 Scan representations
-  AUROC: 0.8634 +/- 0.0105
-  Accuracy: 0.7769 +/- 0.0072
+  AUROC: 0.8462 +/- 0.0096
+  Accuracy: 0.7715 +/- 0.0108
   Rows / Patients: 6235 / 204
 
 Patient representations
   AUROC: 1.0000 +/- 0.0000
-  Accuracy: 1.0000 +/- 0.0000
+  Accuracy: 0.9961 +/- 0.0078
   Rows / Patients: 204 / 204
 
 Interpretation
