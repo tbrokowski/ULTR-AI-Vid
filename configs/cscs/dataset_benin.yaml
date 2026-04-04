@@ -1,0 +1,9 @@
+# Shared Benin dataset profile for training, fine-tuning, and optional warm-starts.
+
+root_dir: "/users/lxflk/ULTR-AI-Vid/Data"
+labels_csv: "/users/lxflk/ULTR-AI-Vid/Data/labels/labels_multidiagnosis.csv"
+file_metadata_csv: "/users/lxflk/ULTR-AI-Vid/Data/processed_files_2.csv"
+split_csv: null
+image_folder: "images"
+video_folder: "/capstor/scratch/cscs/tbrokowski/ultr-ai/BeninVideos"
+depth_filter: "15"

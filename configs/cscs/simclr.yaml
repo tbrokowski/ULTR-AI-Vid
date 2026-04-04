@@ -1,0 +1,57 @@
+#
+# Dataset-specific paths and split settings are supplied by `train_job_simclr.sh`
+# through `configs/cscs/dataset_*.yaml` plus optional Benin fold overrides.
+
+experiment_name: "simclr"
+output_dir: "./runs/simclr/default"
+seed: 42
+device: "cuda"
+
+root_dir: null
+file_metadata_csv: null
+video_folder: null
+split_csv: null
+pretrain_splits:
+  - "train"
+
+frame_sampling: 32
+batch_size: 8
+num_workers: 6
+cache_size: 0
+
+target_height: 224
+target_width: 224
+mean: [0.45, 0.45, 0.45]
+std: [0.225, 0.225, 0.225]
+
+crop_scale_min: 0.7
+crop_scale_max: 1.0
+degrees: 20.0
+translate: [0.1, 0.1]
+brightness: 0.25
+contrast: 0.25
+blur_prob: 0.3
+blur_sigma_min: 0.1
+blur_sigma_max: 1.0
+noise_std: 0.12
+
+clip_model_name: "openai/clip-vit-base-patch32"
+local_weights_dir: "/users/lxflk/CLIP_weights/"
+freeze_backbone: false
+clip_unfreeze_last_n_layers: 4
+train_visual_projection: true
+
+projection_dim: 128
+projection_hidden_dim: 1024
+temperature: 0.1
+
+num_epochs: 30
+warmup_epochs: 3
+learning_rate: 0.00005
+min_learning_rate: 0.000001
+weight_decay: 0.000001
+accumulation_steps: 1
+gradient_clip_norm: 1.0
+use_amp: true
+log_every_steps: 20
+save_every_epochs: 1

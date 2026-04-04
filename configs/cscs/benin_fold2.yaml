@@ -1,0 +1,6 @@
+# Benin fold 2 overrides for configs/cscs/train.yaml.
+# This file is intentionally override-only.
+
+experiment_name: "train_benin_fold2"
+model_name: "drl_mil_tb_classifier_cscs_fold2"
+split_csv: "/users/lxflk/ULTR-AI-Vid/Data/test_files/Fold_2.csv"

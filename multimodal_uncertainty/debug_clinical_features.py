@@ -19,19 +19,20 @@ from typing import Dict, List, Tuple, Any
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
 
-# Add current directory to path for imports
-sys.path.append('.')
-sys.path.append('./ULTR-CLIP/multimodal_uncertainty')
-
 try:
-    from dataset import MultimodalTBDataset, create_dataloaders, analyze_dataset_distribution, load_fold_split_robust
-    from models import DomainAwareClinicalEncoder, SimpleClinicalEncoder, create_model
+    from multimodal_uncertainty.dataset import (
+        MultimodalTBDataset,
+        create_dataloaders,
+        analyze_dataset_distribution,
+        load_fold_split_robust,
+    )
+    from multimodal_uncertainty.models import DomainAwareClinicalEncoder, SimpleClinicalEncoder, create_model
     print("✅ Successfully imported custom modules")
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Make sure the files are in the correct location:")
-    print("  - dataset.py")
-    print("  - models.py")
+    print("  - multimodal_uncertainty/dataset.py")
+    print("  - multimodal_uncertainty/models.py")
     sys.exit(1)
 
 class MultimodalDebugger:

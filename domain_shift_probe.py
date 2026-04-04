@@ -36,9 +36,9 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import ConcatDataset, DataLoader, Subset
 
-import dataset as benin_dataset
-import dataset_sa as sa_dataset
-from config import MultiTaskConfig, load_config
+from ultrai.data.adapters import benin as benin_dataset
+from ultrai.data.adapters import sa as sa_dataset
+from ultrai.training.config import MultiTaskConfig, load_config
 from domain_shift_plot_utils import site_metadata_from_index
 from NetworkArchitecture.CLIP_DRL_Aug11 import MultiTaskModel
 

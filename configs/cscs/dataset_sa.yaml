@@ -1,0 +1,12 @@
+# Shared South Africa dataset profile for training, fine-tuning, and optional warm-starts.
+# `split_csv` stays null here because direct SA supervised training/SimCLR should
+# pass an explicit split, while `ultrai.training.finetune` creates its own SA split internally.
+
+root_dir: "/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned"
+labels_csv: "/users/lxflk/ULTR-AI-Vid/Data/labels/rsa_pathology_labels.csv"
+file_metadata_csv: "/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned/processed_files.csv"
+sa_clinical_data: "/users/lxflk/ULTR-AI-Vid/Data/clinical_data/TrUSTSouthAfrica_DATA_2026-01-23_1807.csv"
+split_csv: null
+image_folder: "images"
+video_folder: "/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned/videos"
+depth_filter: "all"

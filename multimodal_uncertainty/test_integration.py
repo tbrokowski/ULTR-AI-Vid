@@ -11,12 +11,14 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-# Add current directory to path for imports
-sys.path.append('.')
-
 try:
-    from dataset import MultimodalTBDataset, create_dataloaders, custom_collate_fn, analyze_dataset_distribution
-    from models import create_model, DomainAwareClinicalEncoder, SimpleClinicalEncoder
+    from multimodal_uncertainty.dataset import (
+        MultimodalTBDataset,
+        create_dataloaders,
+        custom_collate_fn,
+        analyze_dataset_distribution,
+    )
+    from multimodal_uncertainty.models import create_model, DomainAwareClinicalEncoder, SimpleClinicalEncoder
     print("✓ Successfully imported all modules")
 except ImportError as e:
     print(f"✗ Import error: {e}")

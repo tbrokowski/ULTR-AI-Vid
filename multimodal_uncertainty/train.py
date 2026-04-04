@@ -18,8 +18,8 @@ from typing import Dict, List, Tuple, Any
 warnings.filterwarnings('ignore')
 
 # Import our custom modules
-from dataset import create_dataloaders, analyze_dataset_distribution
-from models import create_model, MCDropoutModel, DeepEnsemble
+from multimodal_uncertainty.dataset import create_dataloaders, analyze_dataset_distribution
+from multimodal_uncertainty.models import create_model, MCDropoutModel, DeepEnsemble
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

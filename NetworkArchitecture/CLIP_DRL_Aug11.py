@@ -5,10 +5,15 @@ import math
 import numpy as np
 from typing import Dict, List, Tuple, Union, Optional
 from collections import OrderedDict
-from transformers import CLIPVisionModel
-from safetensors import safe_open
 import os
 import logging
+
+from .clip_backbone_utils import (
+    configure_clip_trainability,
+    count_trainable_parameters,
+    create_clip_vision_encoder,
+    load_vision_encoder_weights,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -854,44 +859,36 @@ class MultiTaskModel(nn.Module):
         logger.info(f"Pathology loss weight: {self.pathology_weight}")
         logger.info(f"Frame selection strategy: {self.selection_strategy}")
         
-        # CLIP Vision Encoder
-        self.vision_encoder = CLIPVisionModel.from_pretrained(
-            "openai/clip-vit-base-patch32",
-            torch_dtype=torch.float32
+        clip_model_name = getattr(config, 'clip_model_name', "openai/clip-vit-base-patch32")
+        self.vision_encoder = create_clip_vision_encoder(
+            clip_model_name=clip_model_name,
+            local_weights_dir=getattr(
+                config,
+                'local_weights_dir',
+                '/users/lxflk/CLIP_weights',
+            ),
+            dtype=torch.float32,
         )
 
         self.feature_noise_std = 0.05
-        
-        # Load local weights if available
-        local_weights_path = os.path.join(
-            getattr(config, 'local_weights_dir', '/gpfs/gibbs/project/hartley/tjb76/artstuff_OPTIMIZEDWOOOO/NetworkArchitecture/CLIP_weights'),
-            'model.safetensors'
-        )
-        
-        if os.path.exists(local_weights_path):
-            logger.info(f"Loading weights from {local_weights_path}")
-            with safe_open(local_weights_path, framework='pt', device='cpu') as f:
-                all_keys = f.keys()
-                vision_state_dict = {}
-                model_state_dict = self.vision_encoder.state_dict()
-                matched_keys = 0
-                
-                for key in model_state_dict.keys():
-                    safetensors_key = f"vision_model.{key}"
-                    if safetensors_key in f.keys():
-                        tensor = f.get_tensor(safetensors_key)
-                        if tensor.shape == model_state_dict[key].shape:
-                            vision_state_dict[key] = tensor
-                            matched_keys += 1
-                
-                # Update model with matched weights
-                if matched_keys > 0:
-                    logger.info(f"Successfully matched {matched_keys}/{len(model_state_dict)} weights")
-                    self.vision_encoder.load_state_dict(vision_state_dict, strict=False)
-                else:
-                    logger.info("No weights could be matched from the safetensors file")
 
-        self._freeze_clip_except_last_layer()
+        vision_pretrained_weights = getattr(config, 'vision_pretrained_weights', None)
+        if vision_pretrained_weights:
+            try:
+                load_vision_encoder_weights(
+                    self.vision_encoder,
+                    vision_pretrained_weights,
+                    map_location='cpu',
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to load vision pretrained weights from %s: %s",
+                    vision_pretrained_weights,
+                    exc,
+                )
+                raise
+
+        self._configure_clip_trainability()
         
         # Vision feature dimension
         self.vision_dim = 768  # CLIP ViT-B/32 dimension
@@ -980,23 +977,18 @@ class MultiTaskModel(nn.Module):
             nn.Linear(self.hidden_dim // 2, self.num_classes)
         )
 
-    def _freeze_clip_except_last_layer(self):
-        """Freeze all CLIP parameters except the last layer."""
-        # First freeze everything
-        for param in self.vision_encoder.parameters():
-            param.requires_grad = False
-        
-        # Then unfreeze the last layer (visual projection)
-        if hasattr(self.vision_encoder, 'visual_projection'):
-            for param in self.vision_encoder.visual_projection.parameters():
-                param.requires_grad = True
-        
-        # If no visual_projection, unfreeze the final transformer layer
-        elif hasattr(self.vision_encoder, 'vision_model') and hasattr(self.vision_encoder.vision_model, 'encoder'):
-            layers = self.vision_encoder.vision_model.encoder.layers
-            if len(layers) > 0:
-                for param in layers[-1].parameters():
-                    param.requires_grad = True
+    def _configure_clip_trainability(self):
+        """Honor config-driven CLIP fine-tuning instead of always using one layer."""
+        configure_clip_trainability(
+            self.vision_encoder,
+            freeze_backbone=getattr(self.config, 'freeze_backbone', False),
+            unfreeze_last_n_layers=getattr(self.config, 'clip_unfreeze_last_n_layers', 1),
+            train_visual_projection=getattr(self.config, 'train_visual_projection', True),
+        )
+        logger.info(
+            "CLIP trainable parameters: %s",
+            f"{count_trainable_parameters(self.vision_encoder):,}",
+        )
     
     def extract_clip_features(self, frames):
         """Extract features using CLIP vision encoder."""

@@ -12,9 +12,9 @@ trap 'echo "Domain shift probe failed. Check logs/domain_probe_*.err, logs/domai
 mkdir -p logs
 
 CHECKPOINT="/users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold3/checkpoint_best.pth"
-MODEL_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml"
-BENIN_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/tb_drl_mil_fold3.yaml"
-SA_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/sa_finetune.yaml"
+MODEL_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/benin_fold3.yaml"
+BENIN_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/benin_fold3.yaml"
+SA_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/finetune.yaml"
 OUTPUT_DIR="/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test"
 FEATURE_DIR=""
 
@@ -70,7 +70,7 @@ Options:
 Examples:
   sbatch train_job_domain_shift_probe.sh
   sbatch --partition=debug --time=00:30:00 train_job_domain_shift_probe.sh --max-patients-per-domain 4 --frame-sampling 8 --max-sites 3
-  sbatch train_job_domain_shift_probe.sh --checkpoint /users/lxflk/ULTR-AI-Vid/checkpoints/sa_finetune/finetune_full/checkpoint_best.pth --model-config /users/lxflk/ULTR-AI-Vid/configs/cscs/sa_finetune.yaml --output-dir /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test
+  sbatch train_job_domain_shift_probe.sh --checkpoint /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/finetune/benin_to_sa/<run-name>/checkpoints/finetune_full/checkpoint_best.pth --model-config /users/lxflk/ULTR-AI-Vid/configs/cscs/finetune.yaml --output-dir /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test
 EOF
 }
 
