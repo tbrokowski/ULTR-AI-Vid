@@ -2,7 +2,7 @@
 
 """Create embedding plots for cached domain-shift CLIP frame embeddings.
 
-This script is the inspection companion to `domain_shift_probe.py`.
+This script is the inspection companion to `ultrai.analysis.domain_shift.probe`.
 It reads cached CLIP frame embeddings from:
 
 - `clip_frame_features.npy`
@@ -156,29 +156,29 @@ Most important arguments
 
 Typical commands
 ----------------
-python domain_shift_clip_tsne.py \
-  --feature-dir /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test \
+python3 -m ultrai.analysis.domain_shift.clip_tsne \
+  --feature-dir /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/domain_shift_probe_features/sa_finetuned_full_test \
   --domain-filter sa \
   --site-plot-mode none \
   --site-legend-mode none \
   --site-domain-overlay-mode none
   
-python domain_shift_clip_tsne.py \
-  --feature-dir /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test \
+python3 -m ultrai.analysis.domain_shift.clip_tsne \
+  --feature-dir /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/domain_shift_probe_features/sa_finetuned_full_test \
   --domain-filter sa \
   --site-plot-mode none \
   --site-legend-mode none \
   --site-domain-overlay-mode site_code
   
-python domain_shift_clip_tsne.py \
-  --feature-dir /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test \
+python3 -m ultrai.analysis.domain_shift.clip_tsne \
+  --feature-dir /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/domain_shift_probe_features/sa_finetuned_full_test \
   --domain-filter sa \
   --site-plot-mode none \
   --site-legend-mode none \
   --site-domain-overlay-mode region
   
-python domain_shift_clip_tsne.py \
-  --feature-dir /users/lxflk/ULTR-AI-Vid/checkpoints/domain_shift_probe_features/sa_finetuned_full_test \
+python3 -m ultrai.analysis.domain_shift.clip_tsne \
+  --feature-dir /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/domain_shift_probe_features/sa_finetuned_full_test \
   --site-plot-mode none \
   --site-legend-mode none \
   --site-domain-overlay-mode region \
@@ -199,9 +199,14 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import yaml
-from matplotlib import pyplot as plt
-from matplotlib.lines import Line2D
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+
+try:
+    from matplotlib import pyplot as plt
+    from matplotlib.lines import Line2D
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+except ImportError:
+    plt = None
+    Line2D = None
 
 try:
     import umap
@@ -218,7 +223,12 @@ except ImportError as exc:
         "Install scikit-learn in the environment used to run this script."
     ) from exc
 
-from domain_shift_plot_utils import (
+from ultrai.analysis.domain_shift.paths import (
+    DEFAULT_FEATURE_ROOT,
+    associated_results_dir,
+    resolve_project_path,
+)
+from ultrai.analysis.domain_shift.plot_utils import (
     default_site_groups,
     load_tb_label_lookup,
     lookup_tb_label,
@@ -229,9 +239,6 @@ from domain_shift_plot_utils import (
 
 
 LOGGER = logging.getLogger("domain_shift_clip_tsne")
-REPO_ROOT = Path(__file__).resolve().parent
-DEFAULT_FEATURE_ROOT = REPO_ROOT / "checkpoints" / "domain_shift_probe_features"
-DEFAULT_RESULTS_ROOT = REPO_ROOT / "domain_shift_probe_results"
 FEATURE_FILE = "clip_frame_features.npy"
 METADATA_FILE = "clip_frame_metadata.csv"
 PLOT_MIN_SAMPLES = 12
@@ -265,11 +272,11 @@ def parse_args() -> argparse.Namespace:
         epilog=(
             "Examples:\n"
             "  SA-only overall domain/TB plot:\n"
-            "    python domain_shift_clip_tsne.py --run-name sa_finetuned_full_test --domain-filter sa --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode none\n\n"
+            "    python3 -m ultrai.analysis.domain_shift.clip_tsne --run-name sa_finetuned_full_test --domain-filter sa --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode none\n\n"
             "  SA-only region overlay:\n"
-            "    python domain_shift_clip_tsne.py --run-name sa_finetuned_full_test --domain-filter sa --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode region\n\n"
+            "    python3 -m ultrai.analysis.domain_shift.clip_tsne --run-name sa_finetuned_full_test --domain-filter sa --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode region\n\n"
             "  2D t-SNE + 2D/3D UMAP with KMeans clustering:\n"
-            "    python domain_shift_clip_tsne.py --run-name sa_finetuned_full_test --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode region --embedding-methods tsne umap --umap-dims 2 3 --cluster-method kmeans --num-clusters 4"
+            "    python3 -m ultrai.analysis.domain_shift.clip_tsne --run-name sa_finetuned_full_test --site-plot-mode none --site-legend-mode none --site-domain-overlay-mode region --embedding-methods tsne umap --umap-dims 2 3 --cluster-method kmeans --num-clusters 4"
         ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
@@ -283,7 +290,7 @@ def parse_args() -> argparse.Namespace:
         "--run-name",
         type=str,
         default=None,
-        help="Run name under checkpoints/domain_shift_probe_features/ to use instead of --feature-dir",
+        help="Run name under the default scratch domain_shift_probe_features/ root to use instead of --feature-dir",
     )
     parser.add_argument(
         "--output-dir",
@@ -291,7 +298,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Root directory where plots, sampled coordinates, and clustering results will be written. "
-            "If omitted, defaults to results/<run>/embedding_plots/ when available."
+            "If omitted, defaults to the matching scratch domain_shift_probe_results/<run>/embedding_plots path when available."
         ),
     )
     parser.add_argument(
@@ -538,12 +545,7 @@ def setup_logging() -> None:
 
 
 def resolve_repo_relative(path_str: Optional[str]) -> Optional[Path]:
-    if path_str is None:
-        return None
-    path = Path(path_str)
-    if path.is_absolute():
-        return path
-    return REPO_ROOT / path
+    return resolve_project_path(path_str)
 
 
 def discover_feature_dir(feature_root: Path) -> Path:
@@ -583,8 +585,7 @@ def resolve_feature_dir(args: argparse.Namespace) -> Path:
 
 
 def resolve_associated_results_dir(feature_dir: Path) -> Optional[Path]:
-    candidate = DEFAULT_RESULTS_ROOT / feature_dir.name
-    return candidate if candidate.exists() else None
+    return associated_results_dir(feature_dir)
 
 
 def resolve_manifest_path(args: argparse.Namespace, feature_dir: Path) -> Optional[Path]:
@@ -1641,6 +1642,12 @@ def sanitize_slug(value: str) -> str:
 def main() -> None:
     args = parse_args()
     setup_logging()
+
+    if plt is None or Line2D is None:
+        raise ImportError(
+            "matplotlib is required for ultrai.analysis.domain_shift.clip_tsne. "
+            "Run this script inside the ULTR-AI environment used for domain-shift analysis."
+        )
 
     feature_dir = resolve_feature_dir(args)
     output_root = resolve_output_dir(args, feature_dir)

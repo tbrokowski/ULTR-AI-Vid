@@ -7,15 +7,15 @@ Probe Benin vs SA domain shift at three representation levels:
 
 The script loads a checkpoint plus separate Benin and SA dataset configs,
 extracts the requested features, trains a simple grouped domain classifier
-for each level, and writes repo-local artifacts without touching existing
-training outputs.
+for each level, and writes artifacts under the shared scratch runs area by
+default so analysis output stays out of the repository.
 """
 
 import argparse
 import json
 import logging
 import time
-from contextlib import nullcontext
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -36,13 +36,26 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import ConcatDataset, DataLoader, Subset
 
+from ultrai.analysis.domain_shift.paths import (
+    DEFAULT_RESULTS_ROOT,
+    default_feature_dir_for_output_dir,
+    infer_sa_split_csv,
+    resolve_project_path,
+)
+from ultrai.analysis.domain_shift.plot_utils import site_metadata_from_index
 from ultrai.data.adapters import benin as benin_dataset
 from ultrai.data.adapters import sa as sa_dataset
 from ultrai.training.config import MultiTaskConfig, load_config
-from domain_shift_plot_utils import site_metadata_from_index
 from NetworkArchitecture.CLIP_DRL_Aug11 import MultiTaskModel
 
 logger = logging.getLogger("domain_shift_probe")
+
+try:
+    from contextlib import nullcontext
+except ImportError:
+    @contextmanager
+    def nullcontext(enter_result=None):
+        yield enter_result
 
 try:
     import matplotlib.pyplot as plt
@@ -68,12 +81,6 @@ LEVEL_SPECS = {
     },
 }
 
-DEFAULT_SA_SPLIT_CANDIDATES = [
-    Path("sa_finetuning_results_retry/splits/split_full.csv"),
-    Path("sa_finetuning_results/splits/split_full.csv"),
-]
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Domain-shift probe for Benin vs SA")
     parser.add_argument("--checkpoint", type=str, required=True, help="Checkpoint to probe")
@@ -90,7 +97,7 @@ def parse_args() -> argparse.Namespace:
         "--sa-split-csv",
         type=str,
         default=None,
-        help="Optional SA split CSV override; if omitted the script resolves a repo-local default",
+        help="Optional SA split CSV override; if omitted the script resolves it from the finetune run when possible",
     )
     parser.add_argument(
         "--benin-split",
@@ -110,7 +117,7 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=str,
         default=None,
-        help="Output directory inside the repo; a unique directory is created if it already exists",
+        help="Output directory for probe metrics and summaries; defaults under the scratch runs root",
     )
     parser.add_argument(
         "--feature-dir",
@@ -118,7 +125,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Optional directory for raw feature arrays and metadata; "
-            "defaults to checkpoints/domain_shift_probe_features/<run-name>"
+            "defaults under domain_shift_probe_features/ in the scratch runs root"
         ),
     )
     parser.add_argument("--device", type=str, default=None, help="Device override, e.g. cpu or cuda")
@@ -180,16 +187,15 @@ def sanitize_cap(value: Optional[int]) -> Optional[int]:
 
 
 def resolve_repo_relative(path_str: str) -> Path:
-    path = Path(path_str)
-    if path.is_absolute():
-        return path
-    return Path(__file__).resolve().parent / path
+    resolved = resolve_project_path(path_str)
+    if resolved is None:
+        raise ValueError("Expected a path string")
+    return resolved
 
 
 def resolve_output_dir(requested_output_dir: Optional[str], checkpoint_path: Path) -> Path:
-    repo_root = Path(__file__).resolve().parent
     if requested_output_dir is None:
-        base = repo_root / "domain_shift_probe_results" / checkpoint_path.stem
+        base = DEFAULT_RESULTS_ROOT / checkpoint_path.stem
     else:
         base = resolve_repo_relative(requested_output_dir)
 
@@ -205,33 +211,21 @@ def resolve_output_dir(requested_output_dir: Optional[str], checkpoint_path: Pat
 
 
 def resolve_feature_dir(requested_feature_dir: Optional[str], output_dir: Path) -> Path:
-    repo_root = Path(__file__).resolve().parent
-
     if requested_feature_dir is not None:
         return resolve_repo_relative(requested_feature_dir)
-
-    results_root = repo_root / "domain_shift_probe_results"
-    try:
-        relative_run_dir = output_dir.relative_to(results_root)
-    except ValueError:
-        relative_run_dir = Path(output_dir.name)
-
-    return repo_root / "checkpoints" / "domain_shift_probe_features" / relative_run_dir
+    return default_feature_dir_for_output_dir(output_dir)
 
 
-def resolve_default_sa_split_csv(explicit_path: Optional[str]) -> Optional[Path]:
-    if explicit_path:
-        resolved = resolve_repo_relative(explicit_path)
-        if not resolved.exists():
-            raise FileNotFoundError(f"SA split CSV does not exist: {resolved}")
-        return resolved
-
-    for candidate in DEFAULT_SA_SPLIT_CANDIDATES:
-        resolved = resolve_repo_relative(str(candidate))
-        if resolved.exists():
-            return resolved
-
-    return None
+def resolve_default_sa_split_csv(
+    explicit_path: Optional[str],
+    checkpoint_path: Path,
+    sa_config_path: str,
+) -> Optional[Path]:
+    return infer_sa_split_csv(
+        checkpoint_path=checkpoint_path,
+        sa_config_path=resolve_repo_relative(sa_config_path),
+        explicit_path=explicit_path,
+    )
 
 
 def load_runtime_config(
@@ -950,7 +944,11 @@ def main() -> None:
         if benin_split_csv is not None and not benin_split_csv.exists():
             raise FileNotFoundError(f"Benin split CSV does not exist: {benin_split_csv}")
 
-        sa_split_csv = resolve_default_sa_split_csv(args.sa_split_csv)
+        sa_split_csv = resolve_default_sa_split_csv(
+            explicit_path=args.sa_split_csv,
+            checkpoint_path=checkpoint_path,
+            sa_config_path=args.sa_config,
+        )
 
         logger.info("Output directory: %s", output_dir)
         logger.info("Feature directory: %s", feature_dir if feature_dir is not None else "(not saving features)")

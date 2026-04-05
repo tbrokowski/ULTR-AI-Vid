@@ -9,13 +9,19 @@
 
 set -euo pipefail
 trap 'echo "Domain shift probe failed. Check logs/domain_probe_*.err, logs/domain_probe_*.out, and domain_shift_probe.log in the output directory." >&2' ERR
+
+REPO_ROOT="/users/lxflk/ULTR-AI-Vid"
+RUNS_ROOT="/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs"
+VENV_PYTHON="/users/lxflk/.venvs/ultrai/bin/python"
+
+cd "${REPO_ROOT}"
 mkdir -p logs
 
-CHECKPOINT="/users/lxflk/ULTR-AI-Vid/checkpoints/cscs_finalruns/fold3/checkpoint_best.pth"
-MODEL_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/benin_fold3.yaml"
-BENIN_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/benin_fold3.yaml"
-SA_CONFIG="/users/lxflk/ULTR-AI-Vid/configs/cscs/finetune.yaml"
-OUTPUT_DIR="/users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/benin_pretrained_fold3_test"
+CHECKPOINT=""
+MODEL_CONFIG=""
+BENIN_CONFIG=""
+SA_CONFIG=""
+OUTPUT_DIR=""
 FEATURE_DIR=""
 
 BENIN_SPLIT="test"
@@ -46,8 +52,8 @@ Options:
   --model-config PATH                  Config used to build the checkpointed model
   --benin-config PATH                  Benin dataset config
   --sa-config PATH                     SA dataset config
-  --output-dir PATH                    Output directory inside this repo
-  --feature-dir PATH                   Optional feature cache directory (defaults under checkpoints/)
+  --output-dir PATH                    Output directory for probe metrics and summaries
+  --feature-dir PATH                   Optional feature cache directory
 
   --benin-split {train,val,test,all}   Benin split to probe
   --sa-split {train,val,test,all}      SA split to probe
@@ -68,9 +74,14 @@ Options:
   --no-save-plots                      Skip the PNG summaries
 
 Examples:
-  sbatch train_job_domain_shift_probe.sh
   sbatch --partition=debug --time=00:30:00 train_job_domain_shift_probe.sh --max-patients-per-domain 4 --frame-sampling 8 --max-sites 3
-  sbatch train_job_domain_shift_probe.sh --checkpoint /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/finetune/benin_to_sa/<run-name>/checkpoints/finetune_full/checkpoint_best.pth --model-config /users/lxflk/ULTR-AI-Vid/configs/cscs/finetune.yaml --output-dir /users/lxflk/ULTR-AI-Vid/domain_shift_probe_results/sa_finetuned_full_test
+  sbatch train_job_domain_shift_probe.sh \\
+    --checkpoint /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/finetune/benin_to_sa/<run-name>/checkpoints/finetune_full/checkpoint_best.pth \\
+    --model-config /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/finetune/benin_to_sa/<run-name>/resolved_finetune_config.yaml \\
+    --benin-config /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/train/benin/<run-name>/fold3/resolved_config.yaml \\
+    --sa-config /capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/finetune/benin_to_sa/<run-name>/resolved_finetune_config.yaml \\
+    --output-dir ${RUNS_ROOT}/domain_shift_probe_results/sa_finetuned_full_test \\
+    --feature-dir ${RUNS_ROOT}/domain_shift_probe_features/sa_finetuned_full_test
 EOF
 }
 
@@ -176,12 +187,50 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "${CHECKPOINT}" ]]; then
+  echo "--checkpoint is required." >&2
+  exit 1
+fi
+
+if [[ -z "${BENIN_CONFIG}" ]]; then
+  echo "--benin-config is required." >&2
+  exit 1
+fi
+
+if [[ -z "${SA_CONFIG}" ]]; then
+  echo "--sa-config is required." >&2
+  exit 1
+fi
+
+if [[ ! -f "${CHECKPOINT}" ]]; then
+  echo "Checkpoint not found: ${CHECKPOINT}" >&2
+  exit 1
+fi
+
+if [[ -n "${MODEL_CONFIG}" && ! -f "${MODEL_CONFIG}" ]]; then
+  echo "Model config not found: ${MODEL_CONFIG}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${BENIN_CONFIG}" ]]; then
+  echo "Benin config not found: ${BENIN_CONFIG}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${SA_CONFIG}" ]]; then
+  echo "SA config not found: ${SA_CONFIG}" >&2
+  exit 1
+fi
+
+if [[ ! -x "${VENV_PYTHON}" ]]; then
+  echo "Domain-shift venv python not found or not executable: ${VENV_PYTHON}" >&2
+  exit 1
+fi
+
 PY_ARGS=(
   --checkpoint "${CHECKPOINT}"
-  --model-config "${MODEL_CONFIG}"
   --benin-config "${BENIN_CONFIG}"
   --sa-config "${SA_CONFIG}"
-  --output-dir "${OUTPUT_DIR}"
   --benin-split "${BENIN_SPLIT}"
   --sa-split "${SA_SPLIT}"
   --test-size "${TEST_SIZE}"
@@ -190,6 +239,14 @@ PY_ARGS=(
   --max-test-samples-per-domain "${MAX_TEST_SAMPLES_PER_DOMAIN}"
   --max-plot-samples-per-domain "${MAX_PLOT_SAMPLES_PER_DOMAIN}"
 )
+
+if [[ -n "${MODEL_CONFIG}" ]]; then
+  PY_ARGS+=(--model-config "${MODEL_CONFIG}")
+fi
+
+if [[ -n "${OUTPUT_DIR}" ]]; then
+  PY_ARGS+=(--output-dir "${OUTPUT_DIR}")
+fi
 
 if [[ -n "${BENIN_SPLIT_CSV}" ]]; then
   PY_ARGS+=(--benin-split-csv "${BENIN_SPLIT_CSV}")
@@ -233,11 +290,12 @@ fi
 
 echo "Running domain shift probe"
 echo "  checkpoint:                    ${CHECKPOINT}"
-echo "  model_config:                  ${MODEL_CONFIG}"
+echo "  model_config:                  ${MODEL_CONFIG:-<defaults to benin_config>}"
 echo "  benin_config:                  ${BENIN_CONFIG}"
 echo "  sa_config:                     ${SA_CONFIG}"
-echo "  output_dir:                    ${OUTPUT_DIR}"
-echo "  feature_dir override:          ${FEATURE_DIR:-checkpoints/domain_shift_probe_features/<run-name>}"
+echo "  output_dir:                    ${OUTPUT_DIR:-${RUNS_ROOT}/domain_shift_probe_results/<checkpoint-stem>}"
+echo "  feature_dir override:          ${FEATURE_DIR:-${RUNS_ROOT}/domain_shift_probe_features/<run-name>}"
+echo "  python:                        ${VENV_PYTHON}"
 echo "  benin_split:                   ${BENIN_SPLIT}"
 echo "  sa_split:                      ${SA_SPLIT}"
 echo "  max_patients_per_domain:       ${MAX_PATIENTS_PER_DOMAIN:-all}"
@@ -247,7 +305,7 @@ echo "  max_sites override:            ${MAX_SITES:-config default}"
 
 srun --environment=/users/lxflk/.edf/ultrai.toml \
      env PYTHONUNBUFFERED=1 \
-     python3 -u domain_shift_probe.py \
+     "${VENV_PYTHON}" -u -m ultrai.analysis.domain_shift.probe \
      "${PY_ARGS[@]}"
 
 echo "Domain shift probe completed successfully."
