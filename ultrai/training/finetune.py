@@ -23,7 +23,7 @@ import argparse
 import pandas as pd
 import numpy as np
 import torch
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Any, Dict, List, Tuple, Optional, Set
 from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from sklearn.metrics import roc_auc_score, average_precision_score, roc_curve
 import warnings
@@ -469,6 +469,38 @@ def load_checkpoint_state_dict(checkpoint_path: str, device: torch.device) -> Di
         return checkpoint['state_dict']
     else:
         return checkpoint
+
+
+def load_checkpoint_config_dict(checkpoint_path: str) -> Dict[str, Any]:
+    """Load the config metadata saved inside a checkpoint, when present."""
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    except Exception as exc:
+        logger.warning("Could not load checkpoint config from %s: %s", checkpoint_path, exc)
+        return {}
+
+    if not isinstance(checkpoint, dict):
+        return {}
+
+    checkpoint_config = checkpoint.get("config")
+    if checkpoint_config is None:
+        return {}
+    if hasattr(checkpoint_config, "to_dict"):
+        checkpoint_config = checkpoint_config.to_dict()
+    if not isinstance(checkpoint_config, dict):
+        logger.warning(
+            "Checkpoint config in %s is %s, expected dict",
+            checkpoint_path,
+            type(checkpoint_config).__name__,
+        )
+        return {}
+    return checkpoint_config
+
+
+def apply_config_values(config: Any, values: Dict[str, Any]) -> None:
+    """Copy a plain config dictionary onto a Config-like object."""
+    for key, value in values.items():
+        setattr(config, key, value)
 
 
 def _prepare_inputs_from_batch(batch, device, config):
@@ -1142,6 +1174,197 @@ def run_finetuning_experiment(
         cleanup_distributed()
 
 
+def run_dann_finetuning_experiment(
+    config,
+    train_subsets: Dict[str, pd.DataFrame],
+    test_ids: List[str],
+    source_checkpoint_path: str,
+    source_config_path: str,
+    source_dataset: str,
+    target_dataset: str,
+    output_dir: str,
+    checkpoint_dir: str,
+) -> Dict:
+    """
+    Run DANN target fine-tuning with source and target batches.
+
+    This mirrors the standard SA fine-tuning output layout, but writes each
+    subset under `dann_<subset>` so baseline/SimCLR/DANN runs stay easy to
+    compare from the run directory alone.
+    """
+    logger.info(f"\n{'='*60}")
+    logger.info("Starting DANN fine-tuning experiment")
+    logger.info(f"{'='*60}")
+
+    if target_dataset != "sa":
+        raise ValueError("DANN fine-tuning is currently wired for SA target adaptation")
+    if not source_config_path:
+        raise ValueError("DANN fine-tuning requires --source-config so the source-domain loader can be built")
+
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    _use_dataset_adapter(target_dataset)
+
+    from ultrai.training.ablation_engine import Config
+    from ultrai.training.dann import DANNTrainer
+
+    test_ids = map_patient_ids_to_metadata_format(test_ids, config.file_metadata_csv)
+    logger.info("  Mapped %d target test patient IDs to file metadata format", len(test_ids))
+
+    all_results = {}
+    best_auroc = -1
+    best_checkpoint = None
+
+    for subset_name, train_subset_df in train_subsets.items():
+        logger.info(f"\n{'='*60}")
+        logger.info("DANN subset: %s", subset_name)
+        logger.info(f"{'='*60}")
+
+        split_random_state = getattr(config, "split_random_state", 42)
+        val_size = getattr(config, "val_size", 0.2)
+        train_split_df, val_split_df = create_train_val_split(
+            train_subset_df,
+            val_size=val_size,
+            random_state=split_random_state,
+        )
+
+        train_ids = map_patient_ids_to_metadata_format(
+            train_split_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+        val_ids = map_patient_ids_to_metadata_format(
+            val_split_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+
+        subset_results_dir = os.path.join(output_dir, f"dann_{subset_name}")
+        subset_checkpoint_dir = os.path.join(checkpoint_dir, f"dann_{subset_name}")
+        os.makedirs(subset_results_dir, exist_ok=True)
+        os.makedirs(subset_checkpoint_dir, exist_ok=True)
+        logger.info("  Results directory: %s", subset_results_dir)
+        logger.info("  Checkpoint directory: %s", subset_checkpoint_dir)
+
+        subset_split_csv = os.path.join(subset_results_dir, "split.csv")
+        create_split_csv(
+            train_ids=train_ids,
+            val_ids=val_ids,
+            test_ids=test_ids,
+            output_path=subset_split_csv,
+            file_metadata_csv=None,
+        )
+
+        subset_config = Config()
+        subset_config.load_from_yaml(config.__dict__.get("_yaml_path", "configs/cscs/finetune.yaml"))
+        subset_config.split_csv = subset_split_csv
+        subset_config.experiment_name = f"target_dann_{subset_name}"
+        subset_config.experiment_dir = subset_checkpoint_dir
+        subset_config.checkpoint_dir = subset_checkpoint_dir
+        subset_config.log_dir = os.path.join(config.log_dir, f"dann_{subset_name}")
+        subset_config.save_dir = subset_checkpoint_dir
+        subset_config.pred_save_dir = os.path.join(subset_results_dir, "predictions")
+        subset_config.model_weights = source_checkpoint_path
+        subset_config.reset_optimizers = True
+        subset_config.domain_adaptation = "dann"
+        subset_config.use_train_metric_when_no_val = len(val_ids) == 0
+        if hasattr(config, "clip_unfreeze_last_n_layers"):
+            subset_config.clip_unfreeze_last_n_layers = config.clip_unfreeze_last_n_layers
+        if hasattr(config, "freeze_backbone"):
+            subset_config.freeze_backbone = config.freeze_backbone
+
+        source_config = Config()
+        source_config.load_from_yaml(source_config_path)
+        source_config.train = True
+
+        for dir_path in [
+            subset_config.experiment_dir,
+            subset_config.checkpoint_dir,
+            subset_config.log_dir,
+            subset_config.save_dir,
+            subset_config.pred_save_dir,
+        ]:
+            os.makedirs(dir_path, exist_ok=True)
+
+        trainer = DANNTrainer(
+            target_config=subset_config,
+            source_config=source_config,
+            source_dataset=source_dataset,
+            target_dataset=target_dataset,
+            source_checkpoint_path=source_checkpoint_path,
+            output_dir=subset_results_dir,
+            checkpoint_dir=subset_checkpoint_dir,
+        )
+        best_metric, best_epoch = trainer.train()
+        logger.info("  DANN best %s = %.4f at epoch %d", subset_config.eval_metric, best_metric, best_epoch + 1)
+
+        logger.info("  Evaluating DANN model on target test set...")
+        test_loss, test_metrics = trainer.validate(trainer.target_test_loader, "test")
+
+        pred_results = save_comprehensive_predictions(
+            trainer=trainer,
+            data_loader=trainer.target_test_loader,
+            output_dir=subset_results_dir,
+            prefix=f"dann_{subset_name}",
+            config=subset_config,
+        )
+
+        patient_df = pred_results["patient_df"]
+        valid_mask = patient_df["tb_label"] >= 0
+        if valid_mask.sum() > 0:
+            auroc, auprc = _safe_binary_auroc_auprc(
+                patient_df.loc[valid_mask, "tb_label"].values,
+                patient_df.loc[valid_mask, "tb_prob"].values,
+            )
+        else:
+            auroc, auprc = np.nan, np.nan
+
+        checkpoint_path = os.path.join(subset_checkpoint_dir, "checkpoint_best.pth")
+        subset_result = {
+            "algorithm": "dann",
+            "subset_name": subset_name,
+            "source_dataset": source_dataset,
+            "target_dataset": target_dataset,
+            "n_train": len(train_split_df),
+            "n_val": len(val_split_df),
+            "n_test": len(test_ids),
+            "best_metric": best_metric,
+            "best_epoch": best_epoch,
+            "test_loss": test_loss,
+            "auroc": auroc,
+            "auprc": auprc,
+            "test_metrics": {
+                key.replace("TB Label_", ""): value
+                for key, value in test_metrics.items()
+                if key.startswith("TB Label_")
+            },
+            "checkpoint_path": checkpoint_path,
+            "prediction_files": {
+                "patient_csv": pred_results["patient_csv_path"],
+                "site_csv": pred_results["site_csv_path"],
+                "complex_data": pred_results["complex_path"],
+            },
+            "dann_metrics": os.path.join(subset_results_dir, "dann_metrics.json"),
+        }
+
+        results_path = os.path.join(subset_results_dir, "results.json")
+        with open(results_path, "w") as handle:
+            json.dump(subset_result, handle, indent=2, default=str)
+
+        all_results[subset_name] = subset_result
+        logger.info("  ✅ DANN %s - AUROC: %.4f, AUPRC: %.4f", subset_name, auroc, auprc)
+
+        if not np.isnan(auroc) and auroc > best_auroc:
+            best_auroc = auroc
+            best_checkpoint = checkpoint_path
+
+    return {
+        "algorithm": "dann",
+        "all_results": all_results,
+        "best_checkpoint": best_checkpoint,
+        "best_auroc": best_auroc,
+    }
+
+
 def evaluate_on_source_test(
     finetuned_checkpoint_path: str,
     source_eval_config_path: str,
@@ -1178,26 +1401,53 @@ def evaluate_on_source_test(
         source_config = Config()
         source_config.load_from_yaml(source_eval_config_path)
         
-        # Create evaluation config
+        # Create evaluation config. The model architecture must come from the
+        # fine-tuned checkpoint, while the dataset paths/splits come from the
+        # source-domain config. This avoids instantiating a source config model
+        # variant that cannot load the target-adapted checkpoint.
         eval_config = Config()
-        eval_config.load_from_yaml(source_eval_config_path)
+        checkpoint_config = load_checkpoint_config_dict(finetuned_checkpoint_path)
+        if checkpoint_config:
+            apply_config_values(eval_config, checkpoint_config)
+            logger.info(
+                "  Source-domain eval using checkpoint model config: model_type=%s, selection_strategy=%s",
+                getattr(eval_config, "model_type", "<unset>"),
+                getattr(eval_config, "selection_strategy", "<unset>"),
+            )
+        else:
+            logger.warning(
+                "  Fine-tuned checkpoint did not contain config metadata; falling back to source config for model setup"
+            )
+            eval_config.load_from_yaml(source_eval_config_path)
+
         eval_config.experiment_name = "target_finetuned_on_source_eval"
         eval_config.experiment_dir = os.path.join(output_dir, "source_test_evaluation")
         eval_config.log_dir = os.path.join(log_dir or "./logs", "source_test_evaluation")
+        eval_config.pred_save_dir = os.path.join(eval_config.experiment_dir, "predictions")
+        eval_config.save_dir = eval_config.experiment_dir
+        eval_config.checkpoint_dir = eval_config.experiment_dir
         eval_config.model_weights = finetuned_checkpoint_path
         eval_config.train = False
         eval_config.evaluate_best_valid_model = True
         
         # Use source-domain data paths
-        eval_config.root_dir = source_config.root_dir
-        eval_config.labels_csv = source_config.labels_csv
-        eval_config.file_metadata_csv = source_config.file_metadata_csv
-        eval_config.video_folder = source_config.video_folder
-        eval_config.split_csv = source_config.split_csv
-        if hasattr(config, 'clip_unfreeze_last_n_layers'):
-            eval_config.clip_unfreeze_last_n_layers = config.clip_unfreeze_last_n_layers
-        if hasattr(config, 'freeze_backbone'):
-            eval_config.freeze_backbone = config.freeze_backbone
+        for key in [
+            "root_dir",
+            "labels_csv",
+            "file_metadata_csv",
+            "image_folder",
+            "video_folder",
+            "split_csv",
+            "depth_filter",
+            "frame_sampling",
+            "mode",
+            "files_per_site",
+            "site_order",
+            "pad_missing_sites",
+            "max_sites",
+        ]:
+            if hasattr(source_config, key):
+                setattr(eval_config, key, getattr(source_config, key))
         
         # Distributed settings
         eval_config.rank = rank
@@ -1536,12 +1786,20 @@ def main(argv=None):
                         help="Skip source-domain evaluation after fine-tuning")
     parser.add_argument("--skip-pathology", action="store_true",
                         help="Skip pathology plots generation in the SA target pipeline")
+    parser.add_argument("--domain-adaptation", choices=["none", "dann"], default="none",
+                        help="Optional domain adaptation algorithm for target fine-tuning. Default: none.")
+    parser.add_argument("--dann", dest="domain_adaptation", action="store_const", const="dann",
+                        help="Shortcut for --domain-adaptation dann")
     parser.set_defaults(freeze_backbone=None)
 
     args = parser.parse_args(argv)
 
     if not args.source_checkpoint:
         parser.error("--source-checkpoint is required")
+    if args.domain_adaptation == "dann" and args.target_dataset != "sa":
+        parser.error("--domain-adaptation dann is currently supported for --target-dataset sa")
+    if args.domain_adaptation == "dann" and not args.source_config:
+        parser.error("--domain-adaptation dann requires --source-config for the source-domain data loader")
 
     if args.target_dataset == "benin":
         return _run_benin_target_finetuning(args)
@@ -1562,6 +1820,7 @@ def main(argv=None):
         config.clip_unfreeze_last_n_layers = args.clip_unfreeze_last_n_layers
     if args.freeze_backbone is not None:
         config.freeze_backbone = args.freeze_backbone
+    config.domain_adaptation = args.domain_adaptation
 
     os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "splits"), exist_ok=True)
@@ -1650,17 +1909,33 @@ def main(argv=None):
     best_checkpoint = None
     if not args.skip_finetuning:
         logger.info("\n%s", "=" * 60)
-        logger.info("Step 7: Fine-Tuning on SA")
+        if args.domain_adaptation == "dann":
+            logger.info("Step 7: DANN Fine-Tuning on SA")
+        else:
+            logger.info("Step 7: Fine-Tuning on SA")
         logger.info("%s", "=" * 60)
         try:
-            finetuning_results = run_finetuning_experiment(
-                config=config,
-                train_subsets=train_subsets,
-                test_ids=test_ids_list,
-                source_checkpoint_path=args.source_checkpoint,
-                output_dir=args.output_dir,
-                checkpoint_dir=args.checkpoint_dir,
-            )
+            if args.domain_adaptation == "dann":
+                finetuning_results = run_dann_finetuning_experiment(
+                    config=config,
+                    train_subsets=train_subsets,
+                    test_ids=test_ids_list,
+                    source_checkpoint_path=args.source_checkpoint,
+                    source_config_path=args.source_config,
+                    source_dataset=args.source_dataset,
+                    target_dataset=args.target_dataset,
+                    output_dir=args.output_dir,
+                    checkpoint_dir=args.checkpoint_dir,
+                )
+            else:
+                finetuning_results = run_finetuning_experiment(
+                    config=config,
+                    train_subsets=train_subsets,
+                    test_ids=test_ids_list,
+                    source_checkpoint_path=args.source_checkpoint,
+                    output_dir=args.output_dir,
+                    checkpoint_dir=args.checkpoint_dir,
+                )
             best_checkpoint = finetuning_results.get("best_checkpoint")
             logger.info("Fine-tuning complete")
             logger.info("  Best checkpoint: %s", best_checkpoint)

@@ -35,6 +35,7 @@ FOLD=""
 SPLIT_CSV=""
 CLIP_UNFREEZE_LAST_N_LAYERS=""
 FREEZE_BACKBONE_MODE="default"
+DOMAIN_ADAPTATION="none"
 
 usage() {
   cat <<'EOF'
@@ -52,6 +53,8 @@ Options:
   --clip-unfreeze-last-n-layers N   Override the CLIP unfreeze setting from the resolved config.
   --freeze-backbone                 Force the CLIP backbone to stay frozen.
   --no-freeze-backbone              Force the CLIP backbone to be trainable.
+  --domain-adaptation {none,dann}   Optional adaptation algorithm. DANN requires --source-config and SA target. Default: none.
+  --dann                            Shortcut for --domain-adaptation dann.
   --run-name NAME                   Optional run name. Default: dynamic timestamped name.
   --run-root PATH                   Optional explicit scratch run directory.
   --help                            Show this help message.
@@ -68,11 +71,20 @@ PY
 
 infer_source_tag() {
   local lowered="${SOURCE_CHECKPOINT,,}"
+  local tag="baseline"
+
   if [[ "${lowered}" == *"simclr"* || "${lowered}" == *"vision_encoder"* ]]; then
-    printf 'simclr\n'
-  else
-    printf 'baseline\n'
+    tag="simclr"
   fi
+  if [[ "${lowered}" == *"dann"* || "${DOMAIN_ADAPTATION}" == "dann" ]]; then
+    if [[ "${tag}" == "baseline" ]]; then
+      tag="dann"
+    elif [[ "${tag}" != *"dann"* ]]; then
+      tag="${tag}+dann"
+    fi
+  fi
+
+  printf '%s\n' "${tag}"
 }
 
 default_run_name() {
@@ -145,6 +157,14 @@ while [[ $# -gt 0 ]]; do
       FREEZE_BACKBONE_MODE="unfreeze"
       shift
       ;;
+    --domain-adaptation)
+      DOMAIN_ADAPTATION="$2"
+      shift 2
+      ;;
+    --dann)
+      DOMAIN_ADAPTATION="dann"
+      shift
+      ;;
     --run-name)
       RUN_NAME="$2"
       shift 2
@@ -189,6 +209,21 @@ fi
 
 if [[ "${TARGET_DATASET}" != "sa" && "${TARGET_DATASET}" != "benin" ]]; then
   echo "--target-dataset must be one of: sa, benin" >&2
+  exit 1
+fi
+
+if [[ "${DOMAIN_ADAPTATION}" != "none" && "${DOMAIN_ADAPTATION}" != "dann" ]]; then
+  echo "--domain-adaptation must be one of: none, dann" >&2
+  exit 1
+fi
+
+if [[ "${DOMAIN_ADAPTATION}" == "dann" && "${TARGET_DATASET}" != "sa" ]]; then
+  echo "DANN is currently wired for --target-dataset sa." >&2
+  exit 1
+fi
+
+if [[ "${DOMAIN_ADAPTATION}" == "dann" && -z "${SOURCE_CONFIG}" ]]; then
+  echo "DANN requires --source-config so the source-domain data loader can be built." >&2
   exit 1
 fi
 
@@ -271,6 +306,9 @@ if [[ "${WORKER_MODE}" != true ]]; then
   elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
     FORWARDED_ARGS+=(--no-freeze-backbone)
   fi
+  if [[ "${DOMAIN_ADAPTATION}" != "none" ]]; then
+    FORWARDED_ARGS+=(--domain-adaptation "${DOMAIN_ADAPTATION}")
+  fi
 
   JOB_ID="$(
     sbatch "${COMMON_SUBMIT_ARGS[@]}" \
@@ -290,6 +328,7 @@ if [[ "${WORKER_MODE}" != true ]]; then
   echo "  run_root:           ${RUN_ROOT}"
   echo "  logs:               ${LOG_ROOT}"
   echo "  base_config:        ${CONFIG}"
+  echo "  domain_adaptation:  ${DOMAIN_ADAPTATION}"
   exit 0
 fi
 
@@ -312,6 +351,7 @@ if [[ "${TARGET_DATASET}" == "sa" ]]; then
     --set "experiment_dir=${RUN_ROOT}"
     --set "checkpoint_dir=${CHECKPOINT_DIR}"
     --set "log_dir=${LOCAL_RUN_LOG_DIR}"
+    --set "domain_adaptation=${DOMAIN_ADAPTATION}"
   )
   RESOLVE_ARGS+=(--override "${SA_DATA_PROFILE}")
   if [[ -n "${CLIP_UNFREEZE_LAST_N_LAYERS}" ]]; then
@@ -349,10 +389,14 @@ if [[ "${TARGET_DATASET}" == "sa" ]]; then
   elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
     PY_ARGS+=(--no-freeze-backbone)
   fi
+  if [[ "${DOMAIN_ADAPTATION}" != "none" ]]; then
+    PY_ARGS+=(--domain-adaptation "${DOMAIN_ADAPTATION}")
+  fi
 
   echo "Running finetuning"
   echo "  source_dataset:     ${SOURCE_DATASET}"
   echo "  target_dataset:     ${TARGET_DATASET}"
+  echo "  domain_adaptation:  ${DOMAIN_ADAPTATION}"
   echo "  base_config:        ${CONFIG}"
   echo "  resolved_config:    ${RESOLVED_CONFIG}"
   echo "  source_checkpoint:  ${SOURCE_CHECKPOINT}"
@@ -407,6 +451,7 @@ RESOLVE_ARGS=(
   --set "experiment_dir=${EXPERIMENT_DIR}"
   --set "log_dir=${LOCAL_RUN_LOG_DIR}"
   --set "checkpoint_dir=${EXPERIMENT_DIR}"
+  --set "domain_adaptation=${DOMAIN_ADAPTATION}"
 )
 
 for override_config in "${OVERRIDE_CONFIGS[@]}"; do
@@ -446,10 +491,14 @@ if [[ "${FREEZE_BACKBONE_MODE}" == "freeze" ]]; then
 elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
   PY_ARGS+=(--no-freeze-backbone)
 fi
+if [[ "${DOMAIN_ADAPTATION}" != "none" ]]; then
+  PY_ARGS+=(--domain-adaptation "${DOMAIN_ADAPTATION}")
+fi
 
 echo "Running finetuning"
 echo "  source_dataset:     ${SOURCE_DATASET}"
 echo "  target_dataset:     ${TARGET_DATASET}"
+echo "  domain_adaptation:  ${DOMAIN_ADAPTATION}"
 echo "  base_config:        ${CONFIG}"
 echo "  resolved_config:    ${RESOLVED_CONFIG}"
 echo "  source_checkpoint:  ${SOURCE_CHECKPOINT}"

@@ -78,8 +78,12 @@ infer_init_tag() {
     fi
   elif [[ -n "${MODEL_WEIGHTS}" ]]; then
     lowered="${MODEL_WEIGHTS,,}"
-    if [[ "${lowered}" == *"simclr"* ]]; then
+    if [[ "${lowered}" == *"simclr"* && "${lowered}" == *"dann"* ]]; then
+      tag="simclr+dann"
+    elif [[ "${lowered}" == *"simclr"* ]]; then
       tag="simclr"
+    elif [[ "${lowered}" == *"dann"* ]]; then
+      tag="dann"
     else
       tag="model-warmstart"
     fi

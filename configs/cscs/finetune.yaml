@@ -148,6 +148,28 @@ checkpoint_dir: "./checkpoints/finetune"
 
 task: "TB Label"
 
+# Domain adaptation. The default is standard fine-tuning; pass
+# `--domain-adaptation dann` through `train_job_finetune.sh` to enable DANN.
+domain_adaptation: "none"
+dann_lambda: 1.0
+dann_lambda_schedule: true
+dann_lambda_gamma: 10.0
+dann_domain_loss_weight: 1.0
+dann_source_task_weight: 1.0
+dann_target_task_weight: 1.0
+dann_use_source_task_loss: true
+dann_use_target_task_loss: true
+dann_learning_rate: 0.00005
+dann_domain_lr: 0.0001
+dann_weight_decay: 0.00001
+dann_domain_weight_decay: 0.00001
+dann_domain_hidden_dim: 256
+dann_domain_dropout: 0.2
+dann_gradient_clip_norm: 1.0
+dann_accumulation_steps: 1
+dann_log_every_steps: 10
+dann_source_batch_size: null
+
 subset_sizes: [1.0]
 val_size: 0.2
 split_random_state: 42
