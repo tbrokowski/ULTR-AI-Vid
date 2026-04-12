@@ -93,11 +93,6 @@ default_run_name() {
   printf '%s__simclr__%s__%s\n' "${timestamp}" "${DATASET}" "${scope}"
 }
 
-is_nonempty_dir() {
-  local path="$1"
-  [[ -d "${path}" ]] && find "${path}" -mindepth 1 -print -quit | grep -q .
-}
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --worker)
@@ -172,8 +167,8 @@ if [[ "${WORKER_MODE}" != true ]]; then
 
   RUN_ROOT="$(abs_path "${RUN_ROOT}")"
 
-  if is_nonempty_dir "${RUN_ROOT}"; then
-    echo "Refusing to reuse existing non-empty run directory: ${RUN_ROOT}" >&2
+  if [[ -e "${RUN_ROOT}" ]]; then
+    echo "Refusing to reuse existing run directory: ${RUN_ROOT}" >&2
     exit 1
   fi
 

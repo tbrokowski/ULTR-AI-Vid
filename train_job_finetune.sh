@@ -85,16 +85,13 @@ default_run_name() {
 
   if [[ -n "${FOLD}" ]]; then
     scope="fold${FOLD}"
+  elif [[ "${TARGET_DATASET}" == "sa" && "${SOURCE_CHECKPOINT}" =~ /fold([0-9]+)/checkpoint_best\.pth$ ]]; then
+    scope="src-fold${BASH_REMATCH[1]}"
   else
     scope="full"
   fi
 
   printf '%s__finetune__%s_to_%s__%s__%s\n' "${timestamp}" "${SOURCE_DATASET}" "${TARGET_DATASET}" "${scope}" "${tag}"
-}
-
-is_nonempty_dir() {
-  local path="$1"
-  [[ -d "${path}" ]] && find "${path}" -mindepth 1 -print -quit | grep -q .
 }
 
 while [[ $# -gt 0 ]]; do
@@ -215,8 +212,8 @@ if [[ "${WORKER_MODE}" != true ]]; then
 
   RUN_ROOT="$(abs_path "${RUN_ROOT}")"
 
-  if is_nonempty_dir "${RUN_ROOT}"; then
-    echo "Refusing to reuse existing non-empty run directory: ${RUN_ROOT}" >&2
+  if [[ -e "${RUN_ROOT}" ]]; then
+    echo "Refusing to reuse existing run directory: ${RUN_ROOT}" >&2
     exit 1
   fi
 
@@ -317,6 +314,14 @@ if [[ "${TARGET_DATASET}" == "sa" ]]; then
     --set "log_dir=${LOCAL_RUN_LOG_DIR}"
   )
   RESOLVE_ARGS+=(--override "${SA_DATA_PROFILE}")
+  if [[ -n "${CLIP_UNFREEZE_LAST_N_LAYERS}" ]]; then
+    RESOLVE_ARGS+=(--set "clip_unfreeze_last_n_layers=${CLIP_UNFREEZE_LAST_N_LAYERS}")
+  fi
+  if [[ "${FREEZE_BACKBONE_MODE}" == "freeze" ]]; then
+    RESOLVE_ARGS+=(--set "freeze_backbone=true")
+  elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
+    RESOLVE_ARGS+=(--set "freeze_backbone=false")
+  fi
   python3 "${RESOLVE_CONFIG}" "${RESOLVE_ARGS[@]}"
 
   PY_ARGS=(
@@ -414,6 +419,14 @@ done
 
 if [[ -n "${SPLIT_CSV}" ]]; then
   RESOLVE_ARGS+=(--set "split_csv=${SPLIT_CSV}")
+fi
+if [[ -n "${CLIP_UNFREEZE_LAST_N_LAYERS}" ]]; then
+  RESOLVE_ARGS+=(--set "clip_unfreeze_last_n_layers=${CLIP_UNFREEZE_LAST_N_LAYERS}")
+fi
+if [[ "${FREEZE_BACKBONE_MODE}" == "freeze" ]]; then
+  RESOLVE_ARGS+=(--set "freeze_backbone=true")
+elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
+  RESOLVE_ARGS+=(--set "freeze_backbone=false")
 fi
 
 python3 "${RESOLVE_CONFIG}" "${RESOLVE_ARGS[@]}"

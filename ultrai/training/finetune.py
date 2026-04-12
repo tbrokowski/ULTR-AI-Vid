@@ -777,6 +777,10 @@ def evaluate_zero_shot_on_target(
         eval_config.model_weights = source_checkpoint_path
         eval_config.reset_optimizers = False
         eval_config.train = False
+        if hasattr(config, 'clip_unfreeze_last_n_layers'):
+            eval_config.clip_unfreeze_last_n_layers = config.clip_unfreeze_last_n_layers
+        if hasattr(config, 'freeze_backbone'):
+            eval_config.freeze_backbone = config.freeze_backbone
         
         # Distributed settings
         eval_config.rank = rank
@@ -1190,6 +1194,10 @@ def evaluate_on_source_test(
         eval_config.file_metadata_csv = source_config.file_metadata_csv
         eval_config.video_folder = source_config.video_folder
         eval_config.split_csv = source_config.split_csv
+        if hasattr(config, 'clip_unfreeze_last_n_layers'):
+            eval_config.clip_unfreeze_last_n_layers = config.clip_unfreeze_last_n_layers
+        if hasattr(config, 'freeze_backbone'):
+            eval_config.freeze_backbone = config.freeze_backbone
         
         # Distributed settings
         eval_config.rank = rank
@@ -1337,6 +1345,10 @@ def generate_pathology_auroc_plots(
         eval_config.log_dir = os.path.join(config.log_dir, "pathology_plots")
         eval_config.model_weights = finetuned_checkpoint_path
         eval_config.train = False
+        if hasattr(config, 'clip_unfreeze_last_n_layers'):
+            eval_config.clip_unfreeze_last_n_layers = config.clip_unfreeze_last_n_layers
+        if hasattr(config, 'freeze_backbone'):
+            eval_config.freeze_backbone = config.freeze_backbone
         
         # Distributed settings
         eval_config.rank = rank

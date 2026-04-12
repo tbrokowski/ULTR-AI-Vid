@@ -107,11 +107,6 @@ default_run_name() {
   printf '%s__train__%s__%s__%s\n' "${timestamp}" "${DATASET}" "${scope}" "${tag}"
 }
 
-is_nonempty_dir() {
-  local path="$1"
-  [[ -d "${path}" ]] && find "${path}" -mindepth 1 -print -quit | grep -q .
-}
-
 resolve_weight_path() {
   local raw_path="$1"
   local task_fold="$2"
@@ -250,8 +245,8 @@ if [[ "${WORKER_MODE}" != true ]]; then
 
   RUN_ROOT="$(abs_path "${RUN_ROOT}")"
 
-  if is_nonempty_dir "${RUN_ROOT}"; then
-    echo "Refusing to reuse existing non-empty run directory: ${RUN_ROOT}" >&2
+  if [[ -e "${RUN_ROOT}" ]]; then
+    echo "Refusing to reuse existing run directory: ${RUN_ROOT}" >&2
     exit 1
   fi
 
@@ -404,6 +399,14 @@ done
 
 if [[ -n "${SPLIT_CSV}" ]]; then
   RESOLVE_ARGS+=(--set "split_csv=${SPLIT_CSV}")
+fi
+if [[ -n "${CLIP_UNFREEZE_LAST_N_LAYERS}" ]]; then
+  RESOLVE_ARGS+=(--set "clip_unfreeze_last_n_layers=${CLIP_UNFREEZE_LAST_N_LAYERS}")
+fi
+if [[ "${FREEZE_BACKBONE_MODE}" == "freeze" ]]; then
+  RESOLVE_ARGS+=(--set "freeze_backbone=true")
+elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
+  RESOLVE_ARGS+=(--set "freeze_backbone=false")
 fi
 
 python3 "${RESOLVE_CONFIG}" "${RESOLVE_ARGS[@]}"
