@@ -36,6 +36,10 @@ SPLIT_CSV=""
 CLIP_UNFREEZE_LAST_N_LAYERS=""
 FREEZE_BACKBONE_MODE="default"
 DOMAIN_ADAPTATION="none"
+SKIP_ZERO_SHOT=false
+SKIP_TARGET_TEST=false
+SOURCE_EVAL_SPLITS="test"
+CONFIG_SETS=()
 
 usage() {
   cat <<'EOF'
@@ -53,8 +57,15 @@ Options:
   --clip-unfreeze-last-n-layers N   Override the CLIP unfreeze setting from the resolved config.
   --freeze-backbone                 Force the CLIP backbone to stay frozen.
   --no-freeze-backbone              Force the CLIP backbone to be trainable.
-  --domain-adaptation {none,dann}   Optional adaptation algorithm. DANN requires --source-config and SA target. Default: none.
+  --domain-adaptation {none,dann,fixmatch,ewc}
+                                  Optional adaptation algorithm. DANN and EWC require --source-config and SA target. FixMatch uses the SA training pool as unlabeled target data. Default: none.
   --dann                            Shortcut for --domain-adaptation dann.
+  --fixmatch                        Shortcut for --domain-adaptation fixmatch.
+  --ewc                             Shortcut for --domain-adaptation ewc.
+  --set KEY=VALUE                    Override a resolved config value after base/dataset profile merging. May be repeated.
+  --skip-zero-shot                   Skip target zero-shot evaluation before fine-tuning.
+  --skip-target-test                 Skip target-domain test evaluation after fine-tuning.
+  --source-eval-splits CSV           Source-domain splits to evaluate after fine-tuning. Default: test.
   --run-name NAME                   Optional run name. Default: dynamic timestamped name.
   --run-root PATH                   Optional explicit scratch run directory.
   --help                            Show this help message.
@@ -81,6 +92,20 @@ infer_source_tag() {
       tag="dann"
     elif [[ "${tag}" != *"dann"* ]]; then
       tag="${tag}+dann"
+    fi
+  fi
+  if [[ "${lowered}" == *"fixmatch"* || "${DOMAIN_ADAPTATION}" == "fixmatch" ]]; then
+    if [[ "${tag}" == "baseline" ]]; then
+      tag="fixmatch"
+    elif [[ "${tag}" != *"fixmatch"* ]]; then
+      tag="${tag}+fixmatch"
+    fi
+  fi
+  if [[ "${lowered}" == *"ewc"* || "${DOMAIN_ADAPTATION}" == "ewc" ]]; then
+    if [[ "${tag}" == "baseline" ]]; then
+      tag="ewc"
+    elif [[ "${tag}" != *"ewc"* ]]; then
+      tag="${tag}+ewc"
     fi
   fi
 
@@ -165,6 +190,30 @@ while [[ $# -gt 0 ]]; do
       DOMAIN_ADAPTATION="dann"
       shift
       ;;
+    --fixmatch)
+      DOMAIN_ADAPTATION="fixmatch"
+      shift
+      ;;
+    --ewc)
+      DOMAIN_ADAPTATION="ewc"
+      shift
+      ;;
+    --set)
+      CONFIG_SETS+=("$2")
+      shift 2
+      ;;
+    --skip-zero-shot)
+      SKIP_ZERO_SHOT=true
+      shift
+      ;;
+    --skip-target-test)
+      SKIP_TARGET_TEST=true
+      shift
+      ;;
+    --source-eval-splits)
+      SOURCE_EVAL_SPLITS="$2"
+      shift 2
+      ;;
     --run-name)
       RUN_NAME="$2"
       shift 2
@@ -212,18 +261,18 @@ if [[ "${TARGET_DATASET}" != "sa" && "${TARGET_DATASET}" != "benin" ]]; then
   exit 1
 fi
 
-if [[ "${DOMAIN_ADAPTATION}" != "none" && "${DOMAIN_ADAPTATION}" != "dann" ]]; then
-  echo "--domain-adaptation must be one of: none, dann" >&2
+if [[ "${DOMAIN_ADAPTATION}" != "none" && "${DOMAIN_ADAPTATION}" != "dann" && "${DOMAIN_ADAPTATION}" != "fixmatch" && "${DOMAIN_ADAPTATION}" != "ewc" ]]; then
+  echo "--domain-adaptation must be one of: none, dann, fixmatch, ewc" >&2
   exit 1
 fi
 
-if [[ "${DOMAIN_ADAPTATION}" == "dann" && "${TARGET_DATASET}" != "sa" ]]; then
-  echo "DANN is currently wired for --target-dataset sa." >&2
+if [[ "${DOMAIN_ADAPTATION}" != "none" && "${TARGET_DATASET}" != "sa" ]]; then
+  echo "${DOMAIN_ADAPTATION} is currently wired for --target-dataset sa." >&2
   exit 1
 fi
 
-if [[ "${DOMAIN_ADAPTATION}" == "dann" && -z "${SOURCE_CONFIG}" ]]; then
-  echo "DANN requires --source-config so the source-domain data loader can be built." >&2
+if [[ ( "${DOMAIN_ADAPTATION}" == "dann" || "${DOMAIN_ADAPTATION}" == "ewc" ) && -z "${SOURCE_CONFIG}" ]]; then
+  echo "${DOMAIN_ADAPTATION} requires --source-config so the source-domain data loader can be built." >&2
   exit 1
 fi
 
@@ -309,6 +358,18 @@ if [[ "${WORKER_MODE}" != true ]]; then
   if [[ "${DOMAIN_ADAPTATION}" != "none" ]]; then
     FORWARDED_ARGS+=(--domain-adaptation "${DOMAIN_ADAPTATION}")
   fi
+  if [[ "${SKIP_ZERO_SHOT}" == true ]]; then
+    FORWARDED_ARGS+=(--skip-zero-shot)
+  fi
+  if [[ "${SKIP_TARGET_TEST}" == true ]]; then
+    FORWARDED_ARGS+=(--skip-target-test)
+  fi
+  if [[ -n "${SOURCE_EVAL_SPLITS}" ]]; then
+    FORWARDED_ARGS+=(--source-eval-splits "${SOURCE_EVAL_SPLITS}")
+  fi
+  for config_set in "${CONFIG_SETS[@]}"; do
+    FORWARDED_ARGS+=(--set "${config_set}")
+  done
 
   JOB_ID="$(
     sbatch "${COMMON_SUBMIT_ARGS[@]}" \
@@ -362,6 +423,9 @@ if [[ "${TARGET_DATASET}" == "sa" ]]; then
   elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
     RESOLVE_ARGS+=(--set "freeze_backbone=false")
   fi
+  for config_set in "${CONFIG_SETS[@]}"; do
+    RESOLVE_ARGS+=(--set "${config_set}")
+  done
   python3 "${RESOLVE_CONFIG}" "${RESOLVE_ARGS[@]}"
 
   PY_ARGS=(
@@ -391,6 +455,15 @@ if [[ "${TARGET_DATASET}" == "sa" ]]; then
   fi
   if [[ "${DOMAIN_ADAPTATION}" != "none" ]]; then
     PY_ARGS+=(--domain-adaptation "${DOMAIN_ADAPTATION}")
+  fi
+  if [[ "${SKIP_ZERO_SHOT}" == true ]]; then
+    PY_ARGS+=(--skip-zero-shot)
+  fi
+  if [[ "${SKIP_TARGET_TEST}" == true ]]; then
+    PY_ARGS+=(--skip-target-test)
+  fi
+  if [[ -n "${SOURCE_EVAL_SPLITS}" ]]; then
+    PY_ARGS+=(--source-eval-splits "${SOURCE_EVAL_SPLITS}")
   fi
 
   echo "Running finetuning"
@@ -473,6 +546,9 @@ if [[ "${FREEZE_BACKBONE_MODE}" == "freeze" ]]; then
 elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
   RESOLVE_ARGS+=(--set "freeze_backbone=false")
 fi
+for config_set in "${CONFIG_SETS[@]}"; do
+  RESOLVE_ARGS+=(--set "${config_set}")
+done
 
 python3 "${RESOLVE_CONFIG}" "${RESOLVE_ARGS[@]}"
 
@@ -493,6 +569,9 @@ elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
 fi
 if [[ "${DOMAIN_ADAPTATION}" != "none" ]]; then
   PY_ARGS+=(--domain-adaptation "${DOMAIN_ADAPTATION}")
+fi
+if [[ -n "${SOURCE_EVAL_SPLITS}" ]]; then
+  PY_ARGS+=(--source-eval-splits "${SOURCE_EVAL_SPLITS}")
 fi
 
 echo "Running finetuning"

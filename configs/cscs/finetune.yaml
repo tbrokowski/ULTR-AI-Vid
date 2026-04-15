@@ -149,8 +149,12 @@ checkpoint_dir: "./checkpoints/finetune"
 task: "TB Label"
 
 # Domain adaptation. The default is standard fine-tuning; pass
-# `--domain-adaptation dann` through `train_job_finetune.sh` to enable DANN.
+# `--domain-adaptation dann`, `--domain-adaptation fixmatch`, or
+# `--domain-adaptation ewc` through
+# `train_job_finetune.sh` to enable an adaptation trainer.
 domain_adaptation: "none"
+
+# DANN: source/target adversarial adaptation.
 dann_lambda: 1.0
 dann_lambda_schedule: true
 dann_lambda_gamma: 10.0
@@ -169,6 +173,47 @@ dann_gradient_clip_norm: 1.0
 dann_accumulation_steps: 1
 dann_log_every_steps: 10
 dann_source_batch_size: null
+
+# FixMatch: supervised target loss plus high-confidence target consistency.
+fixmatch_confidence_threshold: 0.95
+fixmatch_lambda_u: 1.0
+fixmatch_unsup_warmup_epochs: 1
+fixmatch_temperature: 1.0
+fixmatch_unlabeled_batch_size: null
+fixmatch_unlabeled_batch_ratio: 1.0
+fixmatch_learning_rate: 0.00005
+fixmatch_weight_decay: 0.00001
+fixmatch_eta_min: 0.000001
+fixmatch_gradient_clip_norm: 1.0
+fixmatch_accumulation_steps: 1
+fixmatch_log_every_steps: 10
+fixmatch_weak_noise_std: 0.0
+fixmatch_strong_flip_prob: 0.5
+fixmatch_strong_intensity_jitter: 0.15
+fixmatch_strong_noise_std: 0.05
+fixmatch_strong_temporal_dropout_prob: 0.15
+fixmatch_strong_cutout_prob: 0.5
+fixmatch_strong_cutout_ratio: 0.25
+fixmatch_aug_clip_min: -4.0
+fixmatch_aug_clip_max: 4.0
+
+# EWC: supervised target loss plus source-domain Fisher regularization.
+ewc_lambda: 100.0
+ewc_warmup_epochs: 0
+ewc_fisher_max_batches: 0
+ewc_fisher_use_amp: false
+ewc_fisher_eps: 0.0
+ewc_parameter_scope: "trainable"
+ewc_include_keywords: []
+ewc_exclude_keywords: []
+ewc_normalize_penalty: false
+ewc_source_batch_size: null
+ewc_learning_rate: 0.00005
+ewc_weight_decay: 0.00001
+ewc_eta_min: 0.000001
+ewc_gradient_clip_norm: 1.0
+ewc_accumulation_steps: 1
+ewc_log_every_steps: 10
 
 subset_sizes: [1.0]
 val_size: 0.2

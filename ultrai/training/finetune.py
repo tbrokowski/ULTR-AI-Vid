@@ -20,6 +20,7 @@ import json
 import yaml
 import logging
 import argparse
+import traceback
 import pandas as pd
 import numpy as np
 import torch
@@ -1365,27 +1366,465 @@ def run_dann_finetuning_experiment(
     }
 
 
-def evaluate_on_source_test(
+def run_fixmatch_finetuning_experiment(
+    config,
+    train_subsets: Dict[str, pd.DataFrame],
+    target_unlabeled_pool: pd.DataFrame,
+    test_ids: List[str],
+    source_checkpoint_path: str,
+    source_dataset: str,
+    target_dataset: str,
+    output_dir: str,
+    checkpoint_dir: str,
+) -> Dict:
+    """
+    Run FixMatch target fine-tuning on SA.
+
+    Supervised batches come from the labeled subset. Unlabeled batches come
+    from the SA training pool with validation patients removed for that subset,
+    so pseudo-labeling never consumes the held-out target test split or the
+    subset validation split.
+    """
+    logger.info(f"\n{'='*60}")
+    logger.info("Starting FixMatch fine-tuning experiment")
+    logger.info(f"{'='*60}")
+
+    if target_dataset != "sa":
+        raise ValueError("FixMatch fine-tuning is currently wired for SA target adaptation")
+
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    _use_dataset_adapter(target_dataset)
+
+    from ultrai.training.ablation_engine import Config
+    from ultrai.training.fixmatch import FixMatchTrainer
+
+    test_ids = map_patient_ids_to_metadata_format(test_ids, config.file_metadata_csv)
+    logger.info("  Mapped %d target test patient IDs to file metadata format", len(test_ids))
+
+    all_results = {}
+    best_auroc = -1
+    best_checkpoint = None
+
+    for subset_name, train_subset_df in train_subsets.items():
+        logger.info(f"\n{'='*60}")
+        logger.info("FixMatch subset: %s", subset_name)
+        logger.info(f"{'='*60}")
+
+        split_random_state = getattr(config, "split_random_state", 42)
+        val_size = getattr(config, "val_size", 0.2)
+        train_split_df, val_split_df = create_train_val_split(
+            train_subset_df,
+            val_size=val_size,
+            random_state=split_random_state,
+        )
+
+        train_ids = map_patient_ids_to_metadata_format(
+            train_split_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+        val_ids = map_patient_ids_to_metadata_format(
+            val_split_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+
+        val_patient_ids = set(val_split_df["patient_id"].astype(str).str.strip())
+        unlabeled_pool_df = target_unlabeled_pool[
+            ~target_unlabeled_pool["patient_id"].astype(str).str.strip().isin(val_patient_ids)
+        ].copy()
+        unlabeled_ids = map_patient_ids_to_metadata_format(
+            unlabeled_pool_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+
+        subset_results_dir = os.path.join(output_dir, f"fixmatch_{subset_name}")
+        subset_checkpoint_dir = os.path.join(checkpoint_dir, f"fixmatch_{subset_name}")
+        os.makedirs(subset_results_dir, exist_ok=True)
+        os.makedirs(subset_checkpoint_dir, exist_ok=True)
+        logger.info("  Results directory: %s", subset_results_dir)
+        logger.info("  Checkpoint directory: %s", subset_checkpoint_dir)
+        logger.info(
+            "  FixMatch labeled train=%d, val=%d, unlabeled target pool=%d, test=%d",
+            len(train_ids),
+            len(val_ids),
+            len(unlabeled_ids),
+            len(test_ids),
+        )
+
+        subset_split_csv = os.path.join(subset_results_dir, "split.csv")
+        create_split_csv(
+            train_ids=train_ids,
+            val_ids=val_ids,
+            test_ids=test_ids,
+            output_path=subset_split_csv,
+            file_metadata_csv=None,
+        )
+
+        unlabeled_split_csv = os.path.join(subset_results_dir, "unlabeled_split.csv")
+        create_split_csv(
+            train_ids=unlabeled_ids,
+            val_ids=[],
+            test_ids=[],
+            output_path=unlabeled_split_csv,
+            file_metadata_csv=None,
+        )
+
+        subset_config = Config()
+        subset_config.load_from_yaml(config.__dict__.get("_yaml_path", "configs/cscs/finetune.yaml"))
+        subset_config.split_csv = subset_split_csv
+        subset_config.experiment_name = f"target_fixmatch_{subset_name}"
+        subset_config.experiment_dir = subset_checkpoint_dir
+        subset_config.checkpoint_dir = subset_checkpoint_dir
+        subset_config.log_dir = os.path.join(config.log_dir, f"fixmatch_{subset_name}")
+        subset_config.save_dir = subset_checkpoint_dir
+        subset_config.pred_save_dir = os.path.join(subset_results_dir, "predictions")
+        subset_config.model_weights = source_checkpoint_path
+        subset_config.reset_optimizers = True
+        subset_config.domain_adaptation = "fixmatch"
+        subset_config.fixmatch_unlabeled_split_csv = unlabeled_split_csv
+        subset_config.use_train_metric_when_no_val = len(val_ids) == 0
+        if hasattr(config, "clip_unfreeze_last_n_layers"):
+            subset_config.clip_unfreeze_last_n_layers = config.clip_unfreeze_last_n_layers
+        if hasattr(config, "freeze_backbone"):
+            subset_config.freeze_backbone = config.freeze_backbone
+
+        for dir_path in [
+            subset_config.experiment_dir,
+            subset_config.checkpoint_dir,
+            subset_config.log_dir,
+            subset_config.save_dir,
+            subset_config.pred_save_dir,
+        ]:
+            os.makedirs(dir_path, exist_ok=True)
+
+        trainer = FixMatchTrainer(
+            target_config=subset_config,
+            target_dataset=target_dataset,
+            source_checkpoint_path=source_checkpoint_path,
+            output_dir=subset_results_dir,
+            checkpoint_dir=subset_checkpoint_dir,
+            unlabeled_split_csv=unlabeled_split_csv,
+        )
+        best_metric, best_epoch = trainer.train()
+        logger.info("  FixMatch best %s = %.4f at epoch %d", subset_config.eval_metric, best_metric, best_epoch + 1)
+
+        logger.info("  Evaluating FixMatch model on target test set...")
+        test_loss, test_metrics = trainer.validate(trainer.target_test_loader, "test")
+
+        pred_results = save_comprehensive_predictions(
+            trainer=trainer,
+            data_loader=trainer.target_test_loader,
+            output_dir=subset_results_dir,
+            prefix=f"fixmatch_{subset_name}",
+            config=subset_config,
+        )
+
+        patient_df = pred_results["patient_df"]
+        valid_mask = patient_df["tb_label"] >= 0
+        if valid_mask.sum() > 0:
+            auroc, auprc = _safe_binary_auroc_auprc(
+                patient_df.loc[valid_mask, "tb_label"].values,
+                patient_df.loc[valid_mask, "tb_prob"].values,
+            )
+        else:
+            auroc, auprc = np.nan, np.nan
+
+        checkpoint_path = os.path.join(subset_checkpoint_dir, "checkpoint_best.pth")
+        subset_result = {
+            "algorithm": "fixmatch",
+            "subset_name": subset_name,
+            "source_dataset": source_dataset,
+            "target_dataset": target_dataset,
+            "n_train": len(train_split_df),
+            "n_val": len(val_split_df),
+            "n_unlabeled": len(unlabeled_ids),
+            "n_test": len(test_ids),
+            "best_metric": best_metric,
+            "best_epoch": best_epoch,
+            "test_loss": test_loss,
+            "auroc": auroc,
+            "auprc": auprc,
+            "test_metrics": {
+                key.replace("TB Label_", ""): value
+                for key, value in test_metrics.items()
+                if key.startswith("TB Label_")
+            },
+            "checkpoint_path": checkpoint_path,
+            "prediction_files": {
+                "patient_csv": pred_results["patient_csv_path"],
+                "site_csv": pred_results["site_csv_path"],
+                "complex_data": pred_results["complex_path"],
+            },
+            "fixmatch_metrics": os.path.join(subset_results_dir, "fixmatch_metrics.json"),
+            "split_csv": subset_split_csv,
+            "unlabeled_split_csv": unlabeled_split_csv,
+        }
+
+        results_path = os.path.join(subset_results_dir, "results.json")
+        with open(results_path, "w") as handle:
+            json.dump(subset_result, handle, indent=2, default=str)
+
+        all_results[subset_name] = subset_result
+        logger.info("  FixMatch %s - AUROC: %.4f, AUPRC: %.4f", subset_name, auroc, auprc)
+
+        if not np.isnan(auroc) and auroc > best_auroc:
+            best_auroc = auroc
+            best_checkpoint = checkpoint_path
+
+    return {
+        "algorithm": "fixmatch",
+        "all_results": all_results,
+        "best_checkpoint": best_checkpoint,
+        "best_auroc": best_auroc,
+    }
+
+
+def run_ewc_finetuning_experiment(
+    config,
+    train_subsets: Dict[str, pd.DataFrame],
+    test_ids: List[str],
+    source_checkpoint_path: str,
+    source_config_path: str,
+    source_dataset: str,
+    target_dataset: str,
+    output_dir: str,
+    checkpoint_dir: str,
+    evaluate_target_test: bool = True,
+) -> Dict:
+    """
+    Run EWC target fine-tuning on SA.
+
+    The source config is used to rebuild the source-domain loader for diagonal
+    Fisher estimation. The target subset layout mirrors the standard/DANN/
+    FixMatch fine-tuning outputs, with each subset under `ewc_<subset>`.
+    """
+    logger.info(f"\n{'='*60}")
+    logger.info("Starting EWC fine-tuning experiment")
+    logger.info(f"{'='*60}")
+
+    if target_dataset != "sa":
+        raise ValueError("EWC fine-tuning is currently wired for SA target adaptation")
+    if not source_config_path:
+        raise ValueError("EWC fine-tuning requires --source-config so the source-domain Fisher loader can be built")
+
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    _use_dataset_adapter(target_dataset)
+
+    from ultrai.training.ablation_engine import Config
+    from ultrai.training.ewc import EWCTrainer
+
+    test_ids = map_patient_ids_to_metadata_format(test_ids, config.file_metadata_csv)
+    logger.info("  Mapped %d target test patient IDs to file metadata format", len(test_ids))
+
+    all_results = {}
+    best_auroc = -1
+    best_checkpoint = None
+    best_selection_metric = -1
+
+    for subset_name, train_subset_df in train_subsets.items():
+        logger.info(f"\n{'='*60}")
+        logger.info("EWC subset: %s", subset_name)
+        logger.info(f"{'='*60}")
+
+        split_random_state = getattr(config, "split_random_state", 42)
+        val_size = getattr(config, "val_size", 0.2)
+        train_split_df, val_split_df = create_train_val_split(
+            train_subset_df,
+            val_size=val_size,
+            random_state=split_random_state,
+        )
+
+        train_ids = map_patient_ids_to_metadata_format(
+            train_split_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+        val_ids = map_patient_ids_to_metadata_format(
+            val_split_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+
+        subset_results_dir = os.path.join(output_dir, f"ewc_{subset_name}")
+        subset_checkpoint_dir = os.path.join(checkpoint_dir, f"ewc_{subset_name}")
+        os.makedirs(subset_results_dir, exist_ok=True)
+        os.makedirs(subset_checkpoint_dir, exist_ok=True)
+        logger.info("  Results directory: %s", subset_results_dir)
+        logger.info("  Checkpoint directory: %s", subset_checkpoint_dir)
+        logger.info(
+            "  EWC target train=%d, val=%d, source Fisher config=%s, test=%d",
+            len(train_ids),
+            len(val_ids),
+            source_config_path,
+            len(test_ids),
+        )
+
+        subset_split_csv = os.path.join(subset_results_dir, "split.csv")
+        create_split_csv(
+            train_ids=train_ids,
+            val_ids=val_ids,
+            test_ids=test_ids,
+            output_path=subset_split_csv,
+            file_metadata_csv=None,
+        )
+
+        subset_config = Config()
+        subset_config.load_from_yaml(config.__dict__.get("_yaml_path", "configs/cscs/finetune.yaml"))
+        subset_config.split_csv = subset_split_csv
+        subset_config.experiment_name = f"target_ewc_{subset_name}"
+        subset_config.experiment_dir = subset_checkpoint_dir
+        subset_config.checkpoint_dir = subset_checkpoint_dir
+        subset_config.log_dir = os.path.join(config.log_dir, f"ewc_{subset_name}")
+        subset_config.save_dir = subset_checkpoint_dir
+        subset_config.pred_save_dir = os.path.join(subset_results_dir, "predictions")
+        subset_config.model_weights = source_checkpoint_path
+        subset_config.reset_optimizers = True
+        subset_config.domain_adaptation = "ewc"
+        subset_config.use_train_metric_when_no_val = len(val_ids) == 0
+        if hasattr(config, "clip_unfreeze_last_n_layers"):
+            subset_config.clip_unfreeze_last_n_layers = config.clip_unfreeze_last_n_layers
+        if hasattr(config, "freeze_backbone"):
+            subset_config.freeze_backbone = config.freeze_backbone
+
+        source_config = Config()
+        source_config.load_from_yaml(source_config_path)
+        source_config.train = True
+
+        for dir_path in [
+            subset_config.experiment_dir,
+            subset_config.checkpoint_dir,
+            subset_config.log_dir,
+            subset_config.save_dir,
+            subset_config.pred_save_dir,
+        ]:
+            os.makedirs(dir_path, exist_ok=True)
+
+        trainer = EWCTrainer(
+            target_config=subset_config,
+            source_config=source_config,
+            source_dataset=source_dataset,
+            target_dataset=target_dataset,
+            source_checkpoint_path=source_checkpoint_path,
+            output_dir=subset_results_dir,
+            checkpoint_dir=subset_checkpoint_dir,
+        )
+        best_metric, best_epoch = trainer.train()
+        logger.info("  EWC best %s = %.4f at epoch %d", subset_config.eval_metric, best_metric, best_epoch + 1)
+
+        test_loss = None
+        test_metrics = {}
+        prediction_files = {}
+        auroc, auprc = np.nan, np.nan
+        if evaluate_target_test:
+            logger.info("  Evaluating EWC model on target test set...")
+            test_loss, test_metrics = trainer.validate(trainer.target_test_loader, "test")
+
+            pred_results = save_comprehensive_predictions(
+                trainer=trainer,
+                data_loader=trainer.target_test_loader,
+                output_dir=subset_results_dir,
+                prefix=f"ewc_{subset_name}",
+                config=subset_config,
+            )
+
+            patient_df = pred_results["patient_df"]
+            valid_mask = patient_df["tb_label"] >= 0
+            if valid_mask.sum() > 0:
+                auroc, auprc = _safe_binary_auroc_auprc(
+                    patient_df.loc[valid_mask, "tb_label"].values,
+                    patient_df.loc[valid_mask, "tb_prob"].values,
+                )
+            prediction_files = {
+                "patient_csv": pred_results["patient_csv_path"],
+                "site_csv": pred_results["site_csv_path"],
+                "complex_data": pred_results["complex_path"],
+            }
+        else:
+            logger.info("  Skipping target test evaluation for validation-only EWC model selection")
+
+        checkpoint_path = os.path.join(subset_checkpoint_dir, "checkpoint_best.pth")
+        subset_result = {
+            "algorithm": "ewc",
+            "subset_name": subset_name,
+            "source_dataset": source_dataset,
+            "target_dataset": target_dataset,
+            "source_config": source_config_path,
+            "n_train": len(train_split_df),
+            "n_val": len(val_split_df),
+            "n_test": len(test_ids),
+            "best_metric": best_metric,
+            "best_epoch": best_epoch,
+            "test_loss": test_loss,
+            "auroc": auroc,
+            "auprc": auprc,
+            "test_metrics": {
+                key.replace("TB Label_", ""): value
+                for key, value in test_metrics.items()
+                if key.startswith("TB Label_")
+            },
+            "checkpoint_path": checkpoint_path,
+            "prediction_files": prediction_files,
+            "ewc_metrics": os.path.join(subset_results_dir, "ewc_metrics.json"),
+            "split_csv": subset_split_csv,
+            "target_test_evaluated": evaluate_target_test,
+        }
+
+        results_path = os.path.join(subset_results_dir, "results.json")
+        with open(results_path, "w") as handle:
+            json.dump(subset_result, handle, indent=2, default=str)
+
+        all_results[subset_name] = subset_result
+        if evaluate_target_test:
+            logger.info("  EWC %s - AUROC: %.4f, AUPRC: %.4f", subset_name, auroc, auprc)
+        else:
+            logger.info("  EWC %s - validation %s: %.4f", subset_name, subset_config.eval_metric, best_metric)
+
+        selection_metric = auroc if evaluate_target_test and not np.isnan(auroc) else best_metric
+        if selection_metric > best_selection_metric:
+            best_selection_metric = selection_metric
+            best_auroc = selection_metric
+            best_checkpoint = checkpoint_path
+
+    return {
+        "algorithm": "ewc",
+        "all_results": all_results,
+        "best_checkpoint": best_checkpoint,
+        "best_auroc": best_auroc,
+        "best_selection_metric": best_selection_metric,
+        "target_test_evaluated": evaluate_target_test,
+    }
+
+
+def evaluate_on_source_split(
     finetuned_checkpoint_path: str,
     source_eval_config_path: str,
     source_dataset: str,
     output_dir: str,
+    source_split: str = "test",
     log_dir: Optional[str] = None,
 ) -> Dict:
     """
-    Evaluate the target-finetuned model back on the source-domain test set.
+    Evaluate the target-finetuned model back on a source-domain split.
     
     Args:
         finetuned_checkpoint_path: Path to best SA-finetuned checkpoint
         source_eval_config_path: Path to the source-domain config YAML
         source_dataset: Source dataset adapter to use
         output_dir: Output directory
+        source_split: Source split to evaluate: train, val/valid, or test
         
     Returns:
         Dictionary with evaluation results and comparison
     """
+    source_split = source_split.lower().strip()
+    split_aliases = {"valid": "val", "validation": "val"}
+    source_split = split_aliases.get(source_split, source_split)
+    if source_split not in {"train", "val", "test"}:
+        raise ValueError(f"source_split must be one of train, val, test; got {source_split}")
+
     logger.info(f"\n{'='*60}")
-    logger.info("Evaluating Fine-Tuned Model on Source Test Set")
+    logger.info("Evaluating Fine-Tuned Model on Source %s Set", source_split.upper())
     logger.info(f"{'='*60}")
     
     os.makedirs(output_dir, exist_ok=True)
@@ -1420,9 +1859,9 @@ def evaluate_on_source_test(
             )
             eval_config.load_from_yaml(source_eval_config_path)
 
-        eval_config.experiment_name = "target_finetuned_on_source_eval"
-        eval_config.experiment_dir = os.path.join(output_dir, "source_test_evaluation")
-        eval_config.log_dir = os.path.join(log_dir or "./logs", "source_test_evaluation")
+        eval_config.experiment_name = f"target_finetuned_on_source_{source_split}_eval"
+        eval_config.experiment_dir = os.path.join(output_dir, f"source_{source_split}_evaluation")
+        eval_config.log_dir = os.path.join(log_dir or "./logs", f"source_{source_split}_evaluation")
         eval_config.pred_save_dir = os.path.join(eval_config.experiment_dir, "predictions")
         eval_config.save_dir = eval_config.experiment_dir
         eval_config.checkpoint_dir = eval_config.experiment_dir
@@ -1467,16 +1906,21 @@ def evaluate_on_source_test(
         trainer.model.load_state_dict(finetuned_state_dict, strict=False)
         logger.info(f"  Loaded fine-tuned target model from: {finetuned_checkpoint_path}")
         
-        # Evaluate on source test set
-        logger.info("  Running evaluation on source test set...")
-        test_loss, test_metrics = trainer.validate(0, trainer.test_loader, 'test')
+        # Evaluate on requested source split.
+        loader_name = f"{source_split}_loader"
+        data_loader = getattr(trainer, loader_name, None)
+        if data_loader is None or len(data_loader) == 0:
+            raise ValueError(f"Source {source_split} loader is empty or unavailable for {source_eval_config_path}")
+
+        logger.info("  Running evaluation on source %s set...", source_split)
+        eval_loss, eval_metrics = trainer.validate(0, data_loader, source_split)
         
         # Save comprehensive predictions (like evaluate_downstream.py)
         pred_results = save_comprehensive_predictions(
             trainer=trainer,
-            data_loader=trainer.test_loader,
+            data_loader=data_loader,
             output_dir=eval_config.experiment_dir,
-            prefix='finetuned_source_test',
+            prefix=f'finetuned_source_{source_split}',
             config=eval_config
         )
         
@@ -1494,21 +1938,26 @@ def evaluate_on_source_test(
         results = {
             'model': 'target_finetuned_on_source',
             'source_dataset': source_dataset,
-            'n_test': len(patient_df),
+            'source_split': source_split,
+            f'n_{source_split}': len(patient_df),
             'auroc': auroc,
             'auprc': auprc,
-            'test_metrics': {k.replace('TB Label_', ''): v for k, v in test_metrics.items() 
-                           if k.startswith('TB Label_')},
+            f'{source_split}_loss': eval_loss,
+            f'{source_split}_metrics': {k.replace('TB Label_', ''): v for k, v in eval_metrics.items() 
+                                      if k.startswith('TB Label_')},
             'prediction_files': {
                 'patient_csv': pred_results['patient_csv_path'],
                 'site_csv': pred_results['site_csv_path'],
                 'complex_data': pred_results['complex_path']
             }
         }
+        if source_split == "test":
+            results["n_test"] = len(patient_df)
+            results["test_metrics"] = results[f"{source_split}_metrics"]
         
         # Load HMV-MIL baseline for comparison when the source domain is Benin.
         hmv_mil_path = '/users/tbrokowski/ULTR-AI-Vid/ablation_preds/attention_pool_differentiable/test_full_model_fold2_patients.csv'
-        if source_dataset == "benin" and os.path.exists(hmv_mil_path):
+        if source_split == "test" and source_dataset == "benin" and os.path.exists(hmv_mil_path):
             hmv_mil_df = pd.read_csv(hmv_mil_path)
             if 'tb_prob' in hmv_mil_df.columns and 'tb_label' in hmv_mil_df.columns:
                 hmv_auroc, hmv_auprc = _safe_binary_auroc_auprc(
@@ -1528,15 +1977,38 @@ def evaluate_on_source_test(
                 logger.info(f"  Delta - AUROC: {results['comparison']['auroc_delta']:.4f}, AUPRC: {results['comparison']['auprc_delta']:.4f}")
         
         # Save results
-        results_path = os.path.join(eval_config.experiment_dir, 'source_test_results_finetuned.json')
+        results_path = os.path.join(eval_config.experiment_dir, f'source_{source_split}_results_finetuned.json')
         with open(results_path, 'w') as f:
             json.dump(results, f, indent=2, default=str)
         
-        logger.info(f"  ✅ Source-domain evaluation - AUROC: {auroc:.4f}, AUPRC: {auprc:.4f}")
+        logger.info(
+            "  ✅ Source-domain %s evaluation - AUROC: %.4f, AUPRC: %.4f",
+            source_split,
+            auroc,
+            auprc,
+        )
         return results
         
     finally:
         cleanup_distributed()
+
+
+def evaluate_on_source_test(
+    finetuned_checkpoint_path: str,
+    source_eval_config_path: str,
+    source_dataset: str,
+    output_dir: str,
+    log_dir: Optional[str] = None,
+) -> Dict:
+    """Backward-compatible wrapper for source test-set evaluation."""
+    return evaluate_on_source_split(
+        finetuned_checkpoint_path=finetuned_checkpoint_path,
+        source_eval_config_path=source_eval_config_path,
+        source_dataset=source_dataset,
+        output_dir=output_dir,
+        source_split="test",
+        log_dir=log_dir,
+    )
 
 
 def generate_pathology_auroc_plots(
@@ -1784,22 +2256,30 @@ def main(argv=None):
                         help="Skip the training phase")
     parser.add_argument("--skip-source-eval", "--skip-benin-eval", dest="skip_source_eval", action="store_true",
                         help="Skip source-domain evaluation after fine-tuning")
+    parser.add_argument("--source-eval-splits", type=str, default="test",
+                        help="Comma-separated source-domain splits to evaluate after fine-tuning. Default: test.")
+    parser.add_argument("--skip-target-test", action="store_true",
+                        help="Skip target-domain test evaluation after fine-tuning for validation-only model selection.")
     parser.add_argument("--skip-pathology", action="store_true",
                         help="Skip pathology plots generation in the SA target pipeline")
-    parser.add_argument("--domain-adaptation", choices=["none", "dann"], default="none",
+    parser.add_argument("--domain-adaptation", choices=["none", "dann", "fixmatch", "ewc"], default="none",
                         help="Optional domain adaptation algorithm for target fine-tuning. Default: none.")
     parser.add_argument("--dann", dest="domain_adaptation", action="store_const", const="dann",
                         help="Shortcut for --domain-adaptation dann")
+    parser.add_argument("--fixmatch", dest="domain_adaptation", action="store_const", const="fixmatch",
+                        help="Shortcut for --domain-adaptation fixmatch")
+    parser.add_argument("--ewc", dest="domain_adaptation", action="store_const", const="ewc",
+                        help="Shortcut for --domain-adaptation ewc")
     parser.set_defaults(freeze_backbone=None)
 
     args = parser.parse_args(argv)
 
     if not args.source_checkpoint:
         parser.error("--source-checkpoint is required")
-    if args.domain_adaptation == "dann" and args.target_dataset != "sa":
-        parser.error("--domain-adaptation dann is currently supported for --target-dataset sa")
-    if args.domain_adaptation == "dann" and not args.source_config:
-        parser.error("--domain-adaptation dann requires --source-config for the source-domain data loader")
+    if args.domain_adaptation in {"dann", "fixmatch", "ewc"} and args.target_dataset != "sa":
+        parser.error(f"--domain-adaptation {args.domain_adaptation} is currently supported for --target-dataset sa")
+    if args.domain_adaptation in {"dann", "ewc"} and not args.source_config:
+        parser.error(f"--domain-adaptation {args.domain_adaptation} requires --source-config for the source-domain data loader")
 
     if args.target_dataset == "benin":
         return _run_benin_target_finetuning(args)
@@ -1911,6 +2391,10 @@ def main(argv=None):
         logger.info("\n%s", "=" * 60)
         if args.domain_adaptation == "dann":
             logger.info("Step 7: DANN Fine-Tuning on SA")
+        elif args.domain_adaptation == "fixmatch":
+            logger.info("Step 7: FixMatch Fine-Tuning on SA")
+        elif args.domain_adaptation == "ewc":
+            logger.info("Step 7: EWC Fine-Tuning on SA")
         else:
             logger.info("Step 7: Fine-Tuning on SA")
         logger.info("%s", "=" * 60)
@@ -1926,6 +2410,31 @@ def main(argv=None):
                     target_dataset=args.target_dataset,
                     output_dir=args.output_dir,
                     checkpoint_dir=args.checkpoint_dir,
+                )
+            elif args.domain_adaptation == "fixmatch":
+                finetuning_results = run_fixmatch_finetuning_experiment(
+                    config=config,
+                    train_subsets=train_subsets,
+                    target_unlabeled_pool=train_df,
+                    test_ids=test_ids_list,
+                    source_checkpoint_path=args.source_checkpoint,
+                    source_dataset=args.source_dataset,
+                    target_dataset=args.target_dataset,
+                    output_dir=args.output_dir,
+                    checkpoint_dir=args.checkpoint_dir,
+                )
+            elif args.domain_adaptation == "ewc":
+                finetuning_results = run_ewc_finetuning_experiment(
+                    config=config,
+                    train_subsets=train_subsets,
+                    test_ids=test_ids_list,
+                    source_checkpoint_path=args.source_checkpoint,
+                    source_config_path=args.source_config,
+                    source_dataset=args.source_dataset,
+                    target_dataset=args.target_dataset,
+                    output_dir=args.output_dir,
+                    checkpoint_dir=args.checkpoint_dir,
+                    evaluate_target_test=not args.skip_target_test,
                 )
             else:
                 finetuning_results = run_finetuning_experiment(
@@ -1943,7 +2452,12 @@ def main(argv=None):
         except Exception as e:
             logger.error("Fine-tuning failed: %s", e)
             traceback.print_exc()
-            full_checkpoint = os.path.join(args.checkpoint_dir, "finetune_full", "checkpoint_best.pth")
+            fallback_subset = (
+                f"{args.domain_adaptation}_full"
+                if args.domain_adaptation in {"dann", "fixmatch", "ewc"}
+                else "finetune_full"
+            )
+            full_checkpoint = os.path.join(args.checkpoint_dir, fallback_subset, "checkpoint_best.pth")
             if os.path.exists(full_checkpoint):
                 best_checkpoint = full_checkpoint
                 logger.info("Found checkpoint despite error: %s", best_checkpoint)
@@ -1954,17 +2468,28 @@ def main(argv=None):
         logger.info("\n%s", "=" * 60)
         logger.info("Step 8: Evaluating Fine-Tuned Model on Source Domain")
         logger.info("%s", "=" * 60)
-        try:
-            source_eval_results = evaluate_on_source_test(
-                finetuned_checkpoint_path=best_checkpoint,
-                source_eval_config_path=args.source_config,
-                source_dataset=args.source_dataset,
-                output_dir=args.output_dir,
-                log_dir=args.log_dir,
-            )
-            logger.info("Source-domain evaluation complete: AUROC=%.4f", source_eval_results.get("auroc", float("nan")))
-        except Exception as e:
-            logger.error("Source-domain evaluation failed: %s", e)
+        source_eval_splits = [
+            split.strip()
+            for split in str(args.source_eval_splits).split(",")
+            if split.strip()
+        ]
+        for source_split in source_eval_splits:
+            try:
+                source_eval_results = evaluate_on_source_split(
+                    finetuned_checkpoint_path=best_checkpoint,
+                    source_eval_config_path=args.source_config,
+                    source_dataset=args.source_dataset,
+                    output_dir=args.output_dir,
+                    source_split=source_split,
+                    log_dir=args.log_dir,
+                )
+                logger.info(
+                    "Source-domain %s evaluation complete: AUROC=%.4f",
+                    source_split,
+                    source_eval_results.get("auroc", float("nan")),
+                )
+            except Exception as e:
+                logger.error("Source-domain %s evaluation failed: %s", source_split, e)
     else:
         if args.skip_source_eval:
             logger.info("Skipping source-domain evaluation")
