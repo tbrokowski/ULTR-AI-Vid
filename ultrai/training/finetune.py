@@ -1796,6 +1796,223 @@ def run_ewc_finetuning_experiment(
     }
 
 
+def run_lwf_finetuning_experiment(
+    config,
+    train_subsets: Dict[str, pd.DataFrame],
+    test_ids: List[str],
+    source_checkpoint_path: str,
+    source_config_path: Optional[str],
+    source_dataset: str,
+    target_dataset: str,
+    output_dir: str,
+    checkpoint_dir: str,
+    evaluate_target_test: bool = True,
+) -> Dict:
+    """
+    Run Learning without Forgetting target fine-tuning on SA.
+
+    LwF uses the source checkpoint as a frozen teacher and trains a target
+    student with supervised SA loss plus temperature-scaled teacher
+    distillation. Its layout mirrors standard/DANN/FixMatch/EWC outputs, with
+    each subset under `lwf_<subset>`.
+    """
+    logger.info(f"\n{'='*60}")
+    logger.info("Starting LwF fine-tuning experiment")
+    logger.info(f"{'='*60}")
+
+    if target_dataset != "sa":
+        raise ValueError("LwF fine-tuning is currently wired for SA target adaptation")
+
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    _use_dataset_adapter(target_dataset)
+
+    from ultrai.training.ablation_engine import Config
+    from ultrai.training.lwf import LWFTrainer
+
+    test_ids = map_patient_ids_to_metadata_format(test_ids, config.file_metadata_csv)
+    logger.info("  Mapped %d target test patient IDs to file metadata format", len(test_ids))
+
+    all_results = {}
+    best_auroc = -1
+    best_checkpoint = None
+    best_selection_metric = -1
+
+    for subset_name, train_subset_df in train_subsets.items():
+        logger.info(f"\n{'='*60}")
+        logger.info("LwF subset: %s", subset_name)
+        logger.info(f"{'='*60}")
+
+        split_random_state = getattr(config, "split_random_state", 42)
+        val_size = getattr(config, "val_size", 0.2)
+        train_split_df, val_split_df = create_train_val_split(
+            train_subset_df,
+            val_size=val_size,
+            random_state=split_random_state,
+        )
+
+        train_ids = map_patient_ids_to_metadata_format(
+            train_split_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+        val_ids = map_patient_ids_to_metadata_format(
+            val_split_df["patient_id"].tolist(),
+            config.file_metadata_csv,
+        )
+
+        subset_results_dir = os.path.join(output_dir, f"lwf_{subset_name}")
+        subset_checkpoint_dir = os.path.join(checkpoint_dir, f"lwf_{subset_name}")
+        os.makedirs(subset_results_dir, exist_ok=True)
+        os.makedirs(subset_checkpoint_dir, exist_ok=True)
+        logger.info("  Results directory: %s", subset_results_dir)
+        logger.info("  Checkpoint directory: %s", subset_checkpoint_dir)
+        logger.info(
+            "  LwF target train=%d, val=%d, source teacher=%s, test=%d",
+            len(train_ids),
+            len(val_ids),
+            source_checkpoint_path,
+            len(test_ids),
+        )
+
+        subset_split_csv = os.path.join(subset_results_dir, "split.csv")
+        create_split_csv(
+            train_ids=train_ids,
+            val_ids=val_ids,
+            test_ids=test_ids,
+            output_path=subset_split_csv,
+            file_metadata_csv=None,
+        )
+
+        subset_config = Config()
+        subset_config.load_from_yaml(config.__dict__.get("_yaml_path", "configs/cscs/finetune.yaml"))
+        subset_config.split_csv = subset_split_csv
+        subset_config.experiment_name = f"target_lwf_{subset_name}"
+        subset_config.experiment_dir = subset_checkpoint_dir
+        subset_config.checkpoint_dir = subset_checkpoint_dir
+        subset_config.log_dir = os.path.join(config.log_dir, f"lwf_{subset_name}")
+        subset_config.save_dir = subset_checkpoint_dir
+        subset_config.pred_save_dir = os.path.join(subset_results_dir, "predictions")
+        subset_config.model_weights = source_checkpoint_path
+        subset_config.reset_optimizers = True
+        subset_config.domain_adaptation = "lwf"
+        subset_config.use_train_metric_when_no_val = len(val_ids) == 0
+        if hasattr(config, "clip_unfreeze_last_n_layers"):
+            subset_config.clip_unfreeze_last_n_layers = config.clip_unfreeze_last_n_layers
+        if hasattr(config, "freeze_backbone"):
+            subset_config.freeze_backbone = config.freeze_backbone
+
+        source_config = None
+        if source_config_path:
+            source_config = Config()
+            source_config.load_from_yaml(source_config_path)
+            source_config.train = True
+
+        for dir_path in [
+            subset_config.experiment_dir,
+            subset_config.checkpoint_dir,
+            subset_config.log_dir,
+            subset_config.save_dir,
+            subset_config.pred_save_dir,
+        ]:
+            os.makedirs(dir_path, exist_ok=True)
+
+        trainer = LWFTrainer(
+            target_config=subset_config,
+            target_dataset=target_dataset,
+            source_checkpoint_path=source_checkpoint_path,
+            output_dir=subset_results_dir,
+            checkpoint_dir=subset_checkpoint_dir,
+            source_config=source_config,
+            source_dataset=source_dataset if source_config is not None else None,
+        )
+        best_metric, best_epoch = trainer.train()
+        logger.info("  LwF best %s = %.4f at epoch %d", subset_config.eval_metric, best_metric, best_epoch + 1)
+
+        test_loss = None
+        test_metrics = {}
+        prediction_files = {}
+        auroc, auprc = np.nan, np.nan
+        if evaluate_target_test:
+            logger.info("  Evaluating LwF model on target test set...")
+            test_loss, test_metrics = trainer.validate(trainer.target_test_loader, "test")
+
+            pred_results = save_comprehensive_predictions(
+                trainer=trainer,
+                data_loader=trainer.target_test_loader,
+                output_dir=subset_results_dir,
+                prefix=f"lwf_{subset_name}",
+                config=subset_config,
+            )
+
+            patient_df = pred_results["patient_df"]
+            valid_mask = patient_df["tb_label"] >= 0
+            if valid_mask.sum() > 0:
+                auroc, auprc = _safe_binary_auroc_auprc(
+                    patient_df.loc[valid_mask, "tb_label"].values,
+                    patient_df.loc[valid_mask, "tb_prob"].values,
+                )
+            prediction_files = {
+                "patient_csv": pred_results["patient_csv_path"],
+                "site_csv": pred_results["site_csv_path"],
+                "complex_data": pred_results["complex_path"],
+            }
+        else:
+            logger.info("  Skipping target test evaluation for validation-only LwF model selection")
+
+        checkpoint_path = os.path.join(subset_checkpoint_dir, "checkpoint_best.pth")
+        subset_result = {
+            "algorithm": "lwf",
+            "subset_name": subset_name,
+            "source_dataset": source_dataset,
+            "target_dataset": target_dataset,
+            "source_config": source_config_path,
+            "n_train": len(train_split_df),
+            "n_val": len(val_split_df),
+            "n_test": len(test_ids),
+            "best_metric": best_metric,
+            "best_epoch": best_epoch,
+            "test_loss": test_loss,
+            "auroc": auroc,
+            "auprc": auprc,
+            "test_metrics": {
+                key.replace("TB Label_", ""): value
+                for key, value in test_metrics.items()
+                if key.startswith("TB Label_")
+            },
+            "checkpoint_path": checkpoint_path,
+            "prediction_files": prediction_files,
+            "lwf_metrics": os.path.join(subset_results_dir, "lwf_metrics.json"),
+            "split_csv": subset_split_csv,
+            "target_test_evaluated": evaluate_target_test,
+        }
+
+        results_path = os.path.join(subset_results_dir, "results.json")
+        with open(results_path, "w") as handle:
+            json.dump(subset_result, handle, indent=2, default=str)
+
+        all_results[subset_name] = subset_result
+        if evaluate_target_test:
+            logger.info("  LwF %s - AUROC: %.4f, AUPRC: %.4f", subset_name, auroc, auprc)
+        else:
+            logger.info("  LwF %s - validation %s: %.4f", subset_name, subset_config.eval_metric, best_metric)
+
+        selection_metric = auroc if evaluate_target_test and not np.isnan(auroc) else best_metric
+        if selection_metric > best_selection_metric:
+            best_selection_metric = selection_metric
+            best_auroc = selection_metric
+            best_checkpoint = checkpoint_path
+
+    return {
+        "algorithm": "lwf",
+        "all_results": all_results,
+        "best_checkpoint": best_checkpoint,
+        "best_auroc": best_auroc,
+        "best_selection_metric": best_selection_metric,
+        "target_test_evaluated": evaluate_target_test,
+    }
+
+
 def evaluate_on_source_split(
     finetuned_checkpoint_path: str,
     source_eval_config_path: str,
@@ -2262,7 +2479,7 @@ def main(argv=None):
                         help="Skip target-domain test evaluation after fine-tuning for validation-only model selection.")
     parser.add_argument("--skip-pathology", action="store_true",
                         help="Skip pathology plots generation in the SA target pipeline")
-    parser.add_argument("--domain-adaptation", choices=["none", "dann", "fixmatch", "ewc"], default="none",
+    parser.add_argument("--domain-adaptation", choices=["none", "dann", "fixmatch", "ewc", "lwf"], default="none",
                         help="Optional domain adaptation algorithm for target fine-tuning. Default: none.")
     parser.add_argument("--dann", dest="domain_adaptation", action="store_const", const="dann",
                         help="Shortcut for --domain-adaptation dann")
@@ -2270,13 +2487,15 @@ def main(argv=None):
                         help="Shortcut for --domain-adaptation fixmatch")
     parser.add_argument("--ewc", dest="domain_adaptation", action="store_const", const="ewc",
                         help="Shortcut for --domain-adaptation ewc")
+    parser.add_argument("--lwf", dest="domain_adaptation", action="store_const", const="lwf",
+                        help="Shortcut for --domain-adaptation lwf")
     parser.set_defaults(freeze_backbone=None)
 
     args = parser.parse_args(argv)
 
     if not args.source_checkpoint:
         parser.error("--source-checkpoint is required")
-    if args.domain_adaptation in {"dann", "fixmatch", "ewc"} and args.target_dataset != "sa":
+    if args.domain_adaptation in {"dann", "fixmatch", "ewc", "lwf"} and args.target_dataset != "sa":
         parser.error(f"--domain-adaptation {args.domain_adaptation} is currently supported for --target-dataset sa")
     if args.domain_adaptation in {"dann", "ewc"} and not args.source_config:
         parser.error(f"--domain-adaptation {args.domain_adaptation} requires --source-config for the source-domain data loader")
@@ -2395,6 +2614,8 @@ def main(argv=None):
             logger.info("Step 7: FixMatch Fine-Tuning on SA")
         elif args.domain_adaptation == "ewc":
             logger.info("Step 7: EWC Fine-Tuning on SA")
+        elif args.domain_adaptation == "lwf":
+            logger.info("Step 7: LwF Fine-Tuning on SA")
         else:
             logger.info("Step 7: Fine-Tuning on SA")
         logger.info("%s", "=" * 60)
@@ -2436,6 +2657,19 @@ def main(argv=None):
                     checkpoint_dir=args.checkpoint_dir,
                     evaluate_target_test=not args.skip_target_test,
                 )
+            elif args.domain_adaptation == "lwf":
+                finetuning_results = run_lwf_finetuning_experiment(
+                    config=config,
+                    train_subsets=train_subsets,
+                    test_ids=test_ids_list,
+                    source_checkpoint_path=args.source_checkpoint,
+                    source_config_path=args.source_config,
+                    source_dataset=args.source_dataset,
+                    target_dataset=args.target_dataset,
+                    output_dir=args.output_dir,
+                    checkpoint_dir=args.checkpoint_dir,
+                    evaluate_target_test=not args.skip_target_test,
+                )
             else:
                 finetuning_results = run_finetuning_experiment(
                     config=config,
@@ -2454,7 +2688,7 @@ def main(argv=None):
             traceback.print_exc()
             fallback_subset = (
                 f"{args.domain_adaptation}_full"
-                if args.domain_adaptation in {"dann", "fixmatch", "ewc"}
+                if args.domain_adaptation in {"dann", "fixmatch", "ewc", "lwf"}
                 else "finetune_full"
             )
             full_checkpoint = os.path.join(args.checkpoint_dir, fallback_subset, "checkpoint_best.pth")

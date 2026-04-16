@@ -149,8 +149,8 @@ checkpoint_dir: "./checkpoints/finetune"
 task: "TB Label"
 
 # Domain adaptation. The default is standard fine-tuning; pass
-# `--domain-adaptation dann`, `--domain-adaptation fixmatch`, or
-# `--domain-adaptation ewc` through
+# `--domain-adaptation dann`, `--domain-adaptation fixmatch`,
+# `--domain-adaptation ewc`, or `--domain-adaptation lwf` through
 # `train_job_finetune.sh` to enable an adaptation trainer.
 domain_adaptation: "none"
 
@@ -214,6 +214,25 @@ ewc_eta_min: 0.000001
 ewc_gradient_clip_norm: 1.0
 ewc_accumulation_steps: 1
 ewc_log_every_steps: 10
+
+# LwF: supervised target loss plus frozen source-teacher distillation.
+lwf_lambda: 1.0
+lwf_temperature: 2.0
+lwf_pathology_lambda: 0.25
+lwf_feature_lambda: 0.0
+lwf_supervised_weight: 1.0
+lwf_warmup_epochs: 0
+lwf_distill_tasks: []
+lwf_feature_keys:
+  - "patient_features"
+lwf_source_distillation_weight: 0.0
+lwf_source_batch_size: null
+lwf_learning_rate: 0.00005
+lwf_weight_decay: 0.00001
+lwf_eta_min: 0.000001
+lwf_gradient_clip_norm: 1.0
+lwf_accumulation_steps: 1
+lwf_log_every_steps: 10
 
 subset_sizes: [1.0]
 val_size: 0.2

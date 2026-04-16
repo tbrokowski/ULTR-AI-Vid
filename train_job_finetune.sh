@@ -57,11 +57,12 @@ Options:
   --clip-unfreeze-last-n-layers N   Override the CLIP unfreeze setting from the resolved config.
   --freeze-backbone                 Force the CLIP backbone to stay frozen.
   --no-freeze-backbone              Force the CLIP backbone to be trainable.
-  --domain-adaptation {none,dann,fixmatch,ewc}
-                                  Optional adaptation algorithm. DANN and EWC require --source-config and SA target. FixMatch uses the SA training pool as unlabeled target data. Default: none.
+  --domain-adaptation {none,dann,fixmatch,ewc,lwf}
+                                  Optional adaptation algorithm. DANN and EWC require --source-config and SA target. FixMatch uses the SA training pool as unlabeled target data. LwF uses a frozen source teacher. Default: none.
   --dann                            Shortcut for --domain-adaptation dann.
   --fixmatch                        Shortcut for --domain-adaptation fixmatch.
   --ewc                             Shortcut for --domain-adaptation ewc.
+  --lwf                             Shortcut for --domain-adaptation lwf.
   --set KEY=VALUE                    Override a resolved config value after base/dataset profile merging. May be repeated.
   --skip-zero-shot                   Skip target zero-shot evaluation before fine-tuning.
   --skip-target-test                 Skip target-domain test evaluation after fine-tuning.
@@ -106,6 +107,13 @@ infer_source_tag() {
       tag="ewc"
     elif [[ "${tag}" != *"ewc"* ]]; then
       tag="${tag}+ewc"
+    fi
+  fi
+  if [[ "${lowered}" == *"lwf"* || "${DOMAIN_ADAPTATION}" == "lwf" ]]; then
+    if [[ "${tag}" == "baseline" ]]; then
+      tag="lwf"
+    elif [[ "${tag}" != *"lwf"* ]]; then
+      tag="${tag}+lwf"
     fi
   fi
 
@@ -198,6 +206,10 @@ while [[ $# -gt 0 ]]; do
       DOMAIN_ADAPTATION="ewc"
       shift
       ;;
+    --lwf)
+      DOMAIN_ADAPTATION="lwf"
+      shift
+      ;;
     --set)
       CONFIG_SETS+=("$2")
       shift 2
@@ -261,8 +273,8 @@ if [[ "${TARGET_DATASET}" != "sa" && "${TARGET_DATASET}" != "benin" ]]; then
   exit 1
 fi
 
-if [[ "${DOMAIN_ADAPTATION}" != "none" && "${DOMAIN_ADAPTATION}" != "dann" && "${DOMAIN_ADAPTATION}" != "fixmatch" && "${DOMAIN_ADAPTATION}" != "ewc" ]]; then
-  echo "--domain-adaptation must be one of: none, dann, fixmatch, ewc" >&2
+if [[ "${DOMAIN_ADAPTATION}" != "none" && "${DOMAIN_ADAPTATION}" != "dann" && "${DOMAIN_ADAPTATION}" != "fixmatch" && "${DOMAIN_ADAPTATION}" != "ewc" && "${DOMAIN_ADAPTATION}" != "lwf" ]]; then
+  echo "--domain-adaptation must be one of: none, dann, fixmatch, ewc, lwf" >&2
   exit 1
 fi
 
