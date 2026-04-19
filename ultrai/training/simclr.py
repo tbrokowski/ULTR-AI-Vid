@@ -56,6 +56,12 @@ class SimCLRConfig:
     max_videos: Optional[int] = None
 
     frame_sampling: int = 32
+    decoded_frame_sampling: Optional[int] = None
+    temporal_jitter: bool = False
+    temporal_window_min: float = 0.6
+    temporal_window_max: float = 1.0
+    temporal_dropout_prob: float = 0.0
+    temporal_dropout_min_frames: int = 8
     batch_size: int = 8
     num_workers: int = 6
     cache_size: int = 0
@@ -75,6 +81,8 @@ class SimCLRConfig:
     blur_sigma_min: float = 0.1
     blur_sigma_max: float = 1.0
     noise_std: float = 0.12
+    gamma_min: float = 1.0
+    gamma_max: float = 1.0
 
     clip_model_name: str = "openai/clip-vit-base-patch32"
     local_weights_dir: str = "/users/lxflk/CLIP_weights/"
@@ -106,6 +114,20 @@ class SimCLRConfig:
             self.pretrain_splits = ["train"]
 
         self.pretrain_splits = [split.lower() for split in self.pretrain_splits]
+
+        self.frame_sampling = max(1, int(self.frame_sampling))
+        if self.decoded_frame_sampling is None:
+            self.decoded_frame_sampling = self.frame_sampling * 2 if self.temporal_jitter else self.frame_sampling
+        else:
+            self.decoded_frame_sampling = int(self.decoded_frame_sampling)
+        self.decoded_frame_sampling = max(self.frame_sampling, self.decoded_frame_sampling)
+
+        self.temporal_window_min = float(min(max(self.temporal_window_min, 0.0), 1.0))
+        self.temporal_window_max = float(min(max(self.temporal_window_max, self.temporal_window_min), 1.0))
+        self.temporal_dropout_prob = float(min(max(self.temporal_dropout_prob, 0.0), 1.0))
+        self.temporal_dropout_min_frames = max(1, int(self.temporal_dropout_min_frames))
+        self.gamma_min = max(float(self.gamma_min), 1e-6)
+        self.gamma_max = max(float(self.gamma_max), self.gamma_min)
 
     @classmethod
     def load(cls, path: str) -> "SimCLRConfig":
@@ -191,6 +213,7 @@ class SimCLRVideoViewTransform:
         blur_prob: float,
         blur_sigma: Tuple[float, float],
         noise_std: float,
+        gamma: Tuple[float, float],
         mean: Sequence[float],
         std: Sequence[float],
     ) -> None:
@@ -203,6 +226,7 @@ class SimCLRVideoViewTransform:
         self.blur_prob = blur_prob
         self.blur_sigma = blur_sigma
         self.noise_std = noise_std
+        self.gamma = gamma
         self.mean = torch.tensor(mean).view(1, 3, 1, 1)
         self.std = torch.tensor(std).view(1, 3, 1, 1)
 
@@ -223,6 +247,7 @@ class SimCLRVideoViewTransform:
         contrast_factor = random.uniform(max(0.0, 1.0 - self.contrast), 1.0 + self.contrast)
         apply_blur = random.random() < self.blur_prob
         blur_radius = random.uniform(*self.blur_sigma) if apply_blur else 0.0
+        gamma_value = random.uniform(*self.gamma)
 
         augmented_frames: List[torch.Tensor] = []
         for frame in frames:
@@ -245,6 +270,8 @@ class SimCLRVideoViewTransform:
             augmented_frames.append(TF.to_tensor(frame))
 
         video_tensor = torch.stack(augmented_frames)
+        if abs(gamma_value - 1.0) > 1e-6:
+            video_tensor = torch.clamp(video_tensor, 0.0, 1.0).pow(gamma_value)
         speckle = torch.randn_like(video_tensor) * self.noise_std
         video_tensor = torch.clamp(video_tensor * (1 + speckle), 0.0, 1.0)
         return (video_tensor - self.mean) / self.std
@@ -265,6 +292,7 @@ class SimCLRVideoDataset(Dataset):
             blur_prob=config.blur_prob,
             blur_sigma=(config.blur_sigma_min, config.blur_sigma_max),
             noise_std=config.noise_std,
+            gamma=(config.gamma_min, config.gamma_max),
             mean=config.mean,
             std=config.std,
         )
@@ -345,10 +373,58 @@ class SimCLRVideoDataset(Dataset):
     def export_index(self, output_path: Path) -> None:
         pd.DataFrame(self.records).to_csv(output_path, index=False)
 
-    def _sample_frame_indices(self, frame_count: int) -> np.ndarray:
+    def _sample_frame_indices(self, frame_count: int, sample_count: int) -> np.ndarray:
         if frame_count <= 0:
-            return np.zeros(self.config.frame_sampling, dtype=int)
-        return np.linspace(0, frame_count - 1, self.config.frame_sampling, dtype=int)
+            return np.zeros(sample_count, dtype=int)
+        return np.linspace(0, frame_count - 1, sample_count, dtype=int)
+
+    def _resize_frame_sequence(self, frames: Sequence[Image.Image], target_count: int) -> List[Image.Image]:
+        if not frames:
+            return []
+        if len(frames) == target_count:
+            return [frame.copy() for frame in frames]
+        if len(frames) == 1:
+            return [frames[0].copy() for _ in range(target_count)]
+
+        indices = np.linspace(0, len(frames) - 1, target_count, dtype=int)
+        return [frames[int(index)].copy() for index in indices]
+
+    def _sample_temporal_view(self, frames: Sequence[Image.Image]) -> List[Image.Image]:
+        target_count = self.config.frame_sampling
+        if not frames:
+            return []
+
+        frame_list = list(frames)
+        if self.config.temporal_jitter and len(frame_list) > target_count:
+            total_count = len(frame_list)
+            min_window = max(target_count, int(round(total_count * self.config.temporal_window_min)))
+            max_window = max(min_window, int(round(total_count * self.config.temporal_window_max)))
+            max_window = min(total_count, max_window)
+            window_count = random.randint(min_window, max_window)
+            start = random.randint(0, total_count - window_count)
+            frame_list = frame_list[start : start + window_count]
+
+        sampled_frames = self._resize_frame_sequence(frame_list, target_count)
+        if (
+            self.config.temporal_dropout_prob <= 0
+            or len(sampled_frames) <= self.config.temporal_dropout_min_frames
+        ):
+            return sampled_frames
+
+        kept_indices = [
+            frame_index
+            for frame_index in range(len(sampled_frames))
+            if random.random() >= self.config.temporal_dropout_prob
+        ]
+        if len(kept_indices) < self.config.temporal_dropout_min_frames:
+            kept_indices = random.sample(
+                range(len(sampled_frames)),
+                k=min(self.config.temporal_dropout_min_frames, len(sampled_frames)),
+            )
+        kept_indices = sorted(kept_indices)
+        kept_frames = [sampled_frames[frame_index] for frame_index in kept_indices]
+
+        return self._resize_frame_sequence(kept_frames, target_count)
 
     def _load_video_uncached(self, video_path: str) -> Tuple[Image.Image, ...]:
         cap = cv2.VideoCapture(video_path)
@@ -361,7 +437,7 @@ class SimCLRVideoDataset(Dataset):
             raise RuntimeError(f"Video has no frames: {video_path}")
 
         frames: List[Image.Image] = []
-        for frame_idx in self._sample_frame_indices(frame_count):
+        for frame_idx in self._sample_frame_indices(frame_count, self.config.decoded_frame_sampling):
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
             ok, frame = cap.read()
             if not ok:
@@ -382,10 +458,12 @@ class SimCLRVideoDataset(Dataset):
         for _ in range(3):
             record = self.records[index]
             try:
-                frames = [frame.copy() for frame in self.video_cache(str(record["video_path"]))]
+                frames = self.video_cache(str(record["video_path"]))
+                view1_frames = self._sample_temporal_view(frames)
+                view2_frames = self._sample_temporal_view(frames)
                 return {
-                    "view1": self.view_transform(frames),
-                    "view2": self.view_transform(frames),
+                    "view1": self.view_transform(view1_frames),
+                    "view2": self.view_transform(view2_frames),
                     "patient_id": record["patient_id"],
                     "site": record["site"],
                     "video_path": record["video_path"],
