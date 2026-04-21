@@ -73,8 +73,26 @@ By default this combines the original Benin source model:
 
 with the completed DANN Benin-to-SA fine-tuning family:
 
-`/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/finetune/benin_to_sa/*__finetune__benin_to_sa__src-fold*__dann`
+`/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/finetune/benin_to_sa/20260420__finetune__benin_to_sa__src-fold*__dann-v3-active-weak-freezeclip`
 
 and writes:
 
-`/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/baseline_roc_comparison/benin_to_sa/20260413__dann__source-fold-average/`
+`/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/baseline_roc_comparison/benin_to_sa/20260420__dann-v3-active-weak-freezeclip__source-fold-average/`
+
+To generate the FixMatch transfer ROC and precision-recall curves:
+
+```bash
+python3 ultrai/analysis/baseline_rocs/plot_fixmatch_transfer_curves.py
+```
+
+By default this combines the original Benin source model:
+
+`/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/train/benin/20260404_150537__train__benin__all-folds__baseline`
+
+with the completed FixMatch Benin-to-SA fine-tuning family:
+
+`/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/finetune/benin_to_sa/*__finetune__benin_to_sa__src-fold*__fixmatch`
+
+and writes:
+
+`/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/baseline_roc_comparison/benin_to_sa/20260413__fixmatch__source-fold-average/`

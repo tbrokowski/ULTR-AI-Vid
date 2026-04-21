@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Plot ROC and precision-recall curves for the DANN transfer runs.
+"""Plot ROC and precision-recall curves for the FixMatch transfer runs.
 
 The figures compare four evaluation views across the five Benin source folds:
 the original Benin source model on held-out Benin data, the same source model
-zero-shot on SA, the DANN-adapted model on SA, and the DANN-adapted model
-evaluated back on its Benin source test fold.
+zero-shot on SA, the FixMatch-adapted model on SA, and the FixMatch-adapted
+model evaluated back on its Benin source test fold.
 """
 
 import argparse
@@ -58,30 +58,26 @@ except ImportError:
 
 DEFAULT_SOURCE_RUN_DIR = SCRATCH_ROOT / "runs" / "train" / "benin" / "20260404_150537__train__benin__all-folds__baseline"
 DEFAULT_FINETUNE_RUN_ROOT = SCRATCH_ROOT / "runs" / "finetune" / "benin_to_sa"
-DEFAULT_DANN_RUN_GLOB = "20260420__finetune__benin_to_sa__src-fold*__dann-v3-active-weak-freezeclip"
+DEFAULT_FIXMATCH_RUN_GLOB = "*__finetune__benin_to_sa__src-fold*__fixmatch"
 DEFAULT_OUTPUT_DIR = (
     SCRATCH_ROOT
     / "runs"
     / "baseline_roc_comparison"
     / "benin_to_sa"
-    / "20260420__dann-v3-active-weak-freezeclip__source-fold-average"
+    / "20260413__fixmatch__source-fold-average"
 )
 
 
 EVALUATIONS = [
     Evaluation("benin_source", "Benin source", "Benin", "#00897b", None),
     Evaluation("zero_shot_sa", "Zero-shot SA", "South Africa", "#d62728", "25 14"),
-    Evaluation("sa_fine_tuned", "SA fine-tuned", "South Africa", "#2ca02c", None),
-    Evaluation("source_after_sa_ft", "Source after SA FT", "Benin", "#1f77b4", "4 12"),
+    Evaluation("fixmatch_sa", "FixMatch SA", "South Africa", "#2ca02c", None),
+    Evaluation("source_after_fixmatch", "Source after FixMatch", "Benin", "#1f77b4", "4 12"),
 ]
 
 
-def discover_dann_runs(run_root: Path, run_glob: str) -> Dict[int, Path]:
-    """Discover one completed DANN run per source fold.
-
-    If multiple matching DANN runs exist for a fold, the lexicographically
-    latest run name is used.
-    """
+def discover_fixmatch_runs(run_root: Path, run_glob: str) -> Dict[int, Path]:
+    """Discover one completed FixMatch run per source fold."""
     runs: Dict[int, Path] = {}
     for run_dir in sorted(path for path in run_root.glob(run_glob) if path.is_dir()):
         fold = fold_number_from_name(run_dir.name)
@@ -89,7 +85,7 @@ def discover_dann_runs(run_root: Path, run_glob: str) -> Dict[int, Path]:
             continue
         required = [
             run_dir / "results" / "source_zero_shot" / "source_zero_shot_patient_predictions.csv",
-            run_dir / "results" / "dann_full" / "dann_full_patient_predictions.csv",
+            run_dir / "results" / "fixmatch_full" / "fixmatch_full_patient_predictions.csv",
             run_dir / "results" / "source_test_evaluation" / "finetuned_source_test_patient_predictions.csv",
         ]
         if all(path.exists() for path in required):
@@ -97,9 +93,13 @@ def discover_dann_runs(run_root: Path, run_glob: str) -> Dict[int, Path]:
     return dict(sorted(runs.items()))
 
 
-def build_dann_summaries(source_run_dir: Path, dann_runs: Dict[int, Path], grid: Sequence[float]) -> List[CurveSummary]:
+def build_fixmatch_summaries(
+    source_run_dir: Path,
+    fixmatch_runs: Dict[int, Path],
+    grid: Sequence[float],
+) -> List[CurveSummary]:
     source_folds = source_fold_dirs(source_run_dir)
-    common_folds = sorted(set(source_folds.keys()) & set(dann_runs.keys()))
+    common_folds = sorted(set(source_folds.keys()) & set(fixmatch_runs.keys()))
     if len(common_folds) != 5:
         raise ValueError("Expected 5 common folds, found {folds}".format(folds=common_folds))
 
@@ -107,9 +107,9 @@ def build_dann_summaries(source_run_dir: Path, dann_runs: Dict[int, Path], grid:
     for fold in common_folds:
         csv_paths = {
             "benin_source": source_folds[fold] / "final_results" / "test_predictions.csv",
-            "zero_shot_sa": dann_runs[fold] / "results" / "source_zero_shot" / "source_zero_shot_patient_predictions.csv",
-            "sa_fine_tuned": dann_runs[fold] / "results" / "dann_full" / "dann_full_patient_predictions.csv",
-            "source_after_sa_ft": dann_runs[fold] / "results" / "source_test_evaluation" / "finetuned_source_test_patient_predictions.csv",
+            "zero_shot_sa": fixmatch_runs[fold] / "results" / "source_zero_shot" / "source_zero_shot_patient_predictions.csv",
+            "fixmatch_sa": fixmatch_runs[fold] / "results" / "fixmatch_full" / "fixmatch_full_patient_predictions.csv",
+            "source_after_fixmatch": fixmatch_runs[fold] / "results" / "source_test_evaluation" / "finetuned_source_test_patient_predictions.csv",
         }
         for evaluation in EVALUATIONS:
             by_key[evaluation.key].append(load_evaluation(fold, evaluation, csv_paths[evaluation.key]))
@@ -117,13 +117,32 @@ def build_dann_summaries(source_run_dir: Path, dann_runs: Dict[int, Path], grid:
     summaries: List[CurveSummary] = []
     for evaluation in EVALUATIONS:
         fold_evaluations = by_key[evaluation.key]
-        roc_mean, roc_lower, roc_upper = mean_curve([item.roc_points for item in fold_evaluations], grid, force_endpoints=True)
-        pr_mean, pr_lower, pr_upper = mean_curve([item.pr_points for item in fold_evaluations], grid, force_endpoints=False)
-        summaries.append(CurveSummary(evaluation, fold_evaluations, roc_mean, roc_lower, roc_upper, pr_mean, pr_lower, pr_upper))
+        roc_mean, roc_lower, roc_upper = mean_curve(
+            [item.roc_points for item in fold_evaluations],
+            grid,
+            force_endpoints=True,
+        )
+        pr_mean, pr_lower, pr_upper = mean_curve(
+            [item.pr_points for item in fold_evaluations],
+            grid,
+            force_endpoints=False,
+        )
+        summaries.append(
+            CurveSummary(
+                evaluation,
+                fold_evaluations,
+                roc_mean,
+                roc_lower,
+                roc_upper,
+                pr_mean,
+                pr_lower,
+                pr_upper,
+            )
+        )
     return summaries
 
 
-def write_dann_metrics(output_dir: Path, summaries: Sequence[CurveSummary], grid: Sequence[float]) -> Dict[str, object]:
+def write_fixmatch_metrics(output_dir: Path, summaries: Sequence[CurveSummary], grid: Sequence[float]) -> Dict[str, object]:
     metric_rows: List[Dict[str, object]] = []
     for summary in summaries:
         for fold_eval in summary.fold_evaluations:
@@ -141,7 +160,7 @@ def write_dann_metrics(output_dir: Path, summaries: Sequence[CurveSummary], grid
                     "n_negative": fold_eval.n_negative,
                 }
             )
-    metrics_csv = output_dir / "dann_transfer_fold_metrics.csv"
+    metrics_csv = output_dir / "fixmatch_transfer_fold_metrics.csv"
     write_csv(metrics_csv, metric_rows)
 
     roc_rows: List[Dict[str, object]] = []
@@ -170,8 +189,8 @@ def write_dann_metrics(output_dir: Path, summaries: Sequence[CurveSummary], grid
                     "upper_1sd_precision": summary.pr_upper[index][1],
                 }
             )
-    roc_points_csv = output_dir / "dann_transfer_roc_mean_points.csv"
-    pr_points_csv = output_dir / "dann_transfer_pr_mean_points.csv"
+    roc_points_csv = output_dir / "fixmatch_transfer_roc_mean_points.csv"
+    pr_points_csv = output_dir / "fixmatch_transfer_pr_mean_points.csv"
     write_csv(roc_points_csv, roc_rows)
     write_csv(pr_points_csv, pr_rows)
 
@@ -204,7 +223,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-run-dir", type=Path, default=DEFAULT_SOURCE_RUN_DIR)
     parser.add_argument("--finetune-run-root", type=Path, default=DEFAULT_FINETUNE_RUN_ROOT)
-    parser.add_argument("--dann-run-glob", default=DEFAULT_DANN_RUN_GLOB)
+    parser.add_argument("--fixmatch-run-glob", default=DEFAULT_FIXMATCH_RUN_GLOB)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--grid-size", type=int, default=201, help="Number of grid points for mean curve interpolation.")
     return parser.parse_args()
@@ -213,26 +232,26 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     source_run_dir = args.source_run_dir.resolve()
-    dann_runs = discover_dann_runs(args.finetune_run_root, args.dann_run_glob)
-    if not dann_runs:
-        raise FileNotFoundError("No completed DANN runs matched {pattern}".format(pattern=args.dann_run_glob))
+    fixmatch_runs = discover_fixmatch_runs(args.finetune_run_root, args.fixmatch_run_glob)
+    if not fixmatch_runs:
+        raise FileNotFoundError("No completed FixMatch runs matched {pattern}".format(pattern=args.fixmatch_run_glob))
 
     grid_size = max(int(args.grid_size), 2)
     grid = [index / float(grid_size - 1) for index in range(grid_size)]
-    summaries = build_dann_summaries(source_run_dir, dann_runs, grid)
+    summaries = build_fixmatch_summaries(source_run_dir, fixmatch_runs, grid)
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    roc_svg = output_dir / "dann_transfer_roc_mean_across_folds.svg"
-    roc_png = output_dir / "dann_transfer_roc_mean_across_folds.png"
-    pr_svg = output_dir / "dann_transfer_pr_mean_across_folds.svg"
-    pr_png = output_dir / "dann_transfer_pr_mean_across_folds.png"
-    summary_json = output_dir / "dann_transfer_curve_summary.json"
+    roc_svg = output_dir / "fixmatch_transfer_roc_mean_across_folds.svg"
+    roc_png = output_dir / "fixmatch_transfer_roc_mean_across_folds.png"
+    pr_svg = output_dir / "fixmatch_transfer_pr_mean_across_folds.svg"
+    pr_png = output_dir / "fixmatch_transfer_pr_mean_across_folds.png"
+    summary_json = output_dir / "fixmatch_transfer_curve_summary.json"
     manifest_json = output_dir / "manifest.json"
 
     write_multicurve_svg(
         roc_svg,
-        "DANN Transfer: ROC Curves",
+        "FixMatch Transfer: ROC Curves",
         "Mean Across Five Benin Source Folds",
         "False Positive Rate (1 - Specificity)",
         "True Positive Rate (Sensitivity)",
@@ -247,7 +266,7 @@ def main() -> int:
     )
     write_multicurve_svg(
         pr_svg,
-        "DANN Transfer: Precision-Recall",
+        "FixMatch Transfer: Precision-Recall",
         "Mean Across Five Benin Source Folds",
         "Recall (Sensitivity)",
         "Precision",
@@ -264,27 +283,27 @@ def main() -> int:
     pr_png_written = convert_svg_to_png(pr_svg, pr_png)
 
     config = simple_yaml_values(
-        next(iter(dann_runs.values())) / "resolved_finetune_config.yaml",
+        next(iter(fixmatch_runs.values())) / "resolved_finetune_config.yaml",
         [
             "freeze_backbone",
             "clip_unfreeze_last_n_layers",
             "model_name",
             "val_size",
             "oversample_positive_class",
-            "dann_lambda",
-            "dann_domain_loss_weight",
-            "dann_source_task_weight",
-            "dann_target_task_weight",
+            "fixmatch_confidence_threshold",
+            "fixmatch_lambda_u",
+            "fixmatch_unlabeled_batch_ratio",
+            "fixmatch_learning_rate",
         ],
     )
-    output_info = write_dann_metrics(output_dir, summaries, grid)
+    output_info = write_fixmatch_metrics(output_dir, summaries, grid)
     summary = {
-        "analysis": "dann_transfer_curves",
+        "analysis": "fixmatch_transfer_curves",
         "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
         "source_run_dir": str(source_run_dir),
         "finetune_run_root": str(args.finetune_run_root),
-        "dann_run_glob": args.dann_run_glob,
-        "dann_runs": {str(fold): str(path) for fold, path in dann_runs.items()},
+        "fixmatch_run_glob": args.fixmatch_run_glob,
+        "fixmatch_runs": {str(fold): str(path) for fold, path in fixmatch_runs.items()},
         "folds": [item.fold for item in summaries[0].fold_evaluations],
         "config_sample": config,
         "outputs": {
@@ -297,12 +316,12 @@ def main() -> int:
             **{key: value for key, value in output_info.items() if key != "metrics"},
         },
         "metrics": output_info["metrics"],
-        "interpretation_note": "SA curves are model/checkpoint averages over five Benin source-fold checkpoints evaluated on the same SA test split. Benin source curves use held-out Benin test folds. Source-after-FT evaluates each DANN-adapted checkpoint back on its corresponding Benin source test fold.",
+        "interpretation_note": "SA curves are model/checkpoint averages over five Benin source-fold checkpoints evaluated on the same SA test split. Benin source curves use held-out Benin test folds. Source-after-FixMatch evaluates each FixMatch-adapted checkpoint back on its corresponding Benin source test fold.",
     }
     summary_json.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     manifest_json.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    print("DANN runs: {runs}".format(runs=", ".join(path.name for path in dann_runs.values())))
+    print("FixMatch runs: {runs}".format(runs=", ".join(path.name for path in fixmatch_runs.values())))
     for item in EVALUATIONS:
         values = summary["metrics"][item.key]
         print(

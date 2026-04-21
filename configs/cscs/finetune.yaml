@@ -158,11 +158,15 @@ domain_adaptation: "none"
 dann_lambda: 1.0
 dann_lambda_schedule: true
 dann_lambda_gamma: 10.0
+dann_domain_warmup_epochs: 0
+dann_domain_warmup_steps: 0
+dann_min_best_epoch: 1
 dann_domain_loss_weight: 1.0
 dann_source_task_weight: 1.0
 dann_target_task_weight: 1.0
 dann_use_source_task_loss: true
 dann_use_target_task_loss: true
+dann_oversample_target_positive_class: true
 dann_learning_rate: 0.00005
 dann_domain_lr: 0.0001
 dann_weight_decay: 0.00001

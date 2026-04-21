@@ -29,7 +29,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 
 from NetworkArchitecture.ablation_models import create_ablation_model
@@ -163,11 +163,13 @@ def _make_loader(
     num_workers: int,
     shuffle: bool,
     drop_last: bool,
+    sampler: Optional[WeightedRandomSampler] = None,
 ) -> DataLoader:
     kwargs = {
         "dataset": dataset,
         "batch_size": batch_size,
-        "shuffle": shuffle if len(dataset) > 0 else False,
+        "sampler": sampler,
+        "shuffle": (shuffle if len(dataset) > 0 else False) and sampler is None,
         "num_workers": num_workers,
         "pin_memory": torch.cuda.is_available(),
         "drop_last": drop_last and len(dataset) >= batch_size,
@@ -177,6 +179,55 @@ def _make_loader(
         kwargs["prefetch_factor"] = 2
         kwargs["persistent_workers"] = True
     return DataLoader(**kwargs)
+
+
+def _build_weighted_train_sampler(dataset, config: Any, label: str) -> Optional[WeightedRandomSampler]:
+    """Oversample TB-positive patients for small target-domain DANN splits."""
+    patients = getattr(dataset, "patients", None)
+    if not patients:
+        return None
+
+    tb_labels = []
+    for patient in patients:
+        patient_labels = patient.get("patient_labels", {}) if isinstance(patient, dict) else {}
+        try:
+            tb_labels.append(int(patient_labels.get("TB Label", -1)))
+        except (TypeError, ValueError):
+            tb_labels.append(-1)
+
+    tb_labels = np.asarray(tb_labels, dtype=np.int64)
+    positive_mask = tb_labels == 1
+    negative_mask = tb_labels == 0
+    num_positive = int(positive_mask.sum())
+    num_negative = int(negative_mask.sum())
+
+    if num_positive == 0 or num_negative == 0:
+        logger.warning(
+            "Skipping DANN %s weighted sampler because class counts are pos=%d, neg=%d",
+            label,
+            num_positive,
+            num_negative,
+        )
+        return None
+
+    positive_multiplier = max(1, int(getattr(config, "positive_class_multiplier", 1)))
+    sample_weights = np.ones(len(tb_labels), dtype=np.float64)
+    sample_weights[positive_mask] = float(positive_multiplier)
+    num_samples = num_negative + (num_positive * positive_multiplier)
+
+    logger.info(
+        "Using DANN %s WeightedRandomSampler: pos=%d, neg=%d, multiplier=%d, samples/epoch=%d",
+        label,
+        num_positive,
+        num_negative,
+        positive_multiplier,
+        num_samples,
+    )
+    return WeightedRandomSampler(
+        weights=torch.as_tensor(sample_weights, dtype=torch.double),
+        num_samples=num_samples,
+        replacement=True,
+    )
 
 
 class DANNTrainer:
@@ -253,6 +304,21 @@ class DANNTrainer:
             batch_size=source_batch_size,
         )
 
+        target_sampler = None
+        oversample_target = bool(
+            getattr(
+                self.target_config,
+                "dann_oversample_target_positive_class",
+                getattr(self.target_config, "oversample_positive_class", False),
+            )
+        )
+        if oversample_target:
+            target_sampler = _build_weighted_train_sampler(
+                self.target_data_module.patient_train,
+                self.target_config,
+                "target-train",
+            )
+
         self.target_train_loader = _make_loader(
             self.target_data_module.patient_train,
             self.target_adapter.collate_patient_batch,
@@ -260,6 +326,7 @@ class DANNTrainer:
             target_workers,
             shuffle=True,
             drop_last=True,
+            sampler=target_sampler,
         )
         self.target_val_loader = _make_loader(
             self.target_data_module.patient_val,
@@ -420,8 +487,17 @@ class DANNTrainer:
         max_lambda = float(getattr(self.target_config, "dann_lambda", 1.0))
         if not bool(getattr(self.target_config, "dann_lambda_schedule", True)):
             return max_lambda
+
+        warmup_steps = int(getattr(self.target_config, "dann_domain_warmup_steps", 0) or 0)
+        warmup_epochs = float(getattr(self.target_config, "dann_domain_warmup_epochs", 0.0) or 0.0)
+        if warmup_epochs > 0:
+            warmup_steps = max(warmup_steps, int(round(warmup_epochs * len(self.target_train_loader))))
+        if global_step < warmup_steps:
+            return 0.0
+
         gamma = float(getattr(self.target_config, "dann_lambda_gamma", 10.0))
-        progress = min(max(float(global_step) / max(float(total_steps), 1.0), 0.0), 1.0)
+        scheduled_steps = max(float(total_steps - warmup_steps), 1.0)
+        progress = min(max(float(global_step - warmup_steps) / scheduled_steps, 0.0), 1.0)
         return max_lambda * (2.0 / (1.0 + math.exp(-gamma * progress)) - 1.0)
 
     def _domain_loss(
@@ -662,8 +738,10 @@ class DANNTrainer:
         total_steps = max(1, num_epochs * len(self.target_train_loader))
         patience = int(getattr(self.target_config, "early_stopping_patience", 8))
         metric_name = f"TB Label_{getattr(self.target_config, 'eval_metric', 'auc')}"
+        min_best_epoch = max(1, int(getattr(self.target_config, "dann_min_best_epoch", 1) or 1))
 
         for epoch in range(num_epochs):
+            epoch_number = epoch + 1
             train_loss, train_metrics = self.train_epoch(
                 epoch,
                 total_steps=total_steps,
@@ -677,19 +755,31 @@ class DANNTrainer:
             )
 
             metric = val_metrics.get(metric_name, -val_loss)
-            is_best = metric > self.best_metric
+            eligible_for_best = epoch_number >= min_best_epoch
+            metric_improved = metric > self.best_metric
+            is_best = eligible_for_best and metric_improved
             if is_best:
                 self.best_metric = metric
                 self.best_epoch = epoch
                 self.epochs_without_improvement = 0
-            else:
+            elif eligible_for_best:
                 self.epochs_without_improvement += 1
+            else:
+                logger.info(
+                    "DANN epoch %d/%d metric %.4f is before min best epoch %d; not checkpointing as best",
+                    epoch_number,
+                    num_epochs,
+                    metric,
+                    min_best_epoch,
+                )
 
             epoch_record = {
-                "epoch": epoch + 1,
+                "epoch": epoch_number,
                 "train_loss": train_loss,
                 "val_loss": val_loss,
                 "selection_metric": metric,
+                "eligible_for_best": eligible_for_best,
+                "metric_improved": metric_improved,
                 "is_best": is_best,
                 **{f"train_{key}": value for key, value in train_metrics.items()},
                 **{f"val_{key}": value for key, value in val_metrics.items()},
@@ -752,4 +842,21 @@ def _binary_metrics(labels: np.ndarray, probs: np.ndarray, preds: np.ndarray) ->
     except ValueError:
         metrics["TB Label_auc"] = 0.5
         metrics["TB Label_auprc"] = 0.5
+
+    positive_mask = labels == 1
+    negative_mask = labels == 0
+    metrics.update(
+        {
+            "TB Label_n_positive": int(positive_mask.sum()),
+            "TB Label_n_negative": int(negative_mask.sum()),
+            "TB Label_pred_positive_count": int(preds.sum()),
+            "TB Label_pred_positive_rate": float(preds.mean()) if preds.size else 0.0,
+            "TB Label_prob_mean": float(probs.mean()) if probs.size else 0.0,
+            "TB Label_prob_std": float(probs.std()) if probs.size else 0.0,
+            "TB Label_prob_min": float(probs.min()) if probs.size else 0.0,
+            "TB Label_prob_max": float(probs.max()) if probs.size else 0.0,
+            "TB Label_positive_prob_mean": float(probs[positive_mask].mean()) if positive_mask.any() else 0.0,
+            "TB Label_negative_prob_mean": float(probs[negative_mask].mean()) if negative_mask.any() else 0.0,
+        }
+    )
     return metrics
