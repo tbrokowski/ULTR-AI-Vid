@@ -666,10 +666,10 @@ class SiteIntegrationModule(nn.Module):
     
     def __init__(self, 
                  feature_dim=512,
-                 site_embed_dim=64,
+                 site_embed_dim=256,
                  hidden_dim=512,
                  num_sites=15,
-                 num_pathologies=5,
+                 num_pathologies=4,
                  dropout=0.3):
         super().__init__()
         
@@ -839,7 +839,7 @@ class MultiTaskModel(nn.Module):
         self.hidden_dim = getattr(config, 'hidden_dim', 512)
         self.dropout_rate = getattr(config, 'dropout_rate', 0.3)
         self.num_pathologies = getattr(config, 'num_pathologies', 4)
-        self.num_sites = getattr(config, 'num_sites', 15)
+        self.num_sites = getattr(config, 'num_sites', 21)
         self.device = getattr(config, 'device', torch.device("cuda" if torch.cuda.is_available() else "cpu"))
         
         # For compatibility with new training system
@@ -847,16 +847,40 @@ class MultiTaskModel(nn.Module):
         self.use_pathology_loss = getattr(config, 'use_pathology_loss', True)
         self.task_weights = getattr(config, 'task_weights', {'TB Label': 1.0})
         self.selection_strategy = getattr(config, 'selection_strategy', 'RL')
+        self.legacy_hmv_mil_loss = bool(getattr(config, 'legacy_hmv_mil_loss', False))
         self.pathology_weight = float(getattr(config, 'pathology_weight', 1.0))
         pathology_pos_weights = getattr(config, 'pathology_pos_weights', [1.0] * self.num_pathologies)
         if isinstance(pathology_pos_weights, (list, tuple)):
             self.pathology_pos_weights = [float(weight) for weight in pathology_pos_weights]
         else:
             self.pathology_pos_weights = [float(pathology_pos_weights)] * self.num_pathologies
+        legacy_aux_weights = [1.0, 4.0, 4.0, 4.0, 15.0]
+        pathology_aux_pos_weights = getattr(
+            config,
+            'pathology_aux_pos_weights',
+            legacy_aux_weights if self.legacy_hmv_mil_loss else self.pathology_pos_weights,
+        )
+        if isinstance(pathology_aux_pos_weights, (list, tuple)):
+            self.pathology_aux_pos_weights = [float(weight) for weight in pathology_aux_pos_weights]
+        else:
+            self.pathology_aux_pos_weights = [float(pathology_aux_pos_weights)] * self.num_pathologies
+        self.pathology_aux_weight = float(
+            getattr(
+                config,
+                'pathology_aux_weight',
+                0.2 if self.legacy_hmv_mil_loss else self.pathology_weight,
+            )
+        )
         
         logger.info(f"MultiTaskModel configured for tasks: {self.active_tasks}")
         logger.info(f"Using pathology loss: {self.use_pathology_loss}")
         logger.info(f"Pathology loss weight: {self.pathology_weight}")
+        if self.legacy_hmv_mil_loss:
+            logger.info(
+                "Using legacy HMV-MIL auxiliary pathology loss: weight=%s, pos_weights=%s",
+                self.pathology_aux_weight,
+                self.pathology_aux_pos_weights,
+            )
         logger.info(f"Frame selection strategy: {self.selection_strategy}")
         
         clip_model_name = getattr(config, 'clip_model_name', "openai/clip-vit-base-patch32")
@@ -933,7 +957,7 @@ class MultiTaskModel(nn.Module):
         if self.use_pathology_loss:
             self.site_integration = SiteIntegrationModule(
                 feature_dim=self.hidden_dim,
-                site_embed_dim=64,
+                site_embed_dim=256,
                 hidden_dim=self.hidden_dim,
                 num_sites=self.num_sites,
                 num_pathologies=self.num_pathologies,
@@ -1362,8 +1386,18 @@ class MultiTaskModel(nn.Module):
                 valid_mask = path_label_i >= 0
                 
                 if valid_mask.any():
+                    aux_pos_weights = (
+                        self.pathology_aux_pos_weights
+                        if self.legacy_hmv_mil_loss
+                        else self.pathology_pos_weights
+                    )
+                    aux_weight = (
+                        self.pathology_aux_weight
+                        if self.legacy_hmv_mil_loss
+                        else self.pathology_weight
+                    )
                     pos_weight = torch.tensor(
-                        self.pathology_pos_weights[i % len(self.pathology_pos_weights)],
+                        aux_pos_weights[i % len(aux_pos_weights)],
                         device=pathology_scores.device,
                     )
                     
@@ -1379,7 +1413,7 @@ class MultiTaskModel(nn.Module):
                     loss_dict[loss_name] = p_loss.item()
                     
                     # Add to total loss
-                    total_loss += self.pathology_weight * p_loss
+                    total_loss += aux_weight * p_loss
         
         # Ensure total_loss is a proper tensor with gradients
         if isinstance(total_loss, (int, float)):

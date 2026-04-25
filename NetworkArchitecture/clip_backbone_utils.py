@@ -1,5 +1,6 @@
 import logging
 import os
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -35,9 +36,20 @@ def load_local_clip_weights(
 
     local_weights_path = Path(local_weights_dir) / "model.safetensors"
     if not local_weights_path.exists():
-        return 0
+        raise FileNotFoundError(
+            f"Configured local CLIP weights were not found: {local_weights_path}"
+        )
 
-    logger.info("Loading CLIP vision weights from %s", local_weights_path)
+    digest = hashlib.sha256()
+    with local_weights_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+
+    logger.info(
+        "Loading CLIP vision weights from %s (sha256=%s)",
+        local_weights_path,
+        digest.hexdigest(),
+    )
     model_state_dict = vision_encoder.state_dict()
     matched_state_dict: Dict[str, torch.Tensor] = {}
 
@@ -52,8 +64,7 @@ def load_local_clip_weights(
                 matched_state_dict[key] = tensor
 
     if not matched_state_dict:
-        logger.warning("No CLIP vision weights matched from %s", local_weights_path)
-        return 0
+        raise ValueError(f"No CLIP vision weights matched from {local_weights_path}")
 
     vision_encoder.load_state_dict(matched_state_dict, strict=False)
     logger.info(

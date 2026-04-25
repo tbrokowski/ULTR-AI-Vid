@@ -1,10 +1,10 @@
 import os
 os.environ['NCCL_IB_DISABLE'] = '1'
 os.environ['NCCL_P2P_DISABLE'] = '0'
-if 'NCCL_NET_PLUGIN' in os.environ:
-    del os.environ['NCCL_NET_PLUGIN']
-if 'NCCL_SOCKET_IFNAME' in os.environ:
-    del os.environ['NCCL_SOCKET_IFNAME']
+os.environ['NCCL_NET'] = 'Socket'
+os.environ['NCCL_NET_PLUGIN'] = 'none'
+os.environ['NCCL_SOCKET_IFNAME'] = os.environ.get('ULTRAI_NCCL_SOCKET_IFNAME', 'lo')
+os.environ['NCCL_PLUGIN_P2P'] = '0'
 import time
 import json
 import yaml
@@ -174,14 +174,14 @@ def setup_distributed():
         # Set device BEFORE initializing process group
         torch.cuda.set_device(local_rank)
         
-        # Initialize process group with device_id specified
-        dist.init_process_group(
-            backend='nccl',
-            init_method='env://',
-            world_size=world_size,
-            rank=rank,
-            timeout=timedelta(minutes=30),
-        )
+        init_kwargs = {
+            "backend": "nccl",
+            "init_method": "env://",
+            "world_size": world_size,
+            "rank": rank,
+            "timeout": timedelta(minutes=30),
+        }
+        dist.init_process_group(**init_kwargs)
         
         if rank == 0:
             logger.info(f"Distributed training initialized: {world_size} GPUs")
@@ -213,6 +213,18 @@ def get_world_size():
     if dist.is_initialized():
         return dist.get_world_size()
     return 1
+
+
+def distributed_barrier():
+    """Synchronize ranks without triggering NCCL's unknown-device warning."""
+    if not dist.is_initialized():
+        return
+
+    barrier_kwargs = {}
+    if dist.get_backend() == "nccl" and torch.cuda.is_available():
+        barrier_kwargs["device_ids"] = [torch.cuda.current_device()]
+
+    dist.barrier(**barrier_kwargs)
 
 
 def reduce_dict(input_dict, average=True):
@@ -337,6 +349,10 @@ class Config:
         self.accumulation_steps = 8
         self.use_amp = True
         self.seed = 42
+        self.legacy_hmv_mil_loss = False
+        self.legacy_hmv_mil_phase_updates = False
+        self.pathology_aux_weight = 0.2
+        self.pathology_aux_pos_weights = [1.0, 4.0, 4.0, 4.0, 15.0]
         
         self.active_tasks = ['TB Label']
         self.use_pathology_loss = True
@@ -693,7 +709,7 @@ def train_prototype_finetune(config, rank=0, world_size=1, local_rank=0):
                 logger.info("Proto pathology eval per_class: %s", metrics["per_class"])
 
             if world_size > 1:
-                dist.barrier()
+                distributed_barrier()
 
         # Save checkpoint (rank 0)
         if is_main_process():
@@ -705,7 +721,7 @@ def train_prototype_finetune(config, rank=0, world_size=1, local_rank=0):
             logger.info("Saved prototype checkpoint to %s", ckpt_path)
 
         if world_size > 1:
-            dist.barrier()
+            distributed_barrier()
 
         return True
 # ============================================================================
@@ -780,10 +796,14 @@ class AblationTrainer:
 
         # Optional global pathology loss weight from YAML
         self.pathology_weight = float(getattr(config, 'pathology_weight', 1.0))
+        self.legacy_hmv_mil_phase_updates = bool(
+            getattr(config, 'legacy_hmv_mil_phase_updates', False)
+        )
         
         if is_main_process():
             logger.info(f"Using ablation model type: {self.model_type}")
             logger.info(f"Pathology loss enabled: {self.use_pathology_loss}")
+            logger.info(f"Legacy HMV-MIL phase updates: {self.legacy_hmv_mil_phase_updates}")
             logger.info(f"Distributed training: {self.is_distributed} (world_size={world_size})")
         
         self._set_seed(config.seed)
@@ -1304,7 +1324,7 @@ class AblationTrainer:
                     logger.warning(f"Failed to sync OOM flag: {e}, assuming OOM on all ranks")
                 # Try a barrier to synchronize
                 try:
-                    dist.barrier(timeout=timedelta(seconds=1800))
+                    distributed_barrier()
                 except:
                     pass
                 return True  # Assume OOM to be safe
@@ -1326,6 +1346,19 @@ class AblationTrainer:
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+        def _set_all_requires_grad(enabled):
+            for param in self.model_without_ddp.parameters():
+                param.requires_grad = enabled
+
+        def _set_requires_grad_for_components(components):
+            _set_all_requires_grad(False)
+            for name, param in self.model_without_ddp.named_parameters():
+                if any(component in name for component in components):
+                    param.requires_grad = True
+
+        def _legacy_phase_updates_enabled():
+            return bool(getattr(self.config, 'legacy_hmv_mil_phase_updates', False))
         
         for batch_idx, batch in enumerate(progress_bar):
             try:
@@ -1379,19 +1412,144 @@ class AblationTrainer:
                 # 1. Pathology Modules Update
                 # ============================================
                 if self.use_pathology_loss and self.pathology_optimizers:
-                    # Zero gradients at start of accumulation
-                    if batch_idx % accumulation_steps == 0:
-                        for opt in self.pathology_optimizers:
-                            opt.zero_grad()
-                    
                     try:
-                        sync_context = self.model.no_sync if (self.is_distributed and not should_sync) else nullcontext
-                        with sync_context():
-                            if self.use_amp:
-                                with torch.amp.autocast('cuda'):
+                        if _legacy_phase_updates_enabled():
+                            for path_idx in range(self.config.num_pathologies):
+                                if path_idx >= len(self.pathology_optimizers):
+                                    continue
+
+                                _set_all_requires_grad(False)
+                                for name, param in self.model_without_ddp.named_parameters():
+                                    if (f'pathology_modules.{path_idx}' in name or
+                                            f'pathology_modules[{path_idx}]' in name):
+                                        param.requires_grad = True
+
+                                if batch_idx % accumulation_steps == 0:
+                                    self.pathology_optimizers[path_idx].zero_grad()
+
+                                sync_context = self.model.no_sync if (self.is_distributed and not should_sync) else nullcontext
+                                with sync_context():
+                                    if self.use_amp:
+                                        with torch.amp.autocast('cuda'):
+                                            path_outputs = self.model(inputs)
+                                            path_scores = path_outputs['pathology_scores']
+
+                                            if path_scores.dim() == 3:
+                                                path_score_i = path_scores[:, :, path_idx]
+                                                path_label_i = site_findings[:, :, path_idx] if site_findings.dim() == 3 else site_findings[:, path_idx]
+                                            else:
+                                                path_score_i = path_scores[:, path_idx]
+                                                path_label_i = site_findings[:, path_idx]
+
+                                            valid_mask = path_label_i >= 0
+                                            if valid_mask.any():
+                                                pos_weight = getattr(self.config, 'pathology_pos_weights', [2.0, 4.0, 3.0])[path_idx] if hasattr(self.config, 'pathology_pos_weights') else 2.0
+                                                pos_weight_tensor = torch.tensor(pos_weight, device=self.device)
+                                                path_loss = F.binary_cross_entropy_with_logits(
+                                                    path_score_i[valid_mask],
+                                                    path_label_i[valid_mask].float(),
+                                                    pos_weight=pos_weight_tensor
+                                                )
+                                                running_losses['pathology'] += path_loss.item()
+                                            else:
+                                                path_loss = path_score_i.sum() * 0.0
+
+                                            path_loss = path_loss / accumulation_steps
+                                            self.pathology_scalers[path_idx].scale(path_loss).backward()
+
+                                        del path_outputs, path_scores, path_score_i, path_label_i, path_loss
+                                    else:
+                                        path_outputs = self.model(inputs)
+                                        path_scores = path_outputs['pathology_scores']
+
+                                        if path_scores.dim() == 3:
+                                            path_score_i = path_scores[:, :, path_idx]
+                                            path_label_i = site_findings[:, :, path_idx] if site_findings.dim() == 3 else site_findings[:, path_idx]
+                                        else:
+                                            path_score_i = path_scores[:, path_idx]
+                                            path_label_i = site_findings[:, path_idx]
+
+                                        valid_mask = path_label_i >= 0
+                                        if valid_mask.any():
+                                            pos_weight = getattr(self.config, 'pathology_pos_weights', [2.0, 4.0, 3.0])[path_idx] if hasattr(self.config, 'pathology_pos_weights') else 2.0
+                                            pos_weight_tensor = torch.tensor(pos_weight, device=self.device)
+                                            path_loss = F.binary_cross_entropy_with_logits(
+                                                path_score_i[valid_mask],
+                                                path_label_i[valid_mask].float(),
+                                                pos_weight=pos_weight_tensor
+                                            )
+                                            running_losses['pathology'] += path_loss.item()
+                                        else:
+                                            path_loss = path_score_i.sum() * 0.0
+
+                                        path_loss = path_loss / accumulation_steps
+                                        path_loss.backward()
+
+                                        del path_outputs, path_scores, path_score_i, path_label_i, path_loss
+
+                                if should_sync:
+                                    if self.use_amp:
+                                        self.pathology_scalers[path_idx].unscale_(self.pathology_optimizers[path_idx])
+                                        torch.nn.utils.clip_grad_norm_(
+                                            [p for name, p in self.model_without_ddp.named_parameters()
+                                             if f'pathology_modules.{path_idx}' in name and p.requires_grad],
+                                            max_norm=1.0
+                                        )
+                                        self.pathology_scalers[path_idx].step(self.pathology_optimizers[path_idx])
+                                        self.pathology_scalers[path_idx].update()
+                                    else:
+                                        torch.nn.utils.clip_grad_norm_(
+                                            [p for name, p in self.model_without_ddp.named_parameters()
+                                             if f'pathology_modules.{path_idx}' in name and p.requires_grad],
+                                            max_norm=1.0
+                                        )
+                                        self.pathology_optimizers[path_idx].step()
+                        else:
+                            # Zero gradients at start of accumulation
+                            if batch_idx % accumulation_steps == 0:
+                                for opt in self.pathology_optimizers:
+                                    opt.zero_grad()
+
+                            sync_context = self.model.no_sync if (self.is_distributed and not should_sync) else nullcontext
+                            with sync_context():
+                                if self.use_amp:
+                                    with torch.amp.autocast('cuda'):
+                                        path_outputs = self.model(inputs)
+                                        path_scores = path_outputs['pathology_scores']
+
+                                        path_loss_total = 0.0
+                                        for path_idx in range(self.config.num_pathologies):
+                                            if path_scores.dim() == 3:
+                                                path_score_i = path_scores[:, :, path_idx]
+                                                path_label_i = site_findings[:, :, path_idx] if site_findings.dim() == 3 else site_findings[:, path_idx]
+                                            else:
+                                                path_score_i = path_scores[:, path_idx]
+                                                path_label_i = site_findings[:, path_idx]
+
+                                            valid_mask = path_label_i >= 0
+                                            if valid_mask.any():
+                                                pos_weight = getattr(self.config, 'pathology_pos_weights', [2.0, 4.0, 3.0])[path_idx] if hasattr(self.config, 'pathology_pos_weights') else 2.0
+                                                pos_weight_tensor = torch.tensor(pos_weight, device=self.device)
+                                                path_loss_i = F.binary_cross_entropy_with_logits(
+                                                    path_score_i[valid_mask],
+                                                    path_label_i[valid_mask].float(),
+                                                    pos_weight=pos_weight_tensor
+                                                )
+                                                running_losses['pathology'] += path_loss_i.item()
+                                            else:
+                                                # Keep DDP backward calls aligned across ranks
+                                                path_loss_i = path_score_i.sum() * 0.0
+
+                                            path_loss_total = path_loss_total + path_loss_i
+
+                                        path_loss_total = path_loss_total / accumulation_steps
+                                        self.pathology_scalers[0].scale(path_loss_total).backward()
+
+                                    del path_outputs, path_scores, path_loss_total
+                                else:
                                     path_outputs = self.model(inputs)
                                     path_scores = path_outputs['pathology_scores']
-                                    
+
                                     path_loss_total = 0.0
                                     for path_idx in range(self.config.num_pathologies):
                                         if path_scores.dim() == 3:
@@ -1416,66 +1574,33 @@ class AblationTrainer:
                                             path_loss_i = path_score_i.sum() * 0.0
                                         
                                         path_loss_total = path_loss_total + path_loss_i
-                                    
+
                                     path_loss_total = path_loss_total / accumulation_steps
-                                    self.pathology_scalers[0].scale(path_loss_total).backward()
-                                
-                                del path_outputs, path_scores, path_loss_total
-                            else:
-                                path_outputs = self.model(inputs)
-                                path_scores = path_outputs['pathology_scores']
-                                
-                                path_loss_total = 0.0
-                                for path_idx in range(self.config.num_pathologies):
-                                    if path_scores.dim() == 3:
-                                        path_score_i = path_scores[:, :, path_idx]
-                                        path_label_i = site_findings[:, :, path_idx] if site_findings.dim() == 3 else site_findings[:, path_idx]
-                                    else:
-                                        path_score_i = path_scores[:, path_idx]
-                                        path_label_i = site_findings[:, path_idx]
-                                    
-                                    valid_mask = path_label_i >= 0
-                                    if valid_mask.any():
-                                        pos_weight = getattr(self.config, 'pathology_pos_weights', [2.0, 4.0, 3.0])[path_idx] if hasattr(self.config, 'pathology_pos_weights') else 2.0
-                                        pos_weight_tensor = torch.tensor(pos_weight, device=self.device)
-                                        path_loss_i = F.binary_cross_entropy_with_logits(
-                                            path_score_i[valid_mask],
-                                            path_label_i[valid_mask].float(),
-                                            pos_weight=pos_weight_tensor
-                                        )
-                                        running_losses['pathology'] += path_loss_i.item()
-                                    else:
-                                        # Keep DDP backward calls aligned across ranks
-                                        path_loss_i = path_score_i.sum() * 0.0
-                                    
-                                    path_loss_total = path_loss_total + path_loss_i
-                                
-                                path_loss_total = path_loss_total / accumulation_steps
-                                path_loss_total.backward()
-                                
-                                del path_outputs, path_scores, path_loss_total
-                        
-                        # Update optimizers at end of accumulation
-                        if should_sync:
-                            if self.use_amp:
-                                for opt in self.pathology_optimizers:
-                                    self.pathology_scalers[0].unscale_(opt)
-                                torch.nn.utils.clip_grad_norm_(
-                                    [p for name, p in self.model_without_ddp.named_parameters()
-                                     if 'pathology_modules' in name and p.requires_grad],
-                                    max_norm=1.0
-                                )
-                                for opt in self.pathology_optimizers:
-                                    self.pathology_scalers[0].step(opt)
-                                self.pathology_scalers[0].update()
-                            else:
-                                torch.nn.utils.clip_grad_norm_(
-                                    [p for name, p in self.model_without_ddp.named_parameters()
-                                     if 'pathology_modules' in name and p.requires_grad],
-                                    max_norm=1.0
-                                )
-                                for opt in self.pathology_optimizers:
-                                    opt.step()
+                                    path_loss_total.backward()
+
+                                    del path_outputs, path_scores, path_loss_total
+
+                            # Update optimizers at end of accumulation
+                            if should_sync:
+                                if self.use_amp:
+                                    for opt in self.pathology_optimizers:
+                                        self.pathology_scalers[0].unscale_(opt)
+                                    torch.nn.utils.clip_grad_norm_(
+                                        [p for name, p in self.model_without_ddp.named_parameters()
+                                         if 'pathology_modules' in name and p.requires_grad],
+                                        max_norm=1.0
+                                    )
+                                    for opt in self.pathology_optimizers:
+                                        self.pathology_scalers[0].step(opt)
+                                    self.pathology_scalers[0].update()
+                                else:
+                                    torch.nn.utils.clip_grad_norm_(
+                                        [p for name, p in self.model_without_ddp.named_parameters()
+                                         if 'pathology_modules' in name and p.requires_grad],
+                                        max_norm=1.0
+                                    )
+                                    for opt in self.pathology_optimizers:
+                                        opt.step()
                     
                     except RuntimeError as e:
                         if 'out of memory' in str(e).lower():
@@ -1489,11 +1614,13 @@ class AblationTrainer:
                             raise e
 
                     if _sync_oom_flag(oom_in_batch):
+                        if _legacy_phase_updates_enabled():
+                            _set_all_requires_grad(True)
                         _cleanup_after_oom()
                         # Barrier to ensure all ranks skip together
                         if self.is_distributed:
                             try:
-                                dist.barrier(timeout=timedelta(seconds=1800))
+                                distributed_barrier()
                             except:
                                 pass
                         continue
@@ -1501,6 +1628,13 @@ class AblationTrainer:
                 # ============================================
                 # 2. TB Patient Classifier Update
                 # ============================================
+                patient_components = [
+                    'site_integration', 'patient_mil', 'task_classifiers',
+                    'cross_site_attention', 'tb_classifier'
+                ]
+                if _legacy_phase_updates_enabled():
+                    _set_requires_grad_for_components(patient_components)
+
                 if batch_idx % accumulation_steps == 0 and self.patient_pipeline_optimizer:
                     self.patient_pipeline_optimizer.zero_grad()
                 
@@ -1583,11 +1717,13 @@ class AblationTrainer:
                         raise e
                 
                 if _sync_oom_flag(oom_in_batch):
+                    if _legacy_phase_updates_enabled():
+                        _set_all_requires_grad(True)
                     _cleanup_after_oom()
                     # Barrier to ensure all ranks skip together
                     if self.is_distributed:
                         try:
-                            dist.barrier(timeout=torch.distributed.default_pg_timeout)
+                            distributed_barrier()
                         except:
                             pass
                     continue
@@ -1658,6 +1794,14 @@ class AblationTrainer:
                     gc.collect()
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
+
+                    if _legacy_phase_updates_enabled():
+                        _set_requires_grad_for_components([
+                            'vision_encoder', 'cnn_backbone', 'video_transformer', 'backbone',
+                            'multi_feature_extraction', 'multi_scale_extraction',
+                            'feature_projection', 'cnn_projection', 'output_projection',
+                            'frame_selector'
+                        ])
                     
                     if batch_idx % accumulation_steps == 0:
                         self.backbone_optimizer.zero_grad()
@@ -1730,14 +1874,19 @@ class AblationTrainer:
                             raise e
 
                 if _sync_oom_flag(oom_in_batch):
+                    if _legacy_phase_updates_enabled():
+                        _set_all_requires_grad(True)
                     _cleanup_after_oom()
                     # Barrier to ensure all ranks skip together
                     if self.is_distributed:
                         try:
-                            dist.barrier(timeout=torch.distributed.default_pg_timeout)
+                            distributed_barrier()
                         except:
                             pass
                     continue
+
+                if _legacy_phase_updates_enabled():
+                    _set_all_requires_grad(True)
                 
                 # Memory cleanup
                 self._reset_frame_selector_state()
@@ -1772,11 +1921,13 @@ class AblationTrainer:
                         torch.cuda.synchronize()
                     oom_in_batch = True
                     if _sync_oom_flag(oom_in_batch):
+                        if _legacy_phase_updates_enabled():
+                            _set_all_requires_grad(True)
                         _cleanup_after_oom()
                         # Barrier to ensure all ranks skip together
                         if self.is_distributed:
                             try:
-                                dist.barrier(timeout=timedelta(seconds=1800))
+                                distributed_barrier()
                             except:
                                 pass
                         continue
@@ -2434,7 +2585,7 @@ class AblationTrainer:
             
             # Synchronize all processes
             if self.is_distributed:
-                dist.barrier()
+                distributed_barrier()
             
             # Early stopping
             if self.epochs_without_improvement >= self.config.early_stopping_patience:
@@ -2450,11 +2601,11 @@ class AblationTrainer:
         if self.config.evaluate_best_valid_model:
             if self.is_distributed:
                 # Ensure all ranks finished training and checkpoints are visible
-                dist.barrier()
+                distributed_barrier()
             self._evaluate_best_model()
             if self.is_distributed:
                 # Ensure all ranks complete evaluation before teardown
-                dist.barrier()
+                distributed_barrier()
         
         return self.best_metric, self.best_epoch
     
@@ -2561,7 +2712,7 @@ class AblationTrainer:
 # Main Function
 # ============================================================================
 
-def parse_args_and_load_config():
+def parse_args_and_load_config(argv=None):
     """Parse command line arguments and load configuration."""
     parser = argparse.ArgumentParser(description='Distributed training for TB detection using ablation models.')
     
@@ -2597,13 +2748,13 @@ def parse_args_and_load_config():
     parser.add_argument('--pred_save_dir', type=str, help='Directory for saved predictions')
     
     # Model loading arguments
-    parser.add_argument('--model_weights', type=str, help='Path to model weights')
-    parser.add_argument('--best_model_path', type=str, help='Path to best model for evaluation')
-    parser.add_argument('--resume_from_checkpoint', type=str, help='Path to checkpoint to resume from')
-    parser.add_argument('--vision_pretrained_weights', type=str, help='Path to a CLIP vision warm-start checkpoint')
-    parser.add_argument('--clip_unfreeze_last_n_layers', type=int, help='How many CLIP encoder blocks to fine-tune')
-    parser.add_argument('--freeze_backbone', action='store_true', help='Keep the CLIP encoder frozen')
-    parser.add_argument('--no_freeze_backbone', dest='freeze_backbone', action='store_false', help='Allow CLIP encoder fine-tuning')
+    parser.add_argument('--model_weights', '--model-weights', dest='model_weights', type=str, help='Path to model weights')
+    parser.add_argument('--best_model_path', '--best-model-path', dest='best_model_path', type=str, help='Path to best model for evaluation')
+    parser.add_argument('--resume_from_checkpoint', '--resume-from-checkpoint', dest='resume_from_checkpoint', type=str, help='Path to checkpoint to resume from')
+    parser.add_argument('--vision_pretrained_weights', '--vision-pretrained-weights', dest='vision_pretrained_weights', type=str, help='Path to a CLIP vision warm-start checkpoint')
+    parser.add_argument('--clip_unfreeze_last_n_layers', '--clip-unfreeze-last-n-layers', dest='clip_unfreeze_last_n_layers', type=int, help='How many CLIP encoder blocks to fine-tune')
+    parser.add_argument('--freeze_backbone', '--freeze-backbone', dest='freeze_backbone', action='store_true', help='Keep the CLIP encoder frozen')
+    parser.add_argument('--no_freeze_backbone', '--no-freeze-backbone', dest='freeze_backbone', action='store_false', help='Allow CLIP encoder fine-tuning')
     
     # Mode arguments
     parser.add_argument('--train', action='store_true', default=True, help='Train mode')
@@ -2628,7 +2779,7 @@ def parse_args_and_load_config():
     parser.add_argument('--prompt_policy_ckpt_in', type=str, help='Input checkpoint for prompt policy')
     parser.set_defaults(freeze_backbone=None)
     
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     
     # Create config with defaults
     config = Config()
@@ -2734,7 +2885,7 @@ def parse_args_and_load_config():
     return config
 
 
-def main():
+def main(argv=None):
     """Main training function with distributed support."""
     
     # Setup distributed training
@@ -2745,17 +2896,13 @@ def main():
         logger.info(f"Script location: {os.path.abspath(__file__)}")
     
     # Parse command line arguments and load configuration
-    config = parse_args_and_load_config()
+    config = parse_args_and_load_config(argv)
     
     # DEBUG: Print where files will be saved
     if is_main_process():
         logger.info(f"Experiment directory (absolute): {os.path.abspath(config.experiment_dir)}")
         logger.info(f"Checkpoint directory (absolute): {os.path.abspath(config.checkpoint_dir)}")
 
-    
-    # Parse command line arguments and load configuration
-    config = parse_args_and_load_config()
-    
     # Optional: authenticate to Hugging Face Hub (for private or gated models)
     if hf_login is not None:
         hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
@@ -2798,7 +2945,7 @@ def main():
     
     # Wait for main process to create directories
     if config.distributed:
-        dist.barrier()
+        distributed_barrier()
     
     # GPU/Device information
     if torch.cuda.is_available() and is_main_process():
@@ -2826,10 +2973,10 @@ def main():
                 logger.info("Running in evaluation-only mode")
             # Run evaluation on ALL ranks to keep collectives symmetric
             if trainer.is_distributed:
-                dist.barrier()
+                distributed_barrier()
             trainer._evaluate_best_model()
             if trainer.is_distributed:
-                dist.barrier()
+                distributed_barrier()
             cleanup_distributed()
             return
         

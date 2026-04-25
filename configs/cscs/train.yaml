@@ -24,13 +24,17 @@ task_weights:
   "Covid Label": 1.0
 
 task_pos_weights:
-  "TB Label": 1.4
+  "TB Label": 2.0
   "Pneumonia Label": 1.4
   "Covid Label": 6.0
 
 use_pathology_loss: true
-pathology_weight: 0.6
-pathology_pos_weights: [1.0, 4.0, 15.0, 1.8]
+pathology_weight: 1.2
+pathology_pos_weights: [1.0, 4.0, 15.0, 4.0]
+legacy_hmv_mil_loss: true
+pathology_aux_weight: 0.2
+pathology_aux_pos_weights: [1.0, 4.0, 4.0, 4.0, 15.0]
+legacy_hmv_mil_phase_updates: true
 num_pathologies: 4
 pathology_classes:
   - "A-line"
@@ -38,7 +42,7 @@ pathology_classes:
   - "Pleural Effusion"
   - "Other Pathology"
 
-selection_strategy: "RL"
+selection_strategy: "attention_pool"
 
 patient_weight: 1.0
 tb_weight: 1.0
@@ -90,11 +94,11 @@ num_sites: 21
 mode: "video"
 pooling: "attention"
 
-model_type: "tb_rl_mil"
-model_name: "drl_mil_tb_classifier"
+model_type: "attention_pool"
+model_name: "hmv_mil_tb_classifier"
 
 hidden_dim: 512
-dropout_rate: 0.3
+dropout_rate: 0.2
 num_classes: 1
 classification_type: "binary"
 
@@ -105,33 +109,33 @@ use_site_positional_encoding: true
 backbone: "clip"
 freeze_backbone: false
 pretrained: true
-clip_unfreeze_last_n_layers: 1
+clip_unfreeze_last_n_layers: 12
 local_weights_dir: "/users/lxflk/CLIP_weights/"
 
-num_epochs: 20
-accumulation_steps: 8
+num_epochs: 200
+accumulation_steps: 35
 use_amp: true
 
-learning_rate: 0.00001
+learning_rate: 0.00002
 weight_decay: 0.00001
 
-backbone_lr: 0.00001
+backbone_lr: 0.000005
 backbone_weight_decay: 0.00001
 backbone_T_0: 4
 backbone_T_mult: 2
-backbone_eta_min: 0.000001
+backbone_eta_min: 0.0000005
 
-pathology_lr: 0.0001
+pathology_lr: 0.00001
 pathology_weight_decay: 0.00001
 pathology_T_0: 4
 pathology_T_mult: 2
-pathology_eta_min: 0.000001
+pathology_eta_min: 0.0000005
 
-patient_pipeline_lr: 0.0001
+patient_pipeline_lr: 0.000012
 patient_pipeline_weight_decay: 0.00001
 patient_pipeline_T_0: 4
 patient_pipeline_T_mult: 2
-patient_pipeline_eta_min: 0.000001
+patient_pipeline_eta_min: 0.0000005
 
 integration_lr: 0.0001
 integration_weight_decay: 0.00001
@@ -139,11 +143,11 @@ integration_weight_decay: 0.00001
 classifier_lr: 0.001
 classifier_weight_decay: 0.00002
 
-pos_weight: 1.4
+pos_weight: 2.0
 
 eval_metric: "auc"
 eval_metric_goal: "max"
-early_stopping_patience: 8
+early_stopping_patience: 50
 
 log_dir: "./logs"
 checkpoint_dir: "./checkpoints"

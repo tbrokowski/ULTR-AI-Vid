@@ -33,8 +33,15 @@ RUN_ROOT=""
 SPLIT_CSV=""
 VISION_WEIGHTS=""
 MODEL_WEIGHTS=""
+RESUME_FROM_CHECKPOINT=""
+RESUME_FROM_LATEST=false
+ALLOW_EXISTING_RUN_ROOT=false
 CLIP_UNFREEZE_LAST_N_LAYERS=""
 FREEZE_BACKBONE_MODE="default"
+GPUS_PER_JOB="${GPUS_PER_JOB:-4}"
+JOB_PARTITION="${JOB_PARTITION:-normal}"
+JOB_TIME="${JOB_TIME:-11:59:59}"
+EPOCHS_OVERRIDE=""
 
 usage() {
   cat <<'EOF'
@@ -48,9 +55,16 @@ Options:
   --split-csv PATH                  Explicit split CSV. Required for SA training.
   --vision-weights PATH             Optional SimCLR vision checkpoint, or a fold-root directory containing fold*/vision_encoder_best.pt.
   --model-weights PATH              Optional full model checkpoint, or a fold-root directory containing fold*/checkpoint_best.pth.
+  --resume-from-checkpoint PATH     Resume training from a checkpoint, or a fold-root directory containing fold*/checkpoint_latest.pth.
+  --resume-from-latest              Resume each fold from checkpoint_latest.pth under the selected run root.
+  --allow-existing-run-root         Allow a single clean fold job to reuse an existing run root.
   --clip-unfreeze-last-n-layers N   Override the CLIP unfreeze setting from the resolved config.
   --freeze-backbone                 Force the CLIP backbone to stay frozen.
   --no-freeze-backbone              Force the CLIP backbone to be trainable.
+  --gpus-per-job N                  GPUs requested per fold job. Default: 4.
+  --partition NAME                  Slurm partition. Default: normal.
+  --time LIMIT                      Slurm wall time. Default: 11:59:59 (normal partition max is 12:00:00).
+  --epochs N                        Override num_epochs in the resolved config.
   --run-name NAME                   Optional run name. Default: dynamic timestamped name.
   --run-root PATH                   Optional explicit scratch run directory.
   --help                            Show this help message.
@@ -161,7 +175,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --config)
       CONFIG="$2"
-      CUSTOM_CONFIG=true
+      if [[ "${WORKER_MODE}" != true ]]; then
+        CUSTOM_CONFIG=true
+      fi
       shift 2
       ;;
     --custom-config)
@@ -180,6 +196,18 @@ while [[ $# -gt 0 ]]; do
       MODEL_WEIGHTS="$2"
       shift 2
       ;;
+    --resume-from-checkpoint)
+      RESUME_FROM_CHECKPOINT="$2"
+      shift 2
+      ;;
+    --resume-from-latest)
+      RESUME_FROM_LATEST=true
+      shift
+      ;;
+    --allow-existing-run-root)
+      ALLOW_EXISTING_RUN_ROOT=true
+      shift
+      ;;
     --clip-unfreeze-last-n-layers)
       CLIP_UNFREEZE_LAST_N_LAYERS="$2"
       shift 2
@@ -191,6 +219,22 @@ while [[ $# -gt 0 ]]; do
     --no-freeze-backbone)
       FREEZE_BACKBONE_MODE="unfreeze"
       shift
+      ;;
+    --gpus-per-job)
+      GPUS_PER_JOB="$2"
+      shift 2
+      ;;
+    --partition)
+      JOB_PARTITION="$2"
+      shift 2
+      ;;
+    --time)
+      JOB_TIME="$2"
+      shift 2
+      ;;
+    --epochs)
+      EPOCHS_OVERRIDE="$2"
+      shift 2
       ;;
     --run-name)
       RUN_NAME="$2"
@@ -224,8 +268,23 @@ if [[ -n "${MODEL_WEIGHTS}" && ! -e "${MODEL_WEIGHTS}" ]]; then
   exit 1
 fi
 
+if [[ -n "${RESUME_FROM_CHECKPOINT}" && ! -e "${RESUME_FROM_CHECKPOINT}" ]]; then
+  echo "Resume checkpoint path not found: ${RESUME_FROM_CHECKPOINT}" >&2
+  exit 1
+fi
+
 if [[ "${DATASET}" != "benin" && "${DATASET}" != "sa" ]]; then
   echo "--dataset must be one of: benin, sa" >&2
+  exit 1
+fi
+
+if ! [[ "${GPUS_PER_JOB}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "--gpus-per-job must be a positive integer, got: ${GPUS_PER_JOB}" >&2
+  exit 1
+fi
+
+if [[ -n "${EPOCHS_OVERRIDE}" ]] && ! [[ "${EPOCHS_OVERRIDE}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "--epochs must be a positive integer, got: ${EPOCHS_OVERRIDE}" >&2
   exit 1
 fi
 
@@ -249,8 +308,14 @@ if [[ "${WORKER_MODE}" != true ]]; then
 
   RUN_ROOT="$(abs_path "${RUN_ROOT}")"
 
-  if [[ -e "${RUN_ROOT}" ]]; then
+  if [[ "${ALLOW_EXISTING_RUN_ROOT}" == true && "${DATASET}" == "benin" && "${FOLD}" == "all" ]]; then
+    echo "--allow-existing-run-root is only for a single clean fold replacement. Pass --fold INT." >&2
+    exit 1
+  fi
+
+  if [[ -e "${RUN_ROOT}" && "${RESUME_FROM_LATEST}" != true && "${ALLOW_EXISTING_RUN_ROOT}" != true ]]; then
     echo "Refusing to reuse existing run directory: ${RUN_ROOT}" >&2
+    echo "Use --resume-from-latest to continue, or --allow-existing-run-root with --fold INT for a clean fold replacement." >&2
     exit 1
   fi
 
@@ -270,9 +335,13 @@ if [[ "${WORKER_MODE}" != true ]]; then
   COMMON_SUBMIT_ARGS=(
     --parsable
     --account=a127
-    --partition=normal
-    --time=09:59:59
-    --gpus=1
+    --partition="${JOB_PARTITION}"
+    --time="${JOB_TIME}"
+    --nodes=1
+    --ntasks=1
+    --gres="gpu:${GPUS_PER_JOB}"
+    --cpus-per-task="$((GPUS_PER_JOB * 8))"
+    --environment="${EDF_ENV}"
   )
 
   FORWARDED_ARGS=(
@@ -281,6 +350,9 @@ if [[ "${WORKER_MODE}" != true ]]; then
     --config "${CONFIG}"
     --run-name "${RUN_NAME}"
     --run-root "${RUN_ROOT}"
+    --gpus-per-job "${GPUS_PER_JOB}"
+    --partition "${JOB_PARTITION}"
+    --time "${JOB_TIME}"
   )
   if [[ "${CUSTOM_CONFIG}" == true ]]; then
     FORWARDED_ARGS+=(--custom-config)
@@ -294,6 +366,12 @@ if [[ "${WORKER_MODE}" != true ]]; then
   if [[ -n "${MODEL_WEIGHTS}" ]]; then
     FORWARDED_ARGS+=(--model-weights "${MODEL_WEIGHTS}")
   fi
+  if [[ -n "${RESUME_FROM_CHECKPOINT}" ]]; then
+    FORWARDED_ARGS+=(--resume-from-checkpoint "${RESUME_FROM_CHECKPOINT}")
+  fi
+  if [[ "${RESUME_FROM_LATEST}" == true ]]; then
+    FORWARDED_ARGS+=(--resume-from-latest)
+  fi
   if [[ -n "${CLIP_UNFREEZE_LAST_N_LAYERS}" ]]; then
     FORWARDED_ARGS+=(--clip-unfreeze-last-n-layers "${CLIP_UNFREEZE_LAST_N_LAYERS}")
   fi
@@ -301,6 +379,9 @@ if [[ "${WORKER_MODE}" != true ]]; then
     FORWARDED_ARGS+=(--freeze-backbone)
   elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
     FORWARDED_ARGS+=(--no-freeze-backbone)
+  fi
+  if [[ -n "${EPOCHS_OVERRIDE}" ]]; then
+    FORWARDED_ARGS+=(--epochs "${EPOCHS_OVERRIDE}")
   fi
 
   if [[ "${DATASET}" == "benin" && "${FOLD}" == "all" ]]; then
@@ -335,8 +416,13 @@ if [[ "${WORKER_MODE}" != true ]]; then
   echo "  run_root:         ${RUN_ROOT}"
   echo "  logs:             ${LOG_ROOT}"
   echo "  base_config:      ${CONFIG}"
+  echo "  gpus_per_job:     ${GPUS_PER_JOB}"
+  echo "  partition:        ${JOB_PARTITION}"
+  echo "  time:             ${JOB_TIME}"
   echo "  vision_weights:   ${VISION_WEIGHTS:-<none>}"
   echo "  model_weights:    ${MODEL_WEIGHTS:-<none>}"
+  echo "  resume:           ${RESUME_FROM_CHECKPOINT:-$([[ "${RESUME_FROM_LATEST}" == true ]] && echo '<latest>' || echo '<none>')}"
+  echo "  allow_existing:   ${ALLOW_EXISTING_RUN_ROOT}"
   exit 0
 fi
 
@@ -412,11 +498,30 @@ if [[ "${FREEZE_BACKBONE_MODE}" == "freeze" ]]; then
 elif [[ "${FREEZE_BACKBONE_MODE}" == "unfreeze" ]]; then
   RESOLVE_ARGS+=(--set "freeze_backbone=false")
 fi
+if [[ "${CUSTOM_CONFIG}" != true && "${GPUS_PER_JOB}" == "1" ]]; then
+  # Match the original 4-GPU HMV-MIL effective batch:
+  # batch_size 2 * accumulation 35 * world_size 4 = 280.
+  RESOLVE_ARGS+=(--set "accumulation_steps=140")
+fi
+if [[ -n "${EPOCHS_OVERRIDE}" ]]; then
+  RESOLVE_ARGS+=(--set "num_epochs=${EPOCHS_OVERRIDE}")
+fi
 
 python3 "${RESOLVE_CONFIG}" "${RESOLVE_ARGS[@]}"
 
 RESOLVED_VISION_WEIGHTS="$(resolve_weight_path "${VISION_WEIGHTS}" "${TASK_FOLD}" "vision_encoder_best.pt")"
 RESOLVED_MODEL_WEIGHTS="$(resolve_weight_path "${MODEL_WEIGHTS}" "${TASK_FOLD}" "checkpoint_best.pth")"
+RESOLVED_RESUME_CHECKPOINT=""
+if [[ "${RESUME_FROM_LATEST}" == true ]]; then
+  RESOLVED_RESUME_CHECKPOINT="${EXPERIMENT_DIR}/checkpoint_latest.pth"
+elif [[ -n "${RESUME_FROM_CHECKPOINT}" ]]; then
+  RESOLVED_RESUME_CHECKPOINT="$(resolve_weight_path "${RESUME_FROM_CHECKPOINT}" "${TASK_FOLD}" "checkpoint_latest.pth")"
+fi
+
+if [[ -n "${RESOLVED_RESUME_CHECKPOINT}" && ! -f "${RESOLVED_RESUME_CHECKPOINT}" ]]; then
+  echo "Resume checkpoint not found: ${RESOLVED_RESUME_CHECKPOINT}" >&2
+  exit 1
+fi
 
 PY_ARGS=(
   --dataset "${DATASET}"
@@ -428,6 +533,9 @@ if [[ -n "${RESOLVED_VISION_WEIGHTS}" ]]; then
 fi
 if [[ -n "${RESOLVED_MODEL_WEIGHTS}" ]]; then
   PY_ARGS+=(--model-weights "${RESOLVED_MODEL_WEIGHTS}")
+fi
+if [[ -n "${RESOLVED_RESUME_CHECKPOINT}" ]]; then
+  PY_ARGS+=(--resume-from-checkpoint "${RESOLVED_RESUME_CHECKPOINT}")
 fi
 if [[ -n "${CLIP_UNFREEZE_LAST_N_LAYERS}" ]]; then
   PY_ARGS+=(--clip-unfreeze-last-n-layers "${CLIP_UNFREEZE_LAST_N_LAYERS}")
@@ -448,12 +556,46 @@ echo "  local_logs:       ${LOCAL_RUN_LOG_DIR}"
 if [[ -n "${TASK_FOLD}" ]]; then
   echo "  fold:             ${TASK_FOLD}"
 fi
+echo "  gpus_per_job:     ${GPUS_PER_JOB}"
 echo "  vision_weights:   ${RESOLVED_VISION_WEIGHTS:-<none>}"
 echo "  model_weights:    ${RESOLVED_MODEL_WEIGHTS:-<none>}"
+echo "  resume:           ${RESOLVED_RESUME_CHECKPOINT:-<none>}"
 
-srun --environment="${EDF_ENV}" \
-  python3 -m ultrai.training.train \
-  "${PY_ARGS[@]}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
+export PYTHONUNBUFFERED=1
+export PYTHONFAULTHANDLER=1
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-max_split_size_mb:512}"
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export NCCL_TIMEOUT=1800
+export NCCL_NET=Socket
+export NCCL_NET_PLUGIN=none
+export NCCL_IB_DISABLE=1
+export NCCL_P2P_DISABLE=0
+export NCCL_SOCKET_IFNAME="${ULTRAI_NCCL_SOCKET_IFNAME:-lo}"
+export NCCL_PLUGIN_P2P=0
+unset LD_PRELOAD
+ulimit -c 0 || true
+
+if (( GPUS_PER_JOB > 1 )); then
+  TORCHRUN_LOG_DIR="${LOCAL_RUN_LOG_DIR}/torchrun"
+  mkdir -p "${TORCHRUN_LOG_DIR}"
+  echo "  torchrun_logs:    ${TORCHRUN_LOG_DIR}"
+
+  TRAIN_CMD=(
+    torchrun
+    --standalone
+    --nproc_per_node "${GPUS_PER_JOB}"
+    --max_restarts 0
+    --log-dir "${TORCHRUN_LOG_DIR}"
+    --redirects 3
+    --tee 3
+    -m ultrai.training.train
+  )
+else
+  TRAIN_CMD=(python3 -u -m ultrai.training.train)
+fi
+
+"${TRAIN_CMD[@]}" "${PY_ARGS[@]}"
 
 BEST_CHECKPOINT="${EXPERIMENT_DIR}/checkpoint_best.pth"
 FINAL_RESULTS_DIR="${EXPERIMENT_DIR}/final_results"

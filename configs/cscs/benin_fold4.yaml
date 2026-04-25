@@ -4,9 +4,3 @@
 experiment_name: "train_benin_fold4"
 model_name: "drl_mil_tb_classifier_cscs_fold4"
 split_csv: "/users/lxflk/ULTR-AI-Vid/Data/test_files/Fold_4.csv"
-
-# Fold 4 historically used a slightly different memory/selection setup.
-rl_accumulation_steps: 32
-accumulation_steps: 32
-patient_pipeline_lr: 0.0005
-eval_metric: "auprc"

@@ -166,8 +166,8 @@ class SimpleVideoTransforms:
     def __init__(
         self,
         resize_size=(224, 224),
-        mean=(0.45, 0.45, 0.45),
-        std=(0.225, 0.225, 0.225),
+        mean=(0.485, 0.456, 0.406),
+        std=(0.229, 0.224, 0.225),
     ):
         self.resize_size = resize_size
         self.mean = torch.tensor(mean).view(1, 3, 1, 1)
