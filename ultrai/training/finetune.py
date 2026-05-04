@@ -51,6 +51,34 @@ def _use_dataset_adapter(dataset_name: str):
     ablation_engine.set_dataset_adapter(dataset_name)
     logger.info("Using dataset adapter: %s", dataset_name)
 
+
+def _load_yaml_mapping(path: str) -> Dict[str, Any]:
+    with open(path, "r") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected a mapping in {path}, got {type(data).__name__}")
+    return data
+
+
+def _resolve_source_eval_config_dict(source_eval_config_path: str, source_dataset: str) -> Dict[str, Any]:
+    """Resolve source-eval configs so override-only fold YAMLs inherit dataset defaults."""
+    resolved: Dict[str, Any] = {}
+
+    base_candidates = ["configs/cscs/train.yaml"]
+    dataset_profile = {
+        "benin": "configs/cscs/dataset_benin.yaml",
+        "sa": "configs/cscs/dataset_sa.yaml",
+    }.get(source_dataset)
+    if dataset_profile:
+        base_candidates.append(dataset_profile)
+    base_candidates.append(source_eval_config_path)
+
+    for candidate in base_candidates:
+        if candidate and os.path.exists(candidate):
+            resolved.update(_load_yaml_mapping(candidate))
+
+    return resolved
+
 # ============================================================================
 # Data Loading Functions
 # ============================================================================
@@ -2055,7 +2083,11 @@ def evaluate_on_source_split(
     try:
         # Load source-domain config
         source_config = Config()
-        source_config.load_from_yaml(source_eval_config_path)
+        apply_config_values(
+            source_config,
+            _resolve_source_eval_config_dict(source_eval_config_path, source_dataset),
+        )
+        source_config.__dict__["_yaml_path"] = source_eval_config_path
         
         # Create evaluation config. The model architecture must come from the
         # fine-tuned checkpoint, while the dataset paths/splits come from the
@@ -2074,7 +2106,10 @@ def evaluate_on_source_split(
             logger.warning(
                 "  Fine-tuned checkpoint did not contain config metadata; falling back to source config for model setup"
             )
-            eval_config.load_from_yaml(source_eval_config_path)
+            apply_config_values(
+                eval_config,
+                _resolve_source_eval_config_dict(source_eval_config_path, source_dataset),
+            )
 
         eval_config.experiment_name = f"target_finetuned_on_source_{source_split}_eval"
         eval_config.experiment_dir = os.path.join(output_dir, f"source_{source_split}_evaluation")

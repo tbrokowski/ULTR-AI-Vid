@@ -23,6 +23,7 @@ BENIN_DATA_PROFILE="configs/cscs/dataset_benin.yaml"
 SA_DATA_PROFILE="configs/cscs/dataset_sa.yaml"
 
 WORKER_MODE=false
+AGGREGATE_MODE=false
 DATASET="benin"
 FOLD="all"
 TASK_FOLD=""
@@ -58,6 +59,7 @@ Options:
   --resume-from-checkpoint PATH     Resume training from a checkpoint, or a fold-root directory containing fold*/checkpoint_latest.pth.
   --resume-from-latest              Resume each fold from checkpoint_latest.pth under the selected run root.
   --allow-existing-run-root         Allow a single clean fold job to reuse an existing run root.
+  --aggregate                       Aggregate existing fold*/final_results into run-level final_results CSVs.
   --clip-unfreeze-last-n-layers N   Override the CLIP unfreeze setting from the resolved config.
   --freeze-backbone                 Force the CLIP backbone to stay frozen.
   --no-freeze-backbone              Force the CLIP backbone to be trainable.
@@ -161,6 +163,10 @@ while [[ $# -gt 0 ]]; do
       WORKER_MODE=true
       shift
       ;;
+    --aggregate)
+      AGGREGATE_MODE=true
+      shift
+      ;;
     --dataset)
       DATASET="$2"
       shift 2
@@ -257,6 +263,23 @@ while [[ $# -gt 0 ]]; do
 done
 
 mkdir -p "${LOG_ROOT}"
+
+if [[ "${AGGREGATE_MODE}" == true ]]; then
+  if [[ -z "${RUN_ROOT}" ]]; then
+    echo "--aggregate requires --run-root" >&2
+    exit 1
+  fi
+  RUN_ROOT="$(abs_path "${RUN_ROOT}")"
+  echo "Aggregating supervised training results"
+  echo "  run_root:         ${RUN_ROOT}"
+  python3 -m ultrai.analysis.aggregate_training_results \
+    --run-root "${RUN_ROOT}" \
+    --expected-folds 0 1 2 3 4
+  echo "Aggregation finished"
+  echo "  tb_summary:       ${RUN_ROOT}/final_results/tb_results/tb_metrics_summary.csv"
+  echo "  tb_test_summary:  ${RUN_ROOT}/final_results/tb_results/tb_test_metrics_summary.csv"
+  exit 0
+fi
 
 if [[ -n "${VISION_WEIGHTS}" && ! -e "${VISION_WEIGHTS}" ]]; then
   echo "Vision checkpoint path not found: ${VISION_WEIGHTS}" >&2
@@ -384,6 +407,7 @@ if [[ "${WORKER_MODE}" != true ]]; then
     FORWARDED_ARGS+=(--epochs "${EPOCHS_OVERRIDE}")
   fi
 
+  AGGREGATE_JOB_ID=""
   if [[ "${DATASET}" == "benin" && "${FOLD}" == "all" ]]; then
     JOB_ID="$(
       sbatch "${COMMON_SUBMIT_ARGS[@]}" \
@@ -393,6 +417,27 @@ if [[ "${WORKER_MODE}" != true ]]; then
         --error="${LOG_ROOT}/train_benin_%A_%a.err" \
         "$0" \
         "${FORWARDED_ARGS[@]}"
+    )"
+    ARRAY_JOB_ID="${JOB_ID%%;*}"
+    AGGREGATE_JOB_ID="$(
+      sbatch \
+        --parsable \
+        --account=a127 \
+        --partition="${JOB_PARTITION}" \
+        --time="00:30:00" \
+        --nodes=1 \
+        --ntasks=1 \
+        --cpus-per-task=2 \
+        --environment="${EDF_ENV}" \
+        --dependency="afterok:${ARRAY_JOB_ID}" \
+        --job-name="ultrai_train_benin_aggregate" \
+        --output="${LOG_ROOT}/train_benin_${ARRAY_JOB_ID}_aggregate.out" \
+        --error="${LOG_ROOT}/train_benin_${ARRAY_JOB_ID}_aggregate.err" \
+        "$0" \
+        --aggregate \
+        --dataset "${DATASET}" \
+        --run-name "${RUN_NAME}" \
+        --run-root "${RUN_ROOT}"
     )"
   else
     if [[ "${FOLD}" != "all" ]]; then
@@ -423,6 +468,10 @@ if [[ "${WORKER_MODE}" != true ]]; then
   echo "  model_weights:    ${MODEL_WEIGHTS:-<none>}"
   echo "  resume:           ${RESUME_FROM_CHECKPOINT:-$([[ "${RESUME_FROM_LATEST}" == true ]] && echo '<latest>' || echo '<none>')}"
   echo "  allow_existing:   ${ALLOW_EXISTING_RUN_ROOT}"
+  if [[ -n "${AGGREGATE_JOB_ID}" ]]; then
+    echo "  aggregate_job_id: ${AGGREGATE_JOB_ID%%;*}"
+    echo "  aggregate_csv:    ${RUN_ROOT}/final_results/tb_results/tb_metrics_summary.csv"
+  fi
   exit 0
 fi
 
@@ -599,9 +648,23 @@ fi
 
 BEST_CHECKPOINT="${EXPERIMENT_DIR}/checkpoint_best.pth"
 FINAL_RESULTS_DIR="${EXPERIMENT_DIR}/final_results"
+FINAL_TB_SUMMARY="${FINAL_RESULTS_DIR}/tb_results/tb_metrics_summary.csv"
+FINAL_TEST_PREDICTIONS="${FINAL_RESULTS_DIR}/test_predictions.csv"
 CONFIG_SNAPSHOT="${EXPERIMENT_DIR}/config.yaml"
+
+if [[ ! -f "${FINAL_TB_SUMMARY}" ]]; then
+  echo "Expected final TB metrics summary is missing: ${FINAL_TB_SUMMARY}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${FINAL_TEST_PREDICTIONS}" ]]; then
+  echo "Expected final test predictions CSV is missing: ${FINAL_TEST_PREDICTIONS}" >&2
+  exit 1
+fi
 
 echo "Training finished"
 echo "  best_checkpoint:  ${BEST_CHECKPOINT}"
 echo "  final_results:    ${FINAL_RESULTS_DIR}"
+echo "  tb_summary:       ${FINAL_TB_SUMMARY}"
+echo "  test_predictions: ${FINAL_TEST_PREDICTIONS}"
 echo "  config_snapshot:  ${CONFIG_SNAPSHOT}"

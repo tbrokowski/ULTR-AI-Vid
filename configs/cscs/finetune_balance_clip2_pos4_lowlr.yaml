@@ -1,0 +1,50 @@
+# SA fine-tuning preset selected from the 20260426 balance sweep.
+# Best target-domain candidate: SA AUROC/AUPRC 0.7143/0.4174,
+# Benin source-retention AUROC/AUPRC 0.5828/0.4410.
+
+task_pos_weights:
+  "TB Label": 4.0
+  "Pneumonia Label": 1.4
+  "Covid Label": 6.0
+
+pathology_weight: 0.9
+pathology_pos_weights: [1.0, 4.0, 15.0, 4.0]
+pathology_aux_weight: 0.2
+pathology_aux_pos_weights: [1.0, 4.0, 4.0, 4.0, 15.0]
+
+freeze_backbone: false
+clip_unfreeze_last_n_layers: 2
+
+num_epochs: 20
+accumulation_steps: 16
+use_amp: true
+
+learning_rate: 0.000002
+weight_decay: 0.00001
+
+backbone_lr: 0.0000005
+backbone_weight_decay: 0.00001
+backbone_eta_min: 0.0000001
+
+pathology_lr: 0.000005
+pathology_weight_decay: 0.00001
+pathology_eta_min: 0.0000005
+
+patient_pipeline_lr: 0.000006
+patient_pipeline_weight_decay: 0.00001
+patient_pipeline_eta_min: 0.0000005
+
+integration_lr: 0.00003
+integration_weight_decay: 0.00001
+
+classifier_lr: 0.00025
+classifier_weight_decay: 0.00002
+
+pos_weight: 4.0
+
+eval_metric: "auc"
+eval_metric_goal: "max"
+early_stopping_patience: 25
+
+oversample_positive_class: true
+positive_class_multiplier: 8

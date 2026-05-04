@@ -282,6 +282,24 @@ def _ddp_concat_numpy(local_arr):
     return np.concatenate(parts, axis=0)
 
 
+def _ddp_concat_list(local_items):
+    """
+    Gather Python lists from all ranks and concatenate them.
+    If not in distributed mode, returns a local list copy.
+    """
+    local_items = list(local_items)
+    if not dist.is_initialized():
+        return local_items
+    world_size = dist.get_world_size()
+    parts = [None] * world_size
+    dist.all_gather_object(parts, local_items)
+    merged = []
+    for part in parts:
+        if part:
+            merged.extend(part)
+    return merged
+
+
 # ============================================================================
 # Configuration Class
 # ============================================================================
@@ -2609,10 +2627,218 @@ class AblationTrainer:
         
         return self.best_metric, self.best_epoch
     
+    def _evaluate_split_for_artifacts(self, loader, split_name):
+        """Run evaluation and return metrics plus patient-level TB predictions."""
+        if loader is None or len(loader) == 0:
+            return 0.0, {'loss': 0.0}, pd.DataFrame()
+
+        self.model.eval()
+        self._reset_frame_selector_state(clear_history=True)
+
+        running_loss = 0.0
+        all_patient_ids = []
+        all_tb_targets = []
+        all_tb_predictions = []
+        all_tb_logits = []
+        all_tb_probs = []
+        pathology_labels_list = []
+        pathology_scores_list = []
+        pathology_masks_list = []
+
+        progress_bar = tqdm(
+            loader,
+            desc=f"{split_name.capitalize()} Artifact Evaluation",
+            disable=not is_main_process(),
+        )
+
+        with torch.no_grad():
+            for batch in progress_bar:
+                try:
+                    site_videos = batch['site_videos'].to(self.device)
+                    site_indices = batch['site_indices'].to(self.device)
+                    if 'site_masks' in batch and batch['site_masks'] is not None:
+                        site_masks = batch['site_masks'].to(self.device)
+                    else:
+                        if 'site_findings' in batch and batch['site_findings'] is not None:
+                            site_findings_for_shape = batch['site_findings']
+                            num_sites = site_findings_for_shape.shape[1] if site_findings_for_shape.ndim >= 2 else getattr(self.config, 'max_sites', 15)
+                        elif 'site_indices' in batch and batch['site_indices'] is not None:
+                            num_sites = batch['site_indices'].shape[1]
+                        else:
+                            num_sites = getattr(self.config, 'max_sites', 15)
+                        site_masks = torch.ones((batch['site_videos'].shape[0], num_sites), dtype=torch.bool, device=self.device)
+
+                    site_findings = batch['site_findings'].to(self.device)
+                    tb_labels = batch['tb_labels'].to(self.device).float()
+                    pneumonia_labels = torch.full_like(tb_labels, -1)
+                    covid_labels = torch.full_like(tb_labels, -1)
+
+                    inputs = {
+                        'site_videos': site_videos,
+                        'site_indices': site_indices,
+                        'site_masks': site_masks,
+                        'site_findings': site_findings,
+                        'is_patient_level': True,
+                    }
+                    targets = {
+                        'tb_labels': tb_labels,
+                        'pneumonia_labels': pneumonia_labels,
+                        'covid_labels': covid_labels,
+                        'pathology_labels': site_findings,
+                        'site_masks': site_masks,
+                    }
+
+                    outputs = self.model(inputs)
+                    loss, _ = self.model_without_ddp.compute_losses(
+                        outputs,
+                        targets,
+                        self.task_pos_weights,
+                    )
+                    running_loss += loss.item()
+
+                    task_logits = outputs.get('task_logits', {})
+                    logits = None
+                    if isinstance(task_logits, dict) and 'TB Label' in task_logits:
+                        logits = task_logits['TB Label']
+                    elif 'tb_logits' in outputs:
+                        logits = outputs['tb_logits']
+                    elif 'logits' in outputs:
+                        logits = outputs['logits']
+
+                    if logits is not None:
+                        probs = torch.sigmoid(logits)
+                        preds = (probs > 0.5).float()
+                        all_tb_targets.append(tb_labels.detach().cpu())
+                        all_tb_predictions.append(preds.detach().cpu())
+                        all_tb_logits.append(logits.detach().cpu())
+                        all_tb_probs.append(probs.detach().cpu())
+
+                        patient_ids = batch.get('patient_ids')
+                        if patient_ids is None:
+                            patient_ids = [f"{split_name}_{len(all_patient_ids) + i}" for i in range(tb_labels.shape[0])]
+                        all_patient_ids.extend([str(patient_id) for patient_id in patient_ids])
+
+                    if self.use_pathology_loss and 'pathology_scores' in outputs:
+                        path_scores = outputs['pathology_scores']
+                        path_labels = targets['pathology_labels']
+                        if path_scores.dim() == 3:
+                            _, _, num_pathologies = path_scores.shape
+                            path_scores = path_scores.reshape(-1, num_pathologies)
+                            path_labels = path_labels.reshape(-1, num_pathologies)
+
+                        valid_mask = path_labels >= 0
+                        pathology_scores_list.append(path_scores.detach().cpu())
+                        pathology_labels_list.append(path_labels.detach().cpu())
+                        pathology_masks_list.append(valid_mask.detach().cpu())
+
+                    if is_main_process():
+                        progress_bar.set_postfix({'loss': running_loss / (progress_bar.n + 1)})
+
+                    del site_videos, site_indices, site_masks, site_findings, inputs
+                    del tb_labels, pneumonia_labels, covid_labels, outputs, loss
+                    self._reset_frame_selector_state()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+                except RuntimeError as e:
+                    if 'out of memory' in str(e):
+                        if is_main_process():
+                            logger.warning("OOM during artifact evaluation, skipping batch")
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        continue
+                    raise
+
+        if self.is_distributed:
+            loss_tensor = torch.tensor([running_loss, len(loader)], device=self.device)
+            dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
+            running_loss = loss_tensor[0].item()
+            num_batches = int(loss_tensor[1].item())
+        else:
+            num_batches = len(loader)
+
+        split_loss = running_loss / max(1, num_batches)
+        metrics = {'loss': split_loss}
+        predictions_df = pd.DataFrame()
+
+        if all_tb_targets and all_tb_predictions and all_tb_logits:
+            local_tb_targets = torch.cat(all_tb_targets).cpu().numpy()
+            local_tb_preds = torch.cat(all_tb_predictions).cpu().numpy()
+            local_tb_logits = torch.cat(all_tb_logits).cpu().numpy()
+            local_tb_probs = torch.cat(all_tb_probs).cpu().numpy()
+        else:
+            local_tb_targets = np.empty((0,), dtype=np.float32)
+            local_tb_preds = np.empty((0,), dtype=np.float32)
+            local_tb_logits = np.empty((0,), dtype=np.float32)
+            local_tb_probs = np.empty((0,), dtype=np.float32)
+
+        tb_targets_np = _ddp_concat_numpy(local_tb_targets)
+        tb_preds_np = _ddp_concat_numpy(local_tb_preds)
+        tb_logits_np = _ddp_concat_numpy(local_tb_logits)
+        tb_probs_np = _ddp_concat_numpy(local_tb_probs)
+        patient_ids = _ddp_concat_list(all_patient_ids)
+
+        if len(tb_targets_np) > 0:
+            tb_metrics = self._calculate_metrics(
+                tb_targets_np,
+                tb_preds_np,
+                tb_logits_np,
+                tb_probs_np,
+                "TB Label",
+            )
+            metrics.update({f'TB Label_{key}': value for key, value in tb_metrics.items()})
+
+            tb_targets_np = np.asarray(tb_targets_np).reshape(-1)
+            tb_preds_np = np.asarray(tb_preds_np).reshape(-1)
+            tb_probs_np = np.asarray(tb_probs_np).reshape(-1)
+            tb_logits_np = np.asarray(tb_logits_np).reshape(-1)
+            if len(patient_ids) != len(tb_targets_np):
+                patient_ids = [f"{split_name}_{i}" for i in range(len(tb_targets_np))]
+
+            predictions_df = pd.DataFrame({
+                'patient_id': patient_ids,
+                'tb_target': tb_targets_np,
+                'tb_prediction': tb_preds_np,
+                'tb_probability': tb_probs_np,
+                'tb_logit': tb_logits_np,
+            })
+
+        if self.use_pathology_loss:
+            if pathology_labels_list and pathology_scores_list:
+                local_scores = torch.cat(pathology_scores_list, dim=0).cpu().numpy()
+                local_labels = torch.cat(pathology_labels_list, dim=0).cpu().numpy()
+                local_masks = torch.cat(pathology_masks_list, dim=0).cpu().numpy()
+            else:
+                num_pathologies = getattr(self.config, 'num_pathologies', 4)
+                local_scores = np.empty((0, num_pathologies), dtype=np.float32)
+                local_labels = np.empty((0, num_pathologies), dtype=np.float32)
+                local_masks = np.empty((0, num_pathologies), dtype=bool)
+
+            all_scores_np = _ddp_concat_numpy(local_scores)
+            all_labels_np = _ddp_concat_numpy(local_labels)
+            all_masks_np = _ddp_concat_numpy(local_masks)
+            if len(all_scores_np) > 0:
+                path_metrics = self._calculate_pathology_metrics(
+                    torch.from_numpy(all_scores_np),
+                    torch.from_numpy(all_labels_np),
+                    torch.from_numpy(all_masks_np),
+                )
+                metrics.update(path_metrics)
+
+        return split_loss, metrics, predictions_df
+
     def _evaluate_best_model(self):
-        """Evaluate the best model (simplified version - implement full version as needed)."""
+        """Evaluate the best model and persist final metrics/prediction artifacts."""
         logger.info("Evaluating best TB ablation model on all splits...")
         self._reset_frame_selector_state(clear_history=True)
+
+        final_results_dir = os.path.join(self.config.experiment_dir, "final_results")
+        tb_results_dir = os.path.join(final_results_dir, "tb_results")
+        pathology_results_dir = os.path.join(final_results_dir, "pathology_results")
+        if is_main_process():
+            os.makedirs(tb_results_dir, exist_ok=True)
+            if self.use_pathology_loss:
+                os.makedirs(pathology_results_dir, exist_ok=True)
         
         # Clear GPU cache before evaluation to avoid OOM
         gc.collect()
@@ -2635,10 +2861,19 @@ class AblationTrainer:
         
         # Evaluate on each split
         self.model.eval()
+        tb_summary_rows = []
+        pathology_summary_rows = []
         
-        for split_name, loader in [('test', self.test_loader), ('val', self.val_loader), ('train', self.train_loader)]:
+        for split_name, loader, file_prefix in [
+            ('test', self.test_loader, 'test'),
+            ('validation', self.val_loader, 'val'),
+            ('train', self.train_loader, 'train'),
+        ]:
             logger.info(f"Evaluating on {split_name} set...")
-            val_loss, metrics = self.validate(0, loader, split_name)
+            val_loss, metrics, predictions_df = self._evaluate_split_for_artifacts(
+                loader,
+                split_name,
+            )
             if is_main_process():
                 eval_metric_key = f"TB Label_{self.config.eval_metric}"
                 summary_auc = metrics.get(eval_metric_key)
@@ -2650,11 +2885,56 @@ class AblationTrainer:
                     + (f", TB Label f1: {summary_f1:.4f}" if summary_f1 is not None else "")
                     + (f", TB Label acc: {summary_acc:.4f}" if summary_acc is not None else "")
                 )
+
+                predictions_file = os.path.join(final_results_dir, f"{file_prefix}_predictions.csv")
+                predictions_df.to_csv(predictions_file, index=False)
+                logger.info(f"Detailed {split_name} predictions saved to {predictions_file}")
+
+                tb_row = {'Split': split_name, 'loss': val_loss}
+                for key, value in metrics.items():
+                    if key.startswith('TB Label_') and isinstance(value, (int, float, np.floating)):
+                        tb_row[key.replace('TB Label_', '')] = float(value)
+                tb_summary_rows.append(tb_row)
+
+                if self.use_pathology_loss:
+                    pathology_names = getattr(self.config, 'pathology_classes', [
+                        'A-line', 'Large Consolidations', 'Pleural Effusion', 'Other Pathology'
+                    ])
+                    for pathology_name in pathology_names:
+                        row = {'Split': split_name, 'Pathology': pathology_name}
+                        found = False
+                        for metric_name in ['auroc', 'auprc', 'f1']:
+                            value = metrics.get(f'{pathology_name}/{metric_name}')
+                            if isinstance(value, (int, float, np.floating)):
+                                row[metric_name] = float(value)
+                                found = True
+                        if found:
+                            pathology_summary_rows.append(row)
             
             # Clear GPU cache between splits to avoid OOM
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+        if is_main_process():
+            if tb_summary_rows:
+                tb_summary_file = os.path.join(tb_results_dir, "tb_metrics_summary.csv")
+                tb_metrics_summary = pd.DataFrame(tb_summary_rows)
+                tb_metrics_summary.to_csv(tb_summary_file, index=False)
+                logger.info(f"Summary of TB metrics saved to {tb_summary_file}")
+
+            if self.use_pathology_loss and pathology_summary_rows:
+                pathology_summary_file = os.path.join(pathology_results_dir, "all_pathologies_summary.csv")
+                pathology_summary = pd.DataFrame(pathology_summary_rows)
+                pathology_summary.to_csv(pathology_summary_file, index=False)
+                logger.info(f"Consolidated pathology metrics saved to {pathology_summary_file}")
+
+                for pathology_name, pathology_df in pathology_summary.groupby('Pathology'):
+                    pathology_dir = os.path.join(pathology_results_dir, pathology_name.lower().replace(" ", "_"))
+                    os.makedirs(pathology_dir, exist_ok=True)
+                    pathology_file = os.path.join(pathology_dir, f"{pathology_name}_metrics_summary.csv")
+                    pathology_df.drop(columns=['Pathology']).to_csv(pathology_file, index=False)
+                    logger.info(f"Summary of {pathology_name} metrics saved to {pathology_file}")
     
     def resume_training_from_checkpoint(self, checkpoint_path):
         """Resume training from a checkpoint."""

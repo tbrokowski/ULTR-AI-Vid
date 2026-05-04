@@ -1,0 +1,68 @@
+# Benin source-focused SimCLR.
+# Tests whether source-domain temporal SSL helps when augmentations are matched
+# to ultrasound videos and restricted to the depth range used by source training.
+
+experiment_name: "simclr_benin_source_temporal_mild"
+output_dir: "./runs/simclr/benin_source_temporal_mild"
+seed: 42
+device: "cuda"
+
+root_dir: null
+file_metadata_csv: null
+video_folder: null
+split_csv: null
+pretrain_splits:
+  - "train"
+simclr_depth_filter: "15"
+sample_weighting: "uniform"
+false_negative_filter: "none"
+
+frame_sampling: 32
+decoded_frame_sampling: 64
+temporal_jitter: true
+temporal_window_min: 0.65
+temporal_window_max: 1.0
+temporal_dropout_prob: 0.05
+temporal_dropout_min_frames: 20
+batch_size: 16
+num_workers: 6
+cache_size: 0
+
+target_height: 224
+target_width: 224
+mean: [0.45, 0.45, 0.45]
+std: [0.225, 0.225, 0.225]
+
+crop_scale_min: 0.85
+crop_scale_max: 1.0
+degrees: 8.0
+translate: [0.04, 0.04]
+brightness: 0.20
+contrast: 0.20
+blur_prob: 0.20
+blur_sigma_min: 0.1
+blur_sigma_max: 0.7
+noise_std: 0.06
+gamma_min: 0.85
+gamma_max: 1.20
+
+clip_model_name: "openai/clip-vit-base-patch32"
+local_weights_dir: "/users/lxflk/CLIP_weights/"
+freeze_backbone: false
+clip_unfreeze_last_n_layers: 4
+train_visual_projection: true
+
+projection_dim: 256
+projection_hidden_dim: 2048
+temperature: 0.2
+
+num_epochs: 40
+warmup_epochs: 4
+learning_rate: 0.00003
+min_learning_rate: 0.000001
+weight_decay: 0.00001
+accumulation_steps: 1
+gradient_clip_norm: 1.0
+use_amp: true
+log_every_steps: 20
+save_every_epochs: 1

@@ -1,0 +1,63 @@
+# Combined Benin+SA SimCLR using the stronger Benin source-focused
+# patient-aware recipe. The launcher resolves fold-specific Benin and explicit
+# SA child configs, then passes those paths through combined_dataset_config_paths.
+
+experiment_name: "simclr_benin_sa_strong_patientaware"
+output_dir: "/capstor/scratch/cscs/lxflk/ULTR-AI-Vid/runs/simclr/benin_sa/default"
+
+pretrain_splits: ["train"]
+combined_dataset_config_paths: []
+simclr_depth_filter: "15"
+sample_weighting: "patient"
+false_negative_filter: "patient"
+
+frame_sampling: 32
+decoded_frame_sampling: 64
+temporal_jitter: true
+temporal_window_min: 0.55
+temporal_window_max: 1.0
+temporal_dropout_prob: 0.10
+temporal_dropout_min_frames: 16
+
+batch_size: 16
+num_workers: 6
+cache_size: 0
+
+target_height: 224
+target_width: 224
+mean: [0.45, 0.45, 0.45]
+std: [0.225, 0.225, 0.225]
+
+crop_scale_min: 0.75
+crop_scale_max: 1.0
+degrees: 15.0
+translate: [0.08, 0.08]
+brightness: 0.30
+contrast: 0.30
+blur_prob: 0.30
+blur_sigma_min: 0.1
+blur_sigma_max: 1.0
+noise_std: 0.10
+gamma_min: 0.70
+gamma_max: 1.35
+
+clip_model_name: "openai/clip-vit-base-patch32"
+local_weights_dir: "/users/lxflk/CLIP_weights/"
+freeze_backbone: false
+clip_unfreeze_last_n_layers: 4
+train_visual_projection: true
+
+projection_dim: 256
+projection_hidden_dim: 2048
+temperature: 0.2
+
+num_epochs: 40
+warmup_epochs: 4
+learning_rate: 0.00003
+min_learning_rate: 0.000001
+weight_decay: 0.00001
+accumulation_steps: 1
+gradient_clip_norm: 1.0
+use_amp: true
+log_every_steps: 20
+save_every_epochs: 1

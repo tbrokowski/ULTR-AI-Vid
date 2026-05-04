@@ -17,8 +17,11 @@ REPO_ROOT="/users/lxflk/ULTR-AI-Vid"
 SCRATCH_ROOT="/capstor/scratch/cscs/lxflk/ULTR-AI-Vid"
 LOG_ROOT="${REPO_ROOT}/logs"
 EDF_ENV="/users/lxflk/.edf/ultrai.toml"
+DEFAULT_LOCAL_VENV="/users/lxflk/.venvs/ultatron"
 RESOLVE_CONFIG="${REPO_ROOT}/ultrai/utils/config_resolver.py"
 DEFAULT_FINETUNE_CONFIG="configs/cscs/finetune.yaml"
+BALANCE_CLIP2_POS4_CONFIG="configs/cscs/finetune_balance_clip2_pos4_lowlr.yaml"
+BALANCE_CLIP0_POS2_CONFIG="configs/cscs/finetune_balance_clip0_pos2_lowlr.yaml"
 BENIN_DATA_PROFILE="configs/cscs/dataset_benin.yaml"
 SA_DATA_PROFILE="configs/cscs/dataset_sa.yaml"
 
@@ -29,6 +32,8 @@ SOURCE_CHECKPOINT=""
 SOURCE_CONFIG=""
 CONFIG=""
 CUSTOM_CONFIG=false
+FINETUNE_PRESET=""
+FINETUNE_PRESET_CONFIG=""
 RUN_NAME=""
 RUN_ROOT=""
 FOLD=""
@@ -39,6 +44,9 @@ DOMAIN_ADAPTATION="none"
 SKIP_ZERO_SHOT=false
 SKIP_TARGET_TEST=false
 SOURCE_EVAL_SPLITS="test"
+ALLOW_MISSING_SOURCE_CHECKPOINT=false
+RUNTIME_MODE="edf"
+LOCAL_VENV="${DEFAULT_LOCAL_VENV}"
 CONFIG_SETS=()
 
 usage() {
@@ -52,6 +60,8 @@ Options:
   --source-checkpoint PATH          Required source checkpoint from the previous stage.
   --source-config PATH              Source-domain config for optional source re-evaluation after fine-tuning.
   --config PATH                     Base finetuning config. Default: configs/cscs/finetune.yaml.
+  --finetune-preset NAME            Apply a known finetuning preset after the base/dataset config.
+                                    Available: balance_clip2_pos4_lowlr, balance_clip0_pos2_lowlr, none.
   --fold INT                        Target Benin fold when target dataset is Benin.
   --split-csv PATH                  Explicit split CSV for target Benin runs. SA fine-tuning builds its own split internally.
   --clip-unfreeze-last-n-layers N   Override the CLIP unfreeze setting from the resolved config.
@@ -67,6 +77,9 @@ Options:
   --skip-zero-shot                   Skip target zero-shot evaluation before fine-tuning.
   --skip-target-test                 Skip target-domain test evaluation after fine-tuning.
   --source-eval-splits CSV           Source-domain splits to evaluate after fine-tuning. Default: test.
+  --allow-missing-source-checkpoint  Continue even if the submission host cannot stat the source checkpoint path.
+  --runtime {edf,local-venv}         Runtime for the Slurm job step. Default: edf.
+  --local-venv PATH                  Virtualenv for --runtime local-venv. Default: /users/lxflk/.venvs/ultatron.
   --run-name NAME                   Optional run name. Default: dynamic timestamped name.
   --run-root PATH                   Optional explicit scratch run directory.
   --help                            Show this help message.
@@ -116,6 +129,13 @@ infer_source_tag() {
       tag="${tag}+lwf"
     fi
   fi
+  if [[ -n "${FINETUNE_PRESET}" && "${FINETUNE_PRESET}" != "none" ]]; then
+    if [[ "${tag}" == "baseline" ]]; then
+      tag="${FINETUNE_PRESET}"
+    elif [[ "${tag}" != *"${FINETUNE_PRESET}"* ]]; then
+      tag="${tag}+${FINETUNE_PRESET}"
+    fi
+  fi
 
   printf '%s\n' "${tag}"
 }
@@ -137,6 +157,24 @@ default_run_name() {
   fi
 
   printf '%s__finetune__%s_to_%s__%s__%s\n' "${timestamp}" "${SOURCE_DATASET}" "${TARGET_DATASET}" "${scope}" "${tag}"
+}
+
+resolve_finetune_preset_config() {
+  case "${FINETUNE_PRESET}" in
+    ""|"none")
+      FINETUNE_PRESET_CONFIG=""
+      ;;
+    "balance_clip2_pos4_lowlr")
+      FINETUNE_PRESET_CONFIG="${BALANCE_CLIP2_POS4_CONFIG}"
+      ;;
+    "balance_clip0_pos2_lowlr")
+      FINETUNE_PRESET_CONFIG="${BALANCE_CLIP0_POS2_CONFIG}"
+      ;;
+    *)
+      echo "--finetune-preset must be one of: balance_clip2_pos4_lowlr, balance_clip0_pos2_lowlr, none" >&2
+      exit 1
+      ;;
+  esac
 }
 
 while [[ $# -gt 0 ]]; do
@@ -164,6 +202,10 @@ while [[ $# -gt 0 ]]; do
     --config)
       CONFIG="$2"
       CUSTOM_CONFIG=true
+      shift 2
+      ;;
+    --finetune-preset)
+      FINETUNE_PRESET="$2"
       shift 2
       ;;
     --custom-config)
@@ -226,6 +268,18 @@ while [[ $# -gt 0 ]]; do
       SOURCE_EVAL_SPLITS="$2"
       shift 2
       ;;
+    --allow-missing-source-checkpoint)
+      ALLOW_MISSING_SOURCE_CHECKPOINT=true
+      shift
+      ;;
+    --runtime)
+      RUNTIME_MODE="$2"
+      shift 2
+      ;;
+    --local-venv)
+      LOCAL_VENV="$2"
+      shift 2
+      ;;
     --run-name)
       RUN_NAME="$2"
       shift 2
@@ -254,8 +308,12 @@ if [[ -z "${SOURCE_CHECKPOINT}" ]]; then
 fi
 
 if [[ ! -f "${SOURCE_CHECKPOINT}" ]]; then
-  echo "Source checkpoint not found: ${SOURCE_CHECKPOINT}" >&2
-  exit 1
+  if [[ "${ALLOW_MISSING_SOURCE_CHECKPOINT}" == true ]]; then
+    echo "Warning: source checkpoint is not stat-able from this host; proceeding anyway: ${SOURCE_CHECKPOINT}" >&2
+  else
+    echo "Source checkpoint not found: ${SOURCE_CHECKPOINT}" >&2
+    exit 1
+  fi
 fi
 
 if [[ -n "${SOURCE_CONFIG}" && ! -f "${SOURCE_CONFIG}" ]]; then
@@ -283,6 +341,16 @@ if [[ "${DOMAIN_ADAPTATION}" != "none" && "${TARGET_DATASET}" != "sa" ]]; then
   exit 1
 fi
 
+if [[ "${RUNTIME_MODE}" != "edf" && "${RUNTIME_MODE}" != "local-venv" ]]; then
+  echo "--runtime must be one of: edf, local-venv" >&2
+  exit 1
+fi
+
+if [[ "${RUNTIME_MODE}" == "local-venv" && ! -x "${LOCAL_VENV}/bin/python" ]]; then
+  echo "Local virtualenv does not contain a Python executable: ${LOCAL_VENV}" >&2
+  exit 1
+fi
+
 if [[ ( "${DOMAIN_ADAPTATION}" == "dann" || "${DOMAIN_ADAPTATION}" == "ewc" ) && -z "${SOURCE_CONFIG}" ]]; then
   echo "${DOMAIN_ADAPTATION} requires --source-config so the source-domain data loader can be built." >&2
   exit 1
@@ -294,6 +362,13 @@ fi
 
 if [[ ! -f "${CONFIG}" ]]; then
   echo "Base finetune config not found: ${CONFIG}" >&2
+  exit 1
+fi
+
+resolve_finetune_preset_config
+
+if [[ -n "${FINETUNE_PRESET_CONFIG}" && ! -f "${FINETUNE_PRESET_CONFIG}" ]]; then
+  echo "Finetune preset config not found: ${FINETUNE_PRESET_CONFIG}" >&2
   exit 1
 fi
 
@@ -346,6 +421,9 @@ if [[ "${WORKER_MODE}" != true ]]; then
     --run-name "${RUN_NAME}"
     --run-root "${RUN_ROOT}"
   )
+  if [[ -n "${FINETUNE_PRESET}" ]]; then
+    FORWARDED_ARGS+=(--finetune-preset "${FINETUNE_PRESET}")
+  fi
   if [[ "${CUSTOM_CONFIG}" == true ]]; then
     FORWARDED_ARGS+=(--custom-config)
   fi
@@ -379,6 +457,13 @@ if [[ "${WORKER_MODE}" != true ]]; then
   if [[ -n "${SOURCE_EVAL_SPLITS}" ]]; then
     FORWARDED_ARGS+=(--source-eval-splits "${SOURCE_EVAL_SPLITS}")
   fi
+  if [[ "${ALLOW_MISSING_SOURCE_CHECKPOINT}" == true ]]; then
+    FORWARDED_ARGS+=(--allow-missing-source-checkpoint)
+  fi
+  FORWARDED_ARGS+=(--runtime "${RUNTIME_MODE}")
+  if [[ -n "${LOCAL_VENV}" ]]; then
+    FORWARDED_ARGS+=(--local-venv "${LOCAL_VENV}")
+  fi
   for config_set in "${CONFIG_SETS[@]}"; do
     FORWARDED_ARGS+=(--set "${config_set}")
   done
@@ -401,6 +486,7 @@ if [[ "${WORKER_MODE}" != true ]]; then
   echo "  run_root:           ${RUN_ROOT}"
   echo "  logs:               ${LOG_ROOT}"
   echo "  base_config:        ${CONFIG}"
+  echo "  finetune_preset:    ${FINETUNE_PRESET:-<none>}"
   echo "  domain_adaptation:  ${DOMAIN_ADAPTATION}"
   exit 0
 fi
@@ -427,6 +513,9 @@ if [[ "${TARGET_DATASET}" == "sa" ]]; then
     --set "domain_adaptation=${DOMAIN_ADAPTATION}"
   )
   RESOLVE_ARGS+=(--override "${SA_DATA_PROFILE}")
+  if [[ -n "${FINETUNE_PRESET_CONFIG}" ]]; then
+    RESOLVE_ARGS+=(--override "${FINETUNE_PRESET_CONFIG}")
+  fi
   if [[ -n "${CLIP_UNFREEZE_LAST_N_LAYERS}" ]]; then
     RESOLVE_ARGS+=(--set "clip_unfreeze_last_n_layers=${CLIP_UNFREEZE_LAST_N_LAYERS}")
   fi
@@ -483,15 +572,21 @@ if [[ "${TARGET_DATASET}" == "sa" ]]; then
   echo "  target_dataset:     ${TARGET_DATASET}"
   echo "  domain_adaptation:  ${DOMAIN_ADAPTATION}"
   echo "  base_config:        ${CONFIG}"
+  echo "  finetune_preset:    ${FINETUNE_PRESET:-<none>}"
   echo "  resolved_config:    ${RESOLVED_CONFIG}"
   echo "  source_checkpoint:  ${SOURCE_CHECKPOINT}"
-  echo "  source_config:      ${SOURCE_CONFIG:-<none>}"
-  echo "  run_root:           ${RUN_ROOT}"
-  echo "  local_logs:         ${LOCAL_RUN_LOG_DIR}"
+echo "  source_config:      ${SOURCE_CONFIG:-<none>}"
+echo "  run_root:           ${RUN_ROOT}"
+echo "  local_logs:         ${LOCAL_RUN_LOG_DIR}"
 
+if [[ "${RUNTIME_MODE}" == "local-venv" ]]; then
+  PY_ARGS_ESCAPED="$(printf '%q ' "${PY_ARGS[@]}")"
+  srun bash -lc "cd ${REPO_ROOT@Q} && source ${LOCAL_VENV@Q}/bin/activate && export PYTHONPATH=${REPO_ROOT@Q}:\${PYTHONPATH:-} && python -m ultrai.training.finetune ${PY_ARGS_ESCAPED}"
+else
   srun --environment="${EDF_ENV}" \
     python3 -m ultrai.training.finetune \
     "${PY_ARGS[@]}"
+fi
 
   echo "Finetuning finished"
   echo "  checkpoints:        ${CHECKPOINT_DIR}"
@@ -547,6 +642,10 @@ for override_config in "${OVERRIDE_CONFIGS[@]}"; do
   RESOLVE_ARGS+=(--override "${override_config}")
 done
 
+if [[ -n "${FINETUNE_PRESET_CONFIG}" ]]; then
+  RESOLVE_ARGS+=(--override "${FINETUNE_PRESET_CONFIG}")
+fi
+
 if [[ -n "${SPLIT_CSV}" ]]; then
   RESOLVE_ARGS+=(--set "split_csv=${SPLIT_CSV}")
 fi
@@ -591,14 +690,20 @@ echo "  source_dataset:     ${SOURCE_DATASET}"
 echo "  target_dataset:     ${TARGET_DATASET}"
 echo "  domain_adaptation:  ${DOMAIN_ADAPTATION}"
 echo "  base_config:        ${CONFIG}"
+echo "  finetune_preset:    ${FINETUNE_PRESET:-<none>}"
 echo "  resolved_config:    ${RESOLVED_CONFIG}"
 echo "  source_checkpoint:  ${SOURCE_CHECKPOINT}"
 echo "  experiment_dir:     ${EXPERIMENT_DIR}"
 echo "  local_logs:         ${LOCAL_RUN_LOG_DIR}"
 
-srun --environment="${EDF_ENV}" \
-  python3 -m ultrai.training.finetune \
-  "${PY_ARGS[@]}"
+if [[ "${RUNTIME_MODE}" == "local-venv" ]]; then
+  PY_ARGS_ESCAPED="$(printf '%q ' "${PY_ARGS[@]}")"
+  srun bash -lc "cd ${REPO_ROOT@Q} && source ${LOCAL_VENV@Q}/bin/activate && export PYTHONPATH=${REPO_ROOT@Q}:\${PYTHONPATH:-} && python -m ultrai.training.finetune ${PY_ARGS_ESCAPED}"
+else
+  srun --environment="${EDF_ENV}" \
+    python3 -m ultrai.training.finetune \
+    "${PY_ARGS[@]}"
+fi
 
 echo "Finetuning finished"
 echo "  best_checkpoint:    ${EXPERIMENT_DIR}/checkpoint_best.pth"

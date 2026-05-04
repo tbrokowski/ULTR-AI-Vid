@@ -13,6 +13,8 @@ import logging
 import math
 import os
 import random
+from bisect import bisect_right
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -27,7 +29,7 @@ import torch.nn.functional as F
 import yaml
 from PIL import Image, ImageEnhance, ImageFilter
 from torch.optim import AdamW
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision import transforms
 import torchvision.transforms.functional as TF
 
@@ -52,8 +54,13 @@ class SimCLRConfig:
     file_metadata_csv: str = "/users/lxflk/ULTR-AI-Vid/Data/processed_files_2.csv"
     video_folder: str = "/capstor/scratch/cscs/tbrokowski/ultr-ai/BeninVideos"
     split_csv: Optional[str] = None
+    dataset_name: str = "default"
+    combined_dataset_config_paths: List[str] = field(default_factory=list)
     pretrain_splits: List[str] = field(default_factory=lambda: ["train"])
     max_videos: Optional[int] = None
+    simclr_depth_filter: str = "all"
+    sample_weighting: str = "uniform"
+    false_negative_filter: str = "none"
 
     frame_sampling: int = 32
     decoded_frame_sampling: Optional[int] = None
@@ -114,6 +121,20 @@ class SimCLRConfig:
             self.pretrain_splits = ["train"]
 
         self.pretrain_splits = [split.lower() for split in self.pretrain_splits]
+        if self.combined_dataset_config_paths is None:
+            self.combined_dataset_config_paths = []
+        elif isinstance(self.combined_dataset_config_paths, str):
+            self.combined_dataset_config_paths = [
+                path.strip()
+                for path in self.combined_dataset_config_paths.split(",")
+                if path.strip()
+            ]
+        else:
+            self.combined_dataset_config_paths = [
+                str(path).strip()
+                for path in self.combined_dataset_config_paths
+                if str(path).strip()
+            ]
 
         self.frame_sampling = max(1, int(self.frame_sampling))
         if self.decoded_frame_sampling is None:
@@ -128,6 +149,15 @@ class SimCLRConfig:
         self.temporal_dropout_min_frames = max(1, int(self.temporal_dropout_min_frames))
         self.gamma_min = max(float(self.gamma_min), 1e-6)
         self.gamma_max = max(float(self.gamma_max), self.gamma_min)
+        self.simclr_depth_filter = str(self.simclr_depth_filter).lower()
+        if self.simclr_depth_filter not in {"all", "5", "15"}:
+            raise ValueError("simclr_depth_filter must be one of: all, 5, 15")
+        self.sample_weighting = str(self.sample_weighting).lower()
+        if self.sample_weighting not in {"uniform", "patient"}:
+            raise ValueError("sample_weighting must be one of: uniform, patient")
+        self.false_negative_filter = str(self.false_negative_filter).lower()
+        if self.false_negative_filter not in {"none", "patient"}:
+            raise ValueError("false_negative_filter must be one of: none, patient")
 
     @classmethod
     def load(cls, path: str) -> "SimCLRConfig":
@@ -330,6 +360,25 @@ class SimCLRVideoDataset(Dataset):
             metadata_df[type_col] = metadata_df[type_col].astype(str).str.lower()
             metadata_df = metadata_df[metadata_df[type_col] == "video"]
 
+        if self.config.simclr_depth_filter != "all":
+            if "Depth" not in metadata_df.columns:
+                raise ValueError(
+                    f"'Depth' column missing from {self.config.file_metadata_csv}; "
+                    "cannot apply simclr_depth_filter"
+                )
+            before_count = len(metadata_df)
+            depth_values = pd.to_numeric(metadata_df["Depth"], errors="coerce")
+            if self.config.simclr_depth_filter == "5":
+                metadata_df = metadata_df[depth_values < 10]
+            elif self.config.simclr_depth_filter == "15":
+                metadata_df = metadata_df[depth_values > 10]
+            logger.info(
+                "Applied SimCLR depth filter %s: %d -> %d metadata rows",
+                self.config.simclr_depth_filter,
+                before_count,
+                len(metadata_df),
+            )
+
         records: List[Dict[str, object]] = []
         for _, row in metadata_df.iterrows():
             patient_id = str(row["Patient ID"]).strip()
@@ -475,6 +524,75 @@ class SimCLRVideoDataset(Dataset):
         raise RuntimeError(f"Repeated video load failures near dataset index {index}")
 
 
+class CombinedSimCLRVideoDataset(Dataset):
+    def __init__(self, config_paths: Sequence[str]) -> None:
+        if not config_paths:
+            raise ValueError("Combined SimCLR dataset requires at least one child config")
+
+        self.datasets: List[SimCLRVideoDataset] = []
+        self.cumulative_sizes: List[int] = []
+        self.records: List[Dict[str, object]] = []
+
+        total = 0
+        for config_path in config_paths:
+            child_config = SimCLRConfig.load(config_path)
+            child_config.combined_dataset_config_paths = []
+            dataset_name = child_config.dataset_name or Path(config_path).stem
+            dataset = SimCLRVideoDataset(child_config)
+
+            for record in dataset.records:
+                source_patient_id = str(record["patient_id"])
+                record["dataset"] = dataset_name
+                record["source_patient_id"] = source_patient_id
+                record["patient_id"] = f"{dataset_name}:{source_patient_id}"
+
+            self.datasets.append(dataset)
+            total += len(dataset)
+            self.cumulative_sizes.append(total)
+            self.records.extend(dataset.records)
+
+            logger.info(
+                "Added %s SimCLR subset with %d videos from %d patients",
+                dataset_name,
+                len(dataset),
+                len({record["source_patient_id"] for record in dataset.records}),
+            )
+
+        if total == 0:
+            raise ValueError("Combined SimCLR dataset has no videos")
+
+        logger.info(
+            "Prepared combined SimCLR dataset with %d videos from %d patients across %d subsets",
+            len(self.records),
+            len({record["patient_id"] for record in self.records}),
+            len(self.datasets),
+        )
+
+    def __len__(self) -> int:
+        return self.cumulative_sizes[-1]
+
+    def __getitem__(self, index: int) -> Dict[str, object]:
+        index = int(index)
+        if index < 0:
+            index += len(self)
+        if index < 0 or index >= len(self):
+            raise IndexError(index)
+
+        dataset_index = bisect_right(self.cumulative_sizes, index)
+        previous_size = 0 if dataset_index == 0 else self.cumulative_sizes[dataset_index - 1]
+        return self.datasets[dataset_index][index - previous_size]
+
+    def export_index(self, output_path: Path) -> None:
+        pd.DataFrame(self.records).to_csv(output_path, index=False)
+
+
+def build_simclr_dataset(config: SimCLRConfig) -> Dataset:
+    if config.combined_dataset_config_paths:
+        logger.info("Using combined SimCLR child configs: %s", config.combined_dataset_config_paths)
+        return CombinedSimCLRVideoDataset(config.combined_dataset_config_paths)
+    return SimCLRVideoDataset(config)
+
+
 class SimCLRProjectionHead(nn.Module):
     def __init__(self, input_dim: int, hidden_dim: int, output_dim: int) -> None:
         super().__init__()
@@ -525,22 +643,39 @@ def nt_xent_loss(
     z1: torch.Tensor,
     z2: torch.Tensor,
     temperature: float,
-) -> Tuple[torch.Tensor, float]:
+    patient_ids: Optional[Sequence[object]] = None,
+    false_negative_filter: str = "none",
+) -> Tuple[torch.Tensor, float, int]:
     batch_size = z1.shape[0]
     # Keep the contrastive logits in fp32 even when the encoder runs under AMP.
     representations = torch.cat([z1, z2], dim=0).float()
     similarity = torch.matmul(representations, representations.T) / temperature
 
-    mask = torch.eye(2 * batch_size, device=similarity.device, dtype=torch.bool)
-    mask_value = torch.finfo(similarity.dtype).min
-    similarity = similarity.masked_fill(mask, mask_value)
-
     positive_indices = torch.arange(batch_size, device=similarity.device)
     targets = torch.cat([positive_indices + batch_size, positive_indices], dim=0)
 
+    mask = torch.eye(2 * batch_size, device=similarity.device, dtype=torch.bool)
+    filtered_false_negatives = 0
+    if false_negative_filter == "patient" and patient_ids is not None:
+        patient_labels = [str(patient_id) for patient_id in patient_ids]
+        patient_labels = patient_labels + patient_labels
+        false_negative_mask = torch.zeros_like(mask)
+        target_list = targets.detach().cpu().tolist()
+        for anchor_index, anchor_patient in enumerate(patient_labels):
+            for candidate_index, candidate_patient in enumerate(patient_labels):
+                if candidate_index == anchor_index or candidate_index == target_list[anchor_index]:
+                    continue
+                if anchor_patient == candidate_patient:
+                    false_negative_mask[anchor_index, candidate_index] = True
+        filtered_false_negatives = int(false_negative_mask.sum().item())
+        mask = mask | false_negative_mask
+
+    mask_value = torch.finfo(similarity.dtype).min
+    similarity = similarity.masked_fill(mask, mask_value)
+
     loss = F.cross_entropy(similarity, targets)
     top1 = (similarity.argmax(dim=1) == targets).float().mean().item()
-    return loss, top1
+    return loss, top1, filtered_false_negatives
 
 
 def build_scheduler(
@@ -575,7 +710,7 @@ class SimCLRTrainer:
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.dataset = SimCLRVideoDataset(config)
+        self.dataset = build_simclr_dataset(config)
         if config.batch_size < 2:
             raise ValueError("SimCLR requires batch_size >= 2")
         if len(self.dataset) < config.batch_size:
@@ -584,10 +719,30 @@ class SimCLRTrainer:
             )
         self.dataset.export_index(self.output_dir / "video_index.csv")
 
+        sampler = None
+        shuffle = True
+        if config.sample_weighting == "patient":
+            patient_counts = Counter(str(record["patient_id"]) for record in self.dataset.records)
+            sample_weights = [
+                1.0 / patient_counts[str(record["patient_id"])]
+                for record in self.dataset.records
+            ]
+            sampler = WeightedRandomSampler(
+                weights=torch.as_tensor(sample_weights, dtype=torch.double),
+                num_samples=len(sample_weights),
+                replacement=True,
+            )
+            shuffle = False
+            logger.info(
+                "Enabled patient-balanced SimCLR sampling across %d patients",
+                len(patient_counts),
+            )
+
         self.loader = DataLoader(
             self.dataset,
             batch_size=config.batch_size,
-            shuffle=True,
+            shuffle=shuffle,
+            sampler=sampler,
             num_workers=config.num_workers,
             pin_memory=True,
             drop_last=True,
@@ -655,6 +810,7 @@ class SimCLRTrainer:
             self.model.train()
             epoch_loss = 0.0
             epoch_acc = 0.0
+            epoch_filtered_false_negatives = 0
             sample_batches = 0
 
             self.optimizer.zero_grad(set_to_none=True)
@@ -667,7 +823,13 @@ class SimCLRTrainer:
                     _, proj1 = self.model(view1)
                     _, proj2 = self.model(view2)
 
-                loss, batch_top1 = nt_xent_loss(proj1, proj2, self.config.temperature)
+                loss, batch_top1, batch_filtered_false_negatives = nt_xent_loss(
+                    proj1,
+                    proj2,
+                    self.config.temperature,
+                    patient_ids=batch.get("patient_id"),
+                    false_negative_filter=self.config.false_negative_filter,
+                )
                 loss = loss / self.config.accumulation_steps
 
                 self.scaler.scale(loss).backward()
@@ -686,6 +848,7 @@ class SimCLRTrainer:
 
                 epoch_loss += loss.item() * self.config.accumulation_steps
                 epoch_acc += batch_top1
+                epoch_filtered_false_negatives += batch_filtered_false_negatives
                 sample_batches += 1
 
                 if (step + 1) % self.config.log_every_steps == 0:
@@ -721,6 +884,7 @@ class SimCLRTrainer:
                 "epoch": epoch + 1,
                 "loss": average_loss,
                 "contrastive_top1": average_acc,
+                "filtered_false_negatives_per_batch": epoch_filtered_false_negatives / sample_batches,
                 "lr": self.optimizer.param_groups[0]["lr"],
             }
             self.history.append(metrics)
@@ -745,11 +909,12 @@ class SimCLRTrainer:
                 )
 
             logger.info(
-                "Finished epoch %d/%d loss=%.4f contrastive_top1=%.4f best_loss=%.4f",
+                "Finished epoch %d/%d loss=%.4f contrastive_top1=%.4f filtered_false_negatives_per_batch=%.1f best_loss=%.4f",
                 epoch + 1,
                 self.config.num_epochs,
                 average_loss,
                 average_acc,
+                epoch_filtered_false_negatives / sample_batches,
                 self.best_loss,
             )
 
@@ -779,6 +944,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-epochs", type=int, help="Epoch count override")
     parser.add_argument("--device", type=str, help="Device override")
     parser.add_argument("--clip-unfreeze-last-n-layers", type=int, help="How many CLIP blocks to fine-tune")
+    parser.add_argument("--simclr-depth-filter", choices=["all", "5", "15"], help="Optional SimCLR-only depth filter")
+    parser.add_argument("--sample-weighting", choices=["uniform", "patient"], help="Optional sampling weighting strategy")
+    parser.add_argument("--false-negative-filter", choices=["none", "patient"], help="False-negative masking strategy")
+    parser.add_argument("--learning-rate", type=float, help="Learning rate override")
+    parser.add_argument("--weight-decay", type=float, help="Weight decay override")
+    parser.add_argument("--temperature", type=float, help="NT-Xent temperature override")
     return parser.parse_args()
 
 
@@ -812,6 +983,18 @@ def main() -> Dict[str, object]:
         config.device = args.device
     if args.clip_unfreeze_last_n_layers is not None:
         config.clip_unfreeze_last_n_layers = args.clip_unfreeze_last_n_layers
+    if args.simclr_depth_filter is not None:
+        config.simclr_depth_filter = args.simclr_depth_filter
+    if args.sample_weighting is not None:
+        config.sample_weighting = args.sample_weighting
+    if args.false_negative_filter is not None:
+        config.false_negative_filter = args.false_negative_filter
+    if args.learning_rate is not None:
+        config.learning_rate = args.learning_rate
+    if args.weight_decay is not None:
+        config.weight_decay = args.weight_decay
+    if args.temperature is not None:
+        config.temperature = args.temperature
 
     output_dir = Path(config.output_dir)
     log_dir = Path(args.log_dir) if args.log_dir is not None else output_dir

@@ -4,7 +4,9 @@
 
 root_dir: "/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned"
 labels_csv: "/users/lxflk/ULTR-AI-Vid/Data/labels/rsa_pathology_labels.csv"
-file_metadata_csv: "/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned/processed_files.csv"
+# Keep the heavy SA video payload on scratch, but use a repo-local metadata copy so
+# non-container Slurm jobs do not depend on direct access to the original CSV path.
+file_metadata_csv: "/users/lxflk/ULTR-AI-Vid/Data/processed_files_sa.csv"
 sa_clinical_data: "/users/lxflk/ULTR-AI-Vid/Data/clinical_data/TrUSTSouthAfrica_DATA_2026-01-23_1807.csv"
 split_csv: null
 image_folder: "images"
