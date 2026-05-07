@@ -216,6 +216,7 @@ ewc_include_keywords: []
 ewc_exclude_keywords: []
 ewc_normalize_penalty: false
 ewc_source_batch_size: null
+ewc_oversample_target_positive_class: false
 ewc_learning_rate: 0.00005
 ewc_weight_decay: 0.00001
 ewc_eta_min: 0.000001

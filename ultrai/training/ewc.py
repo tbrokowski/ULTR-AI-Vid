@@ -23,7 +23,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 
 from NetworkArchitecture.ablation_models import create_ablation_model
@@ -122,11 +122,13 @@ def _make_loader(
     num_workers: int,
     shuffle: bool,
     drop_last: bool,
+    sampler: Optional[WeightedRandomSampler] = None,
 ) -> DataLoader:
     kwargs = {
         "dataset": dataset,
+        "sampler": sampler,
         "batch_size": batch_size,
-        "shuffle": shuffle if len(dataset) > 0 else False,
+        "shuffle": (shuffle if len(dataset) > 0 else False) and sampler is None,
         "num_workers": num_workers,
         "pin_memory": torch.cuda.is_available(),
         "drop_last": drop_last and len(dataset) >= batch_size,
@@ -136,6 +138,53 @@ def _make_loader(
         kwargs["prefetch_factor"] = 2
         kwargs["persistent_workers"] = True
     return DataLoader(**kwargs)
+
+
+def _build_weighted_train_sampler(dataset, config: Any) -> Optional[WeightedRandomSampler]:
+    """Oversample TB-positive target patients for imbalanced SA EWC training."""
+    patients = getattr(dataset, "patients", None)
+    if not patients:
+        return None
+
+    tb_labels = []
+    for patient in patients:
+        patient_labels = patient.get("patient_labels", {}) if isinstance(patient, dict) else {}
+        try:
+            tb_labels.append(int(patient_labels.get("TB Label", -1)))
+        except (TypeError, ValueError):
+            tb_labels.append(-1)
+
+    tb_labels = np.asarray(tb_labels, dtype=np.int64)
+    positive_mask = tb_labels == 1
+    negative_mask = tb_labels == 0
+    num_positive = int(positive_mask.sum())
+    num_negative = int(negative_mask.sum())
+
+    if num_positive == 0 or num_negative == 0:
+        logger.warning(
+            "Skipping EWC target weighted sampler because class counts are pos=%d, neg=%d",
+            num_positive,
+            num_negative,
+        )
+        return None
+
+    positive_multiplier = max(1, int(getattr(config, "positive_class_multiplier", 1)))
+    sample_weights = np.ones(len(tb_labels), dtype=np.float64)
+    sample_weights[positive_mask] = float(positive_multiplier)
+    num_samples = num_negative + (num_positive * positive_multiplier)
+
+    logger.info(
+        "Using EWC target WeightedRandomSampler: pos=%d, neg=%d, multiplier=%d, samples/epoch=%d",
+        num_positive,
+        num_negative,
+        positive_multiplier,
+        num_samples,
+    )
+    return WeightedRandomSampler(
+        weights=torch.as_tensor(sample_weights, dtype=torch.double),
+        num_samples=num_samples,
+        replacement=True,
+    )
 
 
 def _binary_metrics(labels: np.ndarray, probs: np.ndarray, preds: np.ndarray) -> Dict[str, float]:
@@ -376,6 +425,17 @@ class EWCTrainer:
             batch_size=source_batch_size,
         )
 
+        self.target_sampler_enabled = bool(
+            getattr(self.target_config, "ewc_oversample_target_positive_class", False)
+        )
+        target_sampler = None
+        if self.target_sampler_enabled:
+            target_sampler = _build_weighted_train_sampler(
+                self.target_data_module.patient_train,
+                self.target_config,
+            )
+        self.target_sampler_used = target_sampler is not None
+
         self.target_train_loader = _make_loader(
             self.target_data_module.patient_train,
             self.target_adapter.collate_patient_batch,
@@ -383,6 +443,7 @@ class EWCTrainer:
             target_workers,
             shuffle=True,
             drop_last=True,
+            sampler=target_sampler,
         )
         self.target_val_loader = _make_loader(
             self.target_data_module.patient_val,
@@ -415,13 +476,14 @@ class EWCTrainer:
             raise ValueError("EWC source Fisher loader is empty")
 
         logger.info(
-            "EWC data: source fisher train=%d patients (%d batches), target train=%d val=%d test=%d patients (%d train batches)",
+            "EWC data: source fisher train=%d patients (%d batches), target train=%d val=%d test=%d patients (%d train batches), target_weighted_sampler=%s",
             len(self.source_data_module.patient_train),
             len(self.source_fisher_loader),
             len(self.target_data_module.patient_train),
             len(self.target_data_module.patient_val),
             len(self.target_data_module.patient_test),
             len(self.target_train_loader),
+            self.target_sampler_used,
         )
 
     def _setup_model(self) -> None:
@@ -706,6 +768,11 @@ class EWCTrainer:
             "target_dataset": self.target_dataset,
             "source_checkpoint_path": self.source_checkpoint_path,
             "ewc_summary": self.ewc.summary(),
+            "target_sampling": {
+                "oversample_target_positive_class": self.target_sampler_enabled,
+                "weighted_sampler_used": self.target_sampler_used,
+                "positive_class_multiplier": int(getattr(self.target_config, "positive_class_multiplier", 1)),
+            },
             "metrics": metrics,
             "best_metric": self.best_metric,
             "best_epoch": self.best_epoch,
@@ -792,6 +859,11 @@ class EWCTrainer:
             "source_checkpoint_path": self.source_checkpoint_path,
             "ewc_lambda": float(getattr(self.target_config, "ewc_lambda", 100.0)),
             "ewc_summary": self.ewc.summary(),
+            "target_sampling": {
+                "oversample_target_positive_class": self.target_sampler_enabled,
+                "weighted_sampler_used": self.target_sampler_used,
+                "positive_class_multiplier": int(getattr(self.target_config, "positive_class_multiplier", 1)),
+            },
             "best_metric": self.best_metric,
             "best_epoch": self.best_epoch + 1 if self.best_epoch >= 0 else None,
             "history": self.history,
