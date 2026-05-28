@@ -84,6 +84,38 @@ class FoldMetricCurves:
         self.n_negative = n_negative
 
 
+class MeanMetricCurves:
+    def __init__(
+        self,
+        label: str,
+        color: str,
+        dash: Optional[str],
+        folds: Sequence[FoldMetricCurves],
+        roc_mean: List[Tuple[float, float]],
+        roc_lower: List[Tuple[float, float]],
+        roc_upper: List[Tuple[float, float]],
+        pr_mean: List[Tuple[float, float]],
+        pr_lower: List[Tuple[float, float]],
+        pr_upper: List[Tuple[float, float]],
+        auroc: Dict[str, float],
+        auprc: Dict[str, float],
+        pr_prevalence: float,
+    ) -> None:
+        self.label = label
+        self.color = color
+        self.dash = dash
+        self.folds = list(folds)
+        self.roc_mean = roc_mean
+        self.roc_lower = roc_lower
+        self.roc_upper = roc_upper
+        self.pr_mean = pr_mean
+        self.pr_lower = pr_lower
+        self.pr_upper = pr_upper
+        self.auroc = auroc
+        self.auprc = auprc
+        self.pr_prevalence = pr_prevalence
+
+
 def compute_pr(labels: Sequence[int], scores: Sequence[float]) -> Tuple[List[Tuple[float, float]], float]:
     """Return precision-recall points and sklearn-style average precision."""
     positives = float(sum(labels))
@@ -261,14 +293,187 @@ def prevalence(folds: Sequence[FoldMetricCurves]) -> float:
     return n_positive / float(n_total)
 
 
-def _legend_metric_label(label: str, metric: str, values: Dict[str, float]) -> str:
-    return "{label}: {metric}={mean:.2f} (95% CI {low:.2f}-{high:.2f})".format(
+CURVE_LINE_OPTIONS = {
+    "source": ("Source", "#1f77b4", None),
+    "zero_shot_sa": ("Zero-Shot SA", "#ff7f0e", "9 7"),
+    "finetuned_sa": ("Finetuned SA", "#2ca02c", None),
+    "source_retention": ("Source Retention", "#9467bd", "12 6"),
+    "prevalence": ("Prevalence", "#7f7f7f", "9 7"),
+}
+
+CURVE_LINE_ALIASES = {
+    "source": "source",
+    "zero-shot sa": "zero_shot_sa",
+    "zero_shot_sa": "zero_shot_sa",
+    "zero shot sa": "zero_shot_sa",
+    "zeroshot sa": "zero_shot_sa",
+    "finetuned sa": "finetuned_sa",
+    "fine-tuned sa": "finetuned_sa",
+    "fine_tuned_sa": "finetuned_sa",
+    "finetuned_sa": "finetuned_sa",
+    "target finetuned": "finetuned_sa",
+    "target_finetuned": "finetuned_sa",
+    "source retention": "source_retention",
+    "source_retention": "source_retention",
+    "prevalence": "prevalence",
+    "prevalence baseline": "prevalence",
+    "prevalence_baseline": "prevalence",
+}
+
+CURVE_LINE_DOMAINS = {
+    "source": "Benin",
+    "source_retention": "Benin",
+    "zero_shot_sa": "SA",
+    "finetuned_sa": "SA",
+}
+
+
+def _normalize_curve_line(value: str) -> str:
+    normalized = str(value).strip().lower().replace("-", " ").replace("_", " ")
+    normalized = " ".join(normalized.split())
+    normalized_with_underscores = normalized.replace(" ", "_")
+    for candidate in (normalized, normalized_with_underscores):
+        canonical = CURVE_LINE_ALIASES.get(candidate)
+        if canonical is not None:
+            return canonical
+    valid = ", ".join(option[0] for option in CURVE_LINE_OPTIONS.values())
+    raise ValueError(f"lines_to_show entries must be one of: {valid}")
+
+
+def _normalize_lines_to_show(lines_to_show: Sequence[str]) -> List[str]:
+    raw_lines = [lines_to_show] if isinstance(lines_to_show, str) else list(lines_to_show)
+    normalized: List[str] = []
+    for value in raw_lines:
+        key = _normalize_curve_line(value)
+        if key not in normalized:
+            normalized.append(key)
+    return normalized
+
+
+def _existing_source_prediction_csvs(source_run_root: Optional[Path]) -> Optional[Dict[int, Path]]:
+    if source_run_root is None:
+        return None
+    csvs = {
+        int(fold): Path(source_run_root) / "fold{0}".format(fold) / "final_results" / "test_predictions.csv"
+        for fold in range(5)
+    }
+    if any(not path.exists() for path in csvs.values()):
+        return None
+    return csvs
+
+
+def _existing_prediction_csvs_from_roots(
+    run_roots_by_fold: Dict[int, Path],
+    relative_parts: Sequence[str],
+    fallback_roots_by_fold: Optional[Dict[int, Path]] = None,
+) -> Optional[Dict[int, Path]]:
+    if not run_roots_by_fold or not relative_parts:
+        return None
+    csvs: Dict[int, Path] = {}
+    for fold, run_root in sorted(run_roots_by_fold.items()):
+        path = Path(run_root).joinpath(*relative_parts)
+        if not path.exists() and fallback_roots_by_fold:
+            fallback_root = fallback_roots_by_fold.get(fold)
+            if fallback_root is not None:
+                fallback_path = Path(fallback_root).joinpath(*relative_parts)
+                if fallback_path.exists():
+                    path = fallback_path
+        if not path.exists():
+            return None
+        csvs[int(fold)] = path
+    return csvs
+
+
+def _summarize_prediction_csvs(
+    label: str,
+    color: str,
+    dash: Optional[str],
+    prediction_csvs_by_fold: Dict[int, Path],
+    grid: Sequence[float],
+) -> MeanMetricCurves:
+    folds = [
+        load_fold_metric_curves(int(fold), Path(path))
+        for fold, path in sorted(prediction_csvs_by_fold.items())
+    ]
+    roc_mean, roc_lower, roc_upper = mean_curve_ci(
+        [fold.roc_points for fold in folds],
+        grid,
+        force_roc_endpoints=True,
+    )
+    pr_mean, pr_lower, pr_upper = mean_curve_ci(
+        [fold.pr_points for fold in folds],
+        grid,
+        force_roc_endpoints=False,
+    )
+    return MeanMetricCurves(
         label=label,
+        color=color,
+        dash=dash,
+        folds=folds,
+        roc_mean=roc_mean,
+        roc_lower=roc_lower,
+        roc_upper=roc_upper,
+        pr_mean=pr_mean,
+        pr_lower=pr_lower,
+        pr_upper=pr_upper,
+        auroc=metric_summary([fold.auroc for fold in folds]),
+        auprc=metric_summary([fold.auprc for fold in folds]),
+        pr_prevalence=prevalence(folds),
+    )
+
+
+def _legend_metric_label(metric: str, values: Dict[str, float], label: Optional[str] = None) -> str:
+    prefix = "{label}: ".format(label=label) if label else ""
+    return "{prefix}{metric} = {mean:.2f} (95% CI {low:.2f}-{high:.2f})".format(
+        prefix=prefix,
         metric=metric,
         mean=values["mean"],
         low=values["ci_lower"],
         high=values["ci_upper"],
     )
+
+
+def _estimate_legend_text_width(text: str, font_size: int = 20) -> float:
+    """Approximate Arial/Helvetica SVG text width for sizing legend boxes."""
+    width = 0.0
+    for char in text:
+        if char == " ":
+            width += 0.28
+        elif char in ".,:;":
+            width += 0.24
+        elif char in "()[]{}":
+            width += 0.32
+        elif char in "-=/+":
+            width += 0.50
+        elif char in "ilI":
+            width += 0.26
+        elif char in "mwMW":
+            width += 0.82
+        elif char.isupper():
+            width += 0.68
+        elif char.isdigit():
+            width += 0.56
+        else:
+            width += 0.52
+    return width * float(font_size)
+
+
+def _normalize_legend_position(position: str) -> str:
+    normalized = str(position).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "upper_right": "upper_right",
+        "top_right": "upper_right",
+        "lower_right": "lower_right",
+        "bottom_right": "lower_right",
+        "below": "below",
+        "below_graphs": "below",
+        "outside_bottom": "below",
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        valid = ", ".join(sorted(aliases))
+        raise ValueError(f"legend_position must be one of: {valid}") from exc
 
 
 def _write_panel(
@@ -280,14 +485,12 @@ def _write_panel(
     title: str,
     x_label: str,
     y_label: str,
-    mean_points: Sequence[Tuple[float, float]],
-    lower_points: Sequence[Tuple[float, float]],
-    upper_points: Sequence[Tuple[float, float]],
-    color: str,
-    metric_label_text: str,
+    series: Sequence[Dict[str, object]],
     chance_kind: str,
+    legend_position: str = "lower_right",
     chance_value: Optional[float] = None,
-) -> None:
+    reference_lines: Optional[Sequence[Dict[str, object]]] = None,
+) -> List[Tuple[str, Optional[str], str]]:
     axis_color = "#2b2f33"
     grid_color = "#e3e5e8"
     chance_color = "#7f7f7f"
@@ -341,6 +544,7 @@ def _write_panel(
             )
         )
 
+    reference_rows: List[Tuple[str, Optional[str], str]] = []
     if chance_kind == "roc":
         lines.append(
             '<line x1="{x0:.2f}" y1="{y0:.2f}" x2="{x1:.2f}" y2="{y1:.2f}" stroke="{color}" stroke-width="2.5" stroke-dasharray="9 7"/>'.format(
@@ -351,33 +555,58 @@ def _write_panel(
                 color=chance_color,
             )
         )
-        chance_label = "Chance (AUROC=0.50)"
+        reference_rows.append((chance_color, "9 7", "Chance (AUROC=0.50)"))
     elif chance_kind == "pr":
-        baseline = float(chance_value or 0.0)
+        if chance_value is not None:
+            baseline = float(chance_value)
+            lines.append(
+                '<line x1="{x0:.2f}" y1="{y:.2f}" x2="{x1:.2f}" y2="{y:.2f}" stroke="{color}" stroke-width="2.5" stroke-dasharray="9 7"/>'.format(
+                    x0=map_x(0.0),
+                    x1=map_x(1.0),
+                    y=map_y(baseline),
+                    color=chance_color,
+                )
+            )
+            reference_rows.append((chance_color, "9 7", "Prevalence (AUPRC={:.2f})".format(baseline)))
+
+    for item in reference_lines or ():
+        value = float(item["value"])
+        color = str(item.get("color", chance_color))
+        dash = item.get("dash", "9 7")
+        dash_attr = ' stroke-dasharray="{dash}"'.format(dash=dash) if dash else ""
         lines.append(
-            '<line x1="{x0:.2f}" y1="{y:.2f}" x2="{x1:.2f}" y2="{y:.2f}" stroke="{color}" stroke-width="2.5" stroke-dasharray="9 7"/>'.format(
+            '<line x1="{x0:.2f}" y1="{y:.2f}" x2="{x1:.2f}" y2="{y:.2f}" stroke="{color}" stroke-width="2.5"{dash}/>'.format(
                 x0=map_x(0.0),
                 x1=map_x(1.0),
-                y=map_y(baseline),
-                color=chance_color,
+                y=map_y(value),
+                color=color,
+                dash=dash_attr,
             )
         )
-        chance_label = "Prevalence (AUPRC={:.2f})".format(baseline)
-    else:
-        chance_label = ""
+        reference_rows.append((color, str(dash) if dash else None, str(item["label"])))
 
-    lines.append(
-        '<polygon points="{points}" fill="{color}" opacity="0.14"/>'.format(
-            points=polygon_points(lower_points, upper_points, map_x, map_y),
-            color=color,
+    for item in series:
+        lines.append(
+            '<polygon points="{points}" fill="{color}" opacity="0.10"/>'.format(
+                points=polygon_points(
+                    item["lower_points"],  # type: ignore[arg-type]
+                    item["upper_points"],  # type: ignore[arg-type]
+                    map_x,
+                    map_y,
+                ),
+                color=item["color"],
+            )
         )
-    )
-    lines.append(
-        '<polyline points="{points}" fill="none" stroke="{color}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>'.format(
-            points=svg_polyline(mean_points, map_x, map_y),
-            color=color,
+    for item in series:
+        dash = item.get("dash")
+        dash_attr = ' stroke-dasharray="{dash}"'.format(dash=dash) if dash else ""
+        lines.append(
+            '<polyline points="{points}" fill="none" stroke="{color}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"{dash}/>'.format(
+                points=svg_polyline(item["mean_points"], map_x, map_y),  # type: ignore[arg-type]
+                color=item["color"],
+                dash=dash_attr,
+            )
         )
-    )
     lines.append(
         '<line x1="{x}" y1="{y1}" x2="{x}" y2="{y2}" stroke="{color}" stroke-width="2"/>'.format(
             x=panel_x,
@@ -451,10 +680,32 @@ def _write_panel(
         )
     )
 
-    legend_w = 680
-    legend_h = 128
+    rows = [
+        (item["color"], item.get("dash"), item["legend_text"])
+        for item in series
+    ]
+    rows.extend(reference_rows)
+    if series:
+        band_label = "Shaded band: fold mean 95% CI" if len(series) == 1 else "Shaded bands: fold mean 95% CI"
+        band_color = series[0]["color"] if len(series) == 1 else "#9ca3af"
+        rows.append((band_color, "shade", band_label))
+
+    legend_position = _normalize_legend_position(legend_position)
+    if legend_position == "below":
+        return [(str(row_color), str(dash) if dash else None, str(text)) for row_color, dash, text in rows]
+
+    text_x_offset = 112
+    right_padding = 24
+    legend_w = int(
+        math.ceil(text_x_offset + max(_estimate_legend_text_width(text) for _, _, text in rows) + right_padding)
+    )
+    legend_w = min(panel_w - 40, max(360, legend_w))
+    legend_h = 52 + max(0, len(rows) - 1) * 38
     legend_x = panel_x + panel_w - legend_w - 20
-    legend_y = panel_y + panel_h - legend_h - 20
+    if legend_position == "upper_right":
+        legend_y = panel_y + 20
+    else:
+        legend_y = panel_y + panel_h - legend_h - 20
     lines.append(
         '<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="6" fill="#000000" opacity="0.18"/>'.format(
             x=legend_x + 8,
@@ -471,12 +722,6 @@ def _write_panel(
             h=legend_h,
         )
     )
-
-    rows = [
-        (color, None, metric_label_text),
-        (chance_color, "9 7", chance_label),
-        (color, "shade", "Shaded band: fold mean 95% CI"),
-    ]
     for offset, (row_color, dash, text) in enumerate(rows):
         y_value = legend_y + 30 + offset * 38
         if dash == "shade":
@@ -500,12 +745,121 @@ def _write_panel(
             )
         lines.append(
             '<text x="{x}" y="{y}" dominant-baseline="middle" style="{style}">{text}</text>'.format(
-                x=legend_x + 112,
+                x=legend_x + text_x_offset,
                 y=y_value,
                 style=legend_style,
                 text=html.escape(text),
             )
         )
+    return [(str(row_color), str(dash) if dash else None, str(text)) for row_color, dash, text in rows]
+
+
+def _measure_horizontal_legend_group(
+    rows: Sequence[Tuple[str, Optional[str], str]],
+    width: int,
+    font_size: int = 18,
+) -> List[List[Tuple[str, Optional[str], str, int]]]:
+    marker_w = 64
+    text_gap = 16
+    item_gap = 34
+    max_row_w = width - 48
+    wrapped: List[List[Tuple[str, Optional[str], str, int]]] = []
+    current_row: List[Tuple[str, Optional[str], str, int]] = []
+    current_w = 0
+    for color, dash, text in rows:
+        item_w = int(math.ceil(marker_w + text_gap + _estimate_legend_text_width(text, font_size) + item_gap))
+        if current_row and current_w + item_w > max_row_w:
+            wrapped.append(current_row)
+            current_row = []
+            current_w = 0
+        current_row.append((color, dash, text, item_w))
+        current_w += item_w
+    if current_row:
+        wrapped.append(current_row)
+    return wrapped
+
+
+def _draw_horizontal_legend_group(
+    lines: List[str],
+    x: int,
+    y: int,
+    width: int,
+    title: str,
+    rows: Sequence[Tuple[str, Optional[str], str]],
+) -> int:
+    if not rows:
+        return y
+
+    font_size = 18
+    wrapped_rows = _measure_horizontal_legend_group(rows, width, font_size=font_size)
+    row_gap = 32
+    top_padding = 22
+    title_h = 22
+    bottom_padding = 18
+    box_h = top_padding + title_h + len(wrapped_rows) * row_gap + bottom_padding
+    title_style = "font-family: Arial, Helvetica, sans-serif; font-size: 18px; font-weight: 800; fill: #282828; letter-spacing: 0"
+    item_style = "font-family: Arial, Helvetica, sans-serif; font-size: 18px; fill: #2d2d2d; letter-spacing: 0"
+
+    lines.append(
+        '<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="6" fill="#000000" opacity="0.12"/>'.format(
+            x=x + 7,
+            y=y + 7,
+            w=width,
+            h=box_h,
+        )
+    )
+    lines.append(
+        '<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="6" fill="#ffffff" fill-opacity="0.98" stroke="#c7c7c7" stroke-width="2"/>'.format(
+            x=x,
+            y=y,
+            w=width,
+            h=box_h,
+        )
+    )
+    lines.append(
+        '<text x="{x}" y="{y}" dominant-baseline="middle" style="{style}">{title}</text>'.format(
+            x=x + 24,
+            y=y + top_padding,
+            style=title_style,
+            title=html.escape(title),
+        )
+    )
+
+    row_y = y + top_padding + title_h + 9
+    for wrapped_row in wrapped_rows:
+        item_x = x + 24
+        for color, dash, text, item_w in wrapped_row:
+            if dash == "shade":
+                lines.append(
+                    '<rect x="{x}" y="{y}" width="64" height="15" fill="{color}" opacity="0.18"/>'.format(
+                        x=item_x,
+                        y=row_y - 8,
+                        color=color,
+                    )
+                )
+            else:
+                dash_attr = ' stroke-dasharray="{dash}"'.format(dash=dash) if dash else ""
+                lines.append(
+                    '<line x1="{x1}" y1="{y}" x2="{x2}" y2="{y}" stroke="{color}" stroke-width="4.5"{dash}/>'.format(
+                        x1=item_x,
+                        x2=item_x + 64,
+                        y=row_y,
+                        color=color,
+                        dash=dash_attr,
+                    )
+                )
+            lines.append(
+                '<text x="{x}" y="{y}" dominant-baseline="middle" style="{style}">{text}</text>'.format(
+                    x=item_x + 80,
+                    y=row_y,
+                    style=item_style,
+                    text=html.escape(text),
+                )
+            )
+            item_x += item_w
+        row_y += row_gap
+
+    return y + box_h
 
 
 def write_roc_pr_svg(
@@ -523,9 +877,53 @@ def write_roc_pr_svg(
     auprc_summary: Dict[str, float],
     pr_prevalence: float,
     color: str = "#2ca02c",
+    roc_legend_position: str = "lower_right",
+    pr_legend_position: str = "lower_right",
 ) -> None:
+    evaluations = [
+        {
+            "label": evaluation_label,
+            "color": color,
+            "dash": None,
+            "roc_mean": roc_mean,
+            "roc_lower": roc_lower,
+            "roc_upper": roc_upper,
+            "pr_mean": pr_mean,
+            "pr_lower": pr_lower,
+            "pr_upper": pr_upper,
+            "auroc": auroc_summary,
+            "auprc": auprc_summary,
+        }
+    ]
+    write_multi_roc_pr_svg(
+        path=path,
+        title=title,
+        subtitle=subtitle,
+        evaluations=evaluations,
+        pr_prevalence=pr_prevalence,
+        roc_legend_position=roc_legend_position,
+        pr_legend_position=pr_legend_position,
+        include_evaluation_labels=False,
+    )
+
+
+def write_multi_roc_pr_svg(
+    path: Path,
+    title: str,
+    subtitle: str,
+    evaluations: Sequence[Dict[str, object]],
+    pr_prevalence: Optional[float],
+    pr_reference_lines: Optional[Sequence[Dict[str, object]]] = None,
+    roc_legend_position: str = "lower_right",
+    pr_legend_position: str = "lower_right",
+    include_evaluation_labels: bool = True,
+) -> None:
+    if not evaluations:
+        raise ValueError("Cannot write ROC/PR SVG without at least one evaluation")
     width = 2200
-    height = 1180
+    roc_legend_position = _normalize_legend_position(roc_legend_position)
+    pr_legend_position = _normalize_legend_position(pr_legend_position)
+    height = 1480 if "below" in {roc_legend_position, pr_legend_position} else 1180
     lines: List[str] = []
     lines.append('<?xml version="1.0" encoding="UTF-8"?>')
     lines.append(
@@ -553,7 +951,38 @@ def write_roc_pr_svg(
         )
     )
 
-    _write_panel(
+    roc_series = [
+        {
+            "color": item["color"],
+            "dash": item.get("dash"),
+            "mean_points": item["roc_mean"],
+            "lower_points": item["roc_lower"],
+            "upper_points": item["roc_upper"],
+            "legend_text": _legend_metric_label(
+                "AUROC",
+                item["auroc"],  # type: ignore[arg-type]
+                str(item["label"]) if include_evaluation_labels else None,
+            ),
+        }
+        for item in evaluations
+    ]
+    pr_series = [
+        {
+            "color": item["color"],
+            "dash": item.get("dash"),
+            "mean_points": item["pr_mean"],
+            "lower_points": item["pr_lower"],
+            "upper_points": item["pr_upper"],
+            "legend_text": _legend_metric_label(
+                "AUPRC",
+                item["auprc"],  # type: ignore[arg-type]
+                str(item["label"]) if include_evaluation_labels else None,
+            ),
+        }
+        for item in evaluations
+    ]
+
+    roc_legend_rows = _write_panel(
         lines,
         panel_x=150,
         panel_y=195,
@@ -562,14 +991,11 @@ def write_roc_pr_svg(
         title="ROC Curve",
         x_label="False Positive Rate (1 - Specificity)",
         y_label="True Positive Rate (Sensitivity)",
-        mean_points=roc_mean,
-        lower_points=roc_lower,
-        upper_points=roc_upper,
-        color=color,
-        metric_label_text=_legend_metric_label(evaluation_label, "AUROC", auroc_summary),
+        series=roc_series,
         chance_kind="roc",
+        legend_position=roc_legend_position,
     )
-    _write_panel(
+    pr_legend_rows = _write_panel(
         lines,
         panel_x=1230,
         panel_y=195,
@@ -578,14 +1004,32 @@ def write_roc_pr_svg(
         title="Precision-Recall Curve",
         x_label="Recall (Sensitivity)",
         y_label="Precision (PPV)",
-        mean_points=pr_mean,
-        lower_points=pr_lower,
-        upper_points=pr_upper,
-        color=color,
-        metric_label_text=_legend_metric_label(evaluation_label, "AUPRC", auprc_summary),
+        series=pr_series,
         chance_kind="pr",
+        legend_position=pr_legend_position,
         chance_value=pr_prevalence,
+        reference_lines=pr_reference_lines,
     )
+
+    legend_y = 1098
+    if roc_legend_position == "below":
+        _draw_horizontal_legend_group(
+            lines,
+            x=150,
+            y=legend_y,
+            width=820,
+            title="ROC legend",
+            rows=roc_legend_rows,
+        )
+    if pr_legend_position == "below":
+        _draw_horizontal_legend_group(
+            lines,
+            x=1230,
+            y=legend_y,
+            width=820,
+            title="Precision-Recall legend",
+            rows=pr_legend_rows,
+        )
 
     lines.append("</svg>")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -608,6 +1052,8 @@ def plot_single_evaluation_roc_pr(
     output_svg: Path,
     grid_size: int = 201,
     color: str = "#2ca02c",
+    roc_legend_position: str = "lower_right",
+    pr_legend_position: str = "lower_right",
     show: bool = True,
 ) -> Dict[str, object]:
     """Write and optionally display one ROC/PR figure for one evaluation run.
@@ -662,6 +1108,8 @@ def plot_single_evaluation_roc_pr(
         auprc_summary=auprc,
         pr_prevalence=pr_prevalence,
         color=color,
+        roc_legend_position=roc_legend_position,
+        pr_legend_position=pr_legend_position,
     )
     if show:
         display_svg(output_svg)
@@ -681,6 +1129,149 @@ def plot_single_evaluation_roc_pr(
     }
 
 
+def _mean_curve_result(curve: MeanMetricCurves) -> Dict[str, object]:
+    return {
+        "label": curve.label,
+        "folds": [fold.fold for fold in curve.folds],
+        "prediction_csvs_by_fold": {str(fold.fold): str(fold.prediction_csv) for fold in curve.folds},
+        "auroc": curve.auroc,
+        "auprc": curve.auprc,
+        "prevalence": curve.pr_prevalence,
+        "n_samples_total": sum(fold.n_samples for fold in curve.folds),
+        "n_positive_total": sum(fold.n_positive for fold in curve.folds),
+        "n_negative_total": sum(fold.n_negative for fold in curve.folds),
+    }
+
+
+def plot_selected_run_roots_roc_pr(
+    run_roots_by_fold: Dict[int, Path],
+    *relative_prediction_csv: str,
+    evaluation_label: str,
+    title: str,
+    subtitle: str,
+    lines_to_show: Sequence[str],
+    source_run_root: Optional[Path] = None,
+    zero_shot_reference_roots_by_fold: Optional[Dict[int, Path]] = None,
+    output_svg: Optional[Path] = None,
+    output_filename: Optional[str] = None,
+    grid_size: int = 201,
+    roc_legend_position: str = "lower_right",
+    pr_legend_position: str = "lower_right",
+    show: bool = True,
+) -> Dict[str, object]:
+    if output_svg is None:
+        filename = output_filename or "{0}_roc_pr_mean_ci.svg".format(filename_slug(evaluation_label))
+        output_svg = default_curve_output_svg(run_roots_by_fold, filename)
+
+    grid_size = max(int(grid_size), 2)
+    grid = [index / float(grid_size - 1) for index in range(grid_size)]
+    selected = _normalize_lines_to_show(lines_to_show)
+    show_prevalence = "prevalence" in selected
+    curves: List[MeanMetricCurves] = []
+    plotted_keys: List[str] = []
+    skipped_lines: List[str] = []
+
+    for key in selected:
+        if key == "prevalence":
+            continue
+        label, color, dash = CURVE_LINE_OPTIONS[key]
+        if key == "source":
+            csvs = _existing_source_prediction_csvs(source_run_root)
+        elif key == "zero_shot_sa":
+            csvs = _existing_prediction_csvs_from_roots(
+                run_roots_by_fold,
+                ("results", "source_zero_shot", "source_zero_shot_patient_predictions.csv"),
+                fallback_roots_by_fold=zero_shot_reference_roots_by_fold,
+            )
+        elif key == "finetuned_sa":
+            csvs = _existing_prediction_csvs_from_roots(run_roots_by_fold, relative_prediction_csv)
+        elif key == "source_retention":
+            csvs = _existing_prediction_csvs_from_roots(
+                run_roots_by_fold,
+                ("results", "source_test_evaluation", "finetuned_source_test_patient_predictions.csv"),
+            )
+        else:  # pragma: no cover - _normalize_lines_to_show validates this.
+            csvs = None
+
+        if csvs is None:
+            skipped_lines.append(label)
+            continue
+        curves.append(_summarize_prediction_csvs(label, color, dash, csvs, grid))
+        plotted_keys.append(key)
+
+    if not curves:
+        requested = ", ".join(CURVE_LINE_OPTIONS[key][0] for key in selected)
+        raise ValueError(f"None of the requested curve lines had complete prediction CSVs: {requested}")
+
+    pr_reference_lines: List[Dict[str, object]] = []
+    if show_prevalence:
+        prevalence_by_domain: Dict[str, float] = {}
+        for key, curve in zip(plotted_keys, curves):
+            domain = CURVE_LINE_DOMAINS.get(key)
+            if domain is not None and domain not in prevalence_by_domain:
+                prevalence_by_domain[domain] = curve.pr_prevalence
+        for domain, color in (("SA", "#6b7280"), ("Benin", "#374151")):
+            value = prevalence_by_domain.get(domain)
+            if value is None:
+                continue
+            pr_reference_lines.append(
+                {
+                    "label": "{domain} prevalence (AUPRC={value:.2f})".format(domain=domain, value=value),
+                    "value": value,
+                    "color": color,
+                    "dash": "9 7",
+                }
+            )
+        if not pr_reference_lines:
+            skipped_lines.append("Prevalence")
+    svg_evaluations = [
+        {
+            "label": curve.label,
+            "color": curve.color,
+            "dash": curve.dash,
+            "roc_mean": curve.roc_mean,
+            "roc_lower": curve.roc_lower,
+            "roc_upper": curve.roc_upper,
+            "pr_mean": curve.pr_mean,
+            "pr_lower": curve.pr_lower,
+            "pr_upper": curve.pr_upper,
+            "auroc": curve.auroc,
+            "auprc": curve.auprc,
+        }
+        for curve in curves
+    ]
+
+    output_svg = Path(output_svg)
+    write_multi_roc_pr_svg(
+        output_svg,
+        title=title,
+        subtitle=subtitle,
+        evaluations=svg_evaluations,
+        pr_prevalence=None,
+        pr_reference_lines=pr_reference_lines,
+        roc_legend_position=roc_legend_position,
+        pr_legend_position=pr_legend_position,
+        include_evaluation_labels=True,
+    )
+    if show:
+        display_svg(output_svg)
+
+    results_by_label = {curve.label: _mean_curve_result(curve) for curve in curves}
+    primary_curve = next((curve for curve in curves if curve.label == "Finetuned SA"), curves[0])
+    return {
+        "output_svg": str(output_svg),
+        "evaluation_label": evaluation_label,
+        "lines_to_show": [CURVE_LINE_OPTIONS[key][0] for key in selected],
+        "plotted_lines": [curve.label for curve in curves],
+        "prevalence_lines": [str(item["label"]) for item in pr_reference_lines],
+        "skipped_lines": skipped_lines,
+        "evaluations": results_by_label,
+        "auroc": primary_curve.auroc,
+        "auprc": primary_curve.auprc,
+        "prevalence": primary_curve.pr_prevalence,
+    }
+
+
 def filename_slug(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").lower()
     return slug or "metric_curve"
@@ -692,12 +1283,35 @@ def plot_run_roots_roc_pr(
     evaluation_label: str,
     title: str,
     subtitle: str,
+    lines_to_show: Optional[Sequence[str]] = None,
+    source_run_root: Optional[Path] = None,
+    zero_shot_reference_roots_by_fold: Optional[Dict[int, Path]] = None,
     output_svg: Optional[Path] = None,
     output_filename: Optional[str] = None,
     grid_size: int = 201,
     color: str = "#2ca02c",
+    roc_legend_position: str = "lower_right",
+    pr_legend_position: str = "lower_right",
     show: bool = True,
 ) -> Dict[str, object]:
+    if lines_to_show is not None:
+        return plot_selected_run_roots_roc_pr(
+            run_roots_by_fold,
+            *relative_prediction_csv,
+            evaluation_label=evaluation_label,
+            title=title,
+            subtitle=subtitle,
+            lines_to_show=lines_to_show,
+            source_run_root=source_run_root,
+            zero_shot_reference_roots_by_fold=zero_shot_reference_roots_by_fold,
+            output_svg=output_svg,
+            output_filename=output_filename,
+            grid_size=grid_size,
+            roc_legend_position=roc_legend_position,
+            pr_legend_position=pr_legend_position,
+            show=show,
+        )
+
     if output_svg is None:
         filename = output_filename or "{0}_roc_pr_mean_ci.svg".format(filename_slug(evaluation_label))
         output_svg = default_curve_output_svg(run_roots_by_fold, filename)
@@ -709,6 +1323,8 @@ def plot_run_roots_roc_pr(
         output_svg=output_svg,
         grid_size=grid_size,
         color=color,
+        roc_legend_position=roc_legend_position,
+        pr_legend_position=pr_legend_position,
         show=show,
     )
 
@@ -721,6 +1337,8 @@ def plot_source_run_roc_pr(
     output_svg: Optional[Path] = None,
     grid_size: int = 201,
     color: str = "#2ca02c",
+    roc_legend_position: str = "lower_right",
+    pr_legend_position: str = "lower_right",
     show: bool = True,
 ) -> Dict[str, object]:
     source_run_root = Path(source_run_root)
@@ -734,5 +1352,7 @@ def plot_source_run_roc_pr(
         output_svg=output_svg,
         grid_size=grid_size,
         color=color,
+        roc_legend_position=roc_legend_position,
+        pr_legend_position=pr_legend_position,
         show=show,
     )
