@@ -23,6 +23,21 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tupl
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRATCH_ROOT = Path("/capstor/scratch/cscs/lxflk/ULTR-AI-Vid")
 
+REPORT_METRIC_LABELS = [
+    "TB positive",
+    "HIV positive",
+    "Prior TB",
+    "Underweight BMI <18.5",
+    "Low SpO2 <95%",
+    "Resp. rate >=24/min",
+    "A-lines anywhere",
+    "Large consolidation anywhere",
+    "Pleural effusion anywhere",
+    "Other pathology anywhere",
+    "Unknown or non-standard site",
+    "Depth other than 5 or 15 cm",
+]
+
 
 class Metric:
     def __init__(
@@ -273,6 +288,13 @@ def metric_dict(metric: Metric) -> Dict[str, object]:
     }
 
 
+def select_metrics(metrics: Sequence[Metric], profile: str) -> List[Metric]:
+    if profile == "full":
+        return list(metrics)
+    wanted = set(REPORT_METRIC_LABELS)
+    return [metric for metric in metrics if metric.label in wanted]
+
+
 def add_metric(
     metrics: List[Metric],
     group: str,
@@ -453,14 +475,14 @@ def build_metrics(
     add_metric(
         metrics,
         "Acquisition / protocol",
-        "Unknown / non-standard site",
+        "Unknown or non-standard site",
         file_row_binary(benin_file_rows, lambda row: clean(row.get("Site")).upper().startswith("UNKNOWN") or clean(row.get("Site")) == ""),
         file_row_binary(sa_file_rows, lambda row: clean(row.get("Site")).upper().startswith("UNKNOWN") or clean(row.get("Site")) == ""),
     )
     add_metric(
         metrics,
         "Acquisition / protocol",
-        "Depth not 5 or 15 cm",
+        "Depth other than 5 or 15 cm",
         file_row_binary(benin_file_rows, lambda row: (parse_intish(row.get("Depth")) not in {5, 15}) if parse_intish(row.get("Depth")) is not None else None),
         file_row_binary(sa_file_rows, lambda row: (parse_intish(row.get("Depth")) not in {5, 15}) if parse_intish(row.get("Depth")) is not None else None),
         "Depth is a proxy for image scale/field-of-view differences.",
@@ -513,15 +535,21 @@ def svg_value_text(x: float, y: float, text: str, size: int, color: str, anchor:
     )
 
 
-def render_svg(metrics: Sequence[Metric], output_path: Path) -> None:
+def render_svg(
+    metrics: Sequence[Metric],
+    output_path: Path,
+    title: str,
+    subtitle: str,
+    compact: bool = False,
+) -> None:
     width = 1680
     left = 455
     right = 1360
     diff_x = right + 90
-    top = 150
-    row_h = 54
-    group_h = 42
-    bottom = 80
+    top = 140 if compact else 150
+    row_h = 48 if compact else 54
+    group_h = 38 if compact else 42
+    bottom = 72 if compact else 80
     benin_color = "#58B8AA"
     sa_color = "#E8C83F"
     line_color = "#B7C2C7"
@@ -564,8 +592,8 @@ def render_svg(metrics: Sequence[Metric], output_path: Path) -> None:
     parts: List[str] = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="white"/>',
-        svg_text(60, 54, "Benin vs South Africa: cohort and acquisition shift", 34, text_color, "700"),
-        svg_text(60, 88, "All rows are percentages; dots show cohort values and connectors show the direction of shift.", 20, "#5B6770"),
+        svg_text(60, 50, title, 30 if compact else 34, text_color, "700"),
+        svg_text(60, 82, subtitle, 18 if compact else 20, "#5B6770"),
     ]
 
     legend_y = 58
@@ -662,6 +690,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benin-files", type=Path, default=REPO_ROOT / "Data/processed_files_2.csv")
     parser.add_argument("--sa-files", type=Path, default=Path("/capstor/scratch/cscs/tbrokowski/ultr-ai/RSA_Videos/cleaned/processed_files.csv"))
     parser.add_argument("--output-dir", type=Path, default=SCRATCH_ROOT / "runs/cohort_shift_overview/benin_vs_sa")
+    parser.add_argument("--profile", choices=("full", "report"), default="full")
+    parser.add_argument("--stem", default="cohort_shift_dashboard", help="Output filename stem.")
+    parser.add_argument("--title", default=None, help="Figure title override.")
+    parser.add_argument("--subtitle", default=None, help="Figure subtitle override.")
     parser.add_argument("--no-png", action="store_true", help="Only write SVG and summary files.")
     return parser.parse_args()
 
@@ -699,14 +731,29 @@ def main() -> None:
         benin_file_rows=benin_file_rows,
         sa_file_rows=sa_file_rows,
     )
+    metrics = select_metrics(metrics, args.profile)
 
-    svg_path = args.output_dir / "cohort_shift_dashboard.svg"
-    png_path = args.output_dir / "cohort_shift_dashboard.png"
-    metrics_csv_path = args.output_dir / "cohort_shift_metrics.csv"
-    summary_json_path = args.output_dir / "cohort_shift_summary.json"
+    svg_path = args.output_dir / f"{args.stem}.svg"
+    png_path = args.output_dir / f"{args.stem}.png"
+    metrics_csv_path = args.output_dir / f"{args.stem}_metrics.csv"
+    summary_json_path = args.output_dir / f"{args.stem}_summary.json"
     manifest_path = args.output_dir / "manifest.json"
 
-    render_svg(metrics, svg_path)
+    if args.title is None and args.profile == "report":
+        title = "Benin and South Africa differed in cohort and acquisition characteristics"
+    elif args.title is None:
+        title = "Benin vs South Africa: cohort and acquisition shift"
+    else:
+        title = args.title
+
+    if args.subtitle is None and args.profile == "report":
+        subtitle = "Dots show percentages; patient/pathology rows use patient denominators and protocol rows use file-row denominators."
+    elif args.subtitle is None:
+        subtitle = "All rows are percentages; dots show cohort values and connectors show the direction of shift."
+    else:
+        subtitle = args.subtitle
+
+    render_svg(metrics, svg_path, title=title, subtitle=subtitle, compact=args.profile == "report")
     write_metrics_csv(metrics, metrics_csv_path)
 
     png_warning = None

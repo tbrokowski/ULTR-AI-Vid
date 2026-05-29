@@ -24,3 +24,14 @@ All plotted variables are percentages so they can be shown on one common axis.
 Continuous variables are represented by clinically interpretable thresholds,
 for example BMI `<18.5` and SpO2 `<95%`.
 
+For the domain-adaptation report figure, use the compact report profile:
+
+```bash
+python3 ultrai/analysis/cohort_shift/cohort_shift_overview.py \
+  --profile report \
+  --stem 04fig_cohort_shift \
+  --output-dir /users/lxflk/domain-adaption-report/figures/cohort_shift
+```
+
+This profile omits lower-priority rows and writes report-ready SVG, PNG, and
+CSV outputs using the same underlying cohort-shift calculations.
