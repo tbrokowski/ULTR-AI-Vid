@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+
+# Local credentials and authenticated browser/client state.
+.env
+.env.*
+!.env.example
+**/storage-state*.json
+**/credentials*.json
+**/secrets*.json
+**/*token*.txt
+**/*password*.txt
+**/*.secret
+**/.cache/huggingface/
+
+# Protected Butterfly inventories, manifests, staging, and raw ultrasound media.
+Data/**/fash-data/
+Data/**/inventories/
+Data/**/protected/
+Data/**/*inventory*.jsonl
+Data/**/selection*.jsonl
+Data/**/download-manifest.jsonl
+Data/**/raw-shards/
+Data/**/hf-staging/
+Data/**/studies/
+Data/**/*.avi
+Data/**/*.dcm
+Data/**/*.jpeg
+Data/**/*.jpg
+Data/**/*.mkv
+Data/**/*.mov
+Data/**/*.mp4
+Data/**/*.png
+Data/**/*.webm
