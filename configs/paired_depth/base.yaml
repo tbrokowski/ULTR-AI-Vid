@@ -1,0 +1,43 @@
+source_config: configs/cscs/train.yaml
+manifest: /scratch/users/falke/benin-paired-depth-dann/artifacts/data/manifest.json
+videos: /benin/datasets/ULTR-AI/LusBeninVideos
+frame_cache: /scratch/users/falke/benin-paired-depth-dann/artifacts/frames32
+output: /scratch/users/falke/benin-paired-depth-dann/artifacts/runs/source15-p0-s42
+partition: 0
+seed: 42
+device: cuda
+training_view: all15
+source_checkpoint: null
+freeze_backbone: false
+# Original effective source batch: 2 x 35 accumulation x 4 GPUs = 280 patients.
+# Microbatch 1 makes all eligible sites fit; optimizer batch remains 280.
+batch_size: 1
+effective_batch_size: 280
+epochs: 200
+early_stopping_patience: 50
+max_hours: 10
+frames: 32
+size: 224
+amp: true
+gradient_checkpointing: true
+checkpoint_interval_seconds: 600
+domain_learning_rate: 0.0001
+losses:
+  scan_domain: 0.0
+  patient_domain: 0.0
+  feature: 0.0
+  prediction: 0.0
+  grl_max: 1.0
+  conditioning: false
+  class_balance: false
+styles:
+  gain: false
+  speckle: false
+  resampling: false
+  fourier: false
+  fourier_fraction: 0.05
+  fourier_blend: 0.5
+prevalence_stress:
+  enabled: false
+  five_positive_keep: 0.5
+  fifteen_negative_keep: 0.5

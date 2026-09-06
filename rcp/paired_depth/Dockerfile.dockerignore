@@ -1,0 +1,13 @@
+**
+!ultrai/
+!ultrai/**
+!NetworkArchitecture/
+!NetworkArchitecture/**
+!configs/
+!configs/**
+!rcp/
+!rcp/paired_depth/
+!rcp/paired_depth/**
+**/__pycache__/**
+**/*.pt
+**/*.pth

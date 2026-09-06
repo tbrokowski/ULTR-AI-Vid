@@ -1,0 +1,29 @@
+# Frozen search space. Never expand using the common test cohort.
+dataset_revision: 12cd0de88e25f39adf279e0105b8cdaf138593b4
+base_commit: dba7e2d4b9318df8662fc2eeef8437d1b772beb0
+partitions: [0, 1, 2, 3, 4]
+seeds: [42, 43, 44]
+budget:
+  total_gpu_hours: 200
+  final_evaluation_reserve: 20
+  maximum_concurrent_gpus: 3
+  source_run_max_hours: 10
+  adaptation_run_max_hours: 3
+selection:
+  partition: 0
+  seed: 42
+  metric: matched5_auroc
+  retention_constraint: -0.01
+  tie_breaker: fewer_components
+  # Exactly these additional weight pairs beyond the six primary comparisons.
+  weight_grid:
+    - {adversarial: 0.01, feature: 0.1, prediction: 0.1}
+    - {adversarial: 0.05, feature: 0.1, prediction: 0.1}
+    - {adversarial: 0.01, feature: 0.5, prediction: 0.1}
+experiments:
+  source15: {training_view: all15, source_checkpoint: null, freeze_backbone: false}
+  both_supervised: {training_view: paired, scan_domain: 0, patient_domain: 0, feature: 0, prediction: 0}
+  consistency: {training_view: paired, scan_domain: 0, patient_domain: 0, feature: 0.1, prediction: 0.1}
+  dann: {training_view: paired, scan_domain: 0.01, patient_domain: 0.01, feature: 0.1, prediction: 0.1}
+  conditional: {training_view: paired, scan_domain: 0.01, patient_domain: 0.01, feature: 0.1, prediction: 0.1, conditioning: true, class_balance: true}
+  full: {training_view: paired, scan_domain: 0.01, patient_domain: 0.01, feature: 0.1, prediction: 0.1, conditioning: true, class_balance: true, styles: {gain: true, speckle: true, resampling: true, fourier: true}}
