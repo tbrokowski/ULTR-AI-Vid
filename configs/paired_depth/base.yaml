@@ -1,8 +1,9 @@
 source_config: configs/cscs/train.yaml
-manifest: /scratch/users/falke/benin-paired-depth-dann/artifacts/data/manifest.json
-videos: /benin/datasets/ULTR-AI/LusBeninVideos
-frame_cache: /scratch/users/falke/benin-paired-depth-dann/artifacts/frames32
-output: /scratch/users/falke/benin-paired-depth-dann/artifacts/runs/source15-p0-s42
+# Override paths with scripts.paired_depth.experiments configure before training.
+manifest: artifacts/data/manifest.json
+videos: artifacts/videos
+frame_cache: null
+output: artifacts/runs/source-p0-s42
 partition: 0
 seed: 42
 device: cuda
@@ -19,6 +20,7 @@ max_hours: 10
 frames: 32
 size: 224
 amp: true
+amp_initial_scale: 1024.0
 gradient_checkpointing: true
 checkpoint_interval_seconds: 600
 domain_learning_rate: 0.0001

@@ -1,4 +1,4 @@
-"""Render the aggregate Markdown handover to PDF (reportlab 4.4+)."""
+"""Render a Markdown method handover to PDF (reportlab 4.4+)."""
 import argparse
 import html
 from pathlib import Path
@@ -9,15 +9,14 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, Preformatted
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, PageBreak
 
 
 def render(markdown, output):
     source_text = Path(markdown).read_text()
-    status = "Research results pending" if "No completed, frozen-test Benin results" in source_text else "Completed analysis"
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle("Body", fontName="Helvetica", fontSize=9.4, leading=13.5, spaceAfter=7,
-                             textColor=colors.HexColor("#233047")))
+                             textColor=colors.HexColor("#233047"), allowWidows=0, allowOrphans=0))
     styles.add(ParagraphStyle("SmallCell", parent=styles["Body"], fontSize=8.0, leading=10.4, spaceAfter=0))
     styles.add(ParagraphStyle("Section", parent=styles["Heading2"], fontSize=12, leading=16, spaceBefore=12,
                              spaceAfter=7, textColor=colors.HexColor("#163d59")))
@@ -44,8 +43,7 @@ def render(markdown, output):
                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
                                    ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.HexColor("#9db1c0")),
                                    ("LINEBELOW", (0, 1), (-1, -1), 0.4, colors.HexColor("#d9e1e7"))]))
-            story.append(t)
-            story.append(Spacer(1, 8))
+            story.append(KeepTogether([t, Spacer(1, 8)]))
             table.clear()
     for line in source_text.splitlines():
         if line.startswith("```"):
@@ -60,10 +58,13 @@ def render(markdown, output):
             continue
         if code is not None:
             code.append(line)
+        elif line.strip() == "<!-- pagebreak -->":
+            flush()
+            story.append(PageBreak())
         elif line.startswith("# "):
             flush()
             story.append(Paragraph(inline(line[2:]), styles["Title"]))
-            story.append(Paragraph("6 September 2026 | Internship handover | " + status, styles["Body"]))
+            story.append(Paragraph("Method and reproduction protocol", styles["Body"]))
         elif line.startswith("## "):
             flush()
             story.append(Paragraph(inline(line[3:]), styles["Section"]))
@@ -82,10 +83,10 @@ def render(markdown, output):
         canvas.line(48, 38, A4[0] - 48, 38)
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.HexColor("#5b6779"))
-        canvas.drawString(48, 25, "Benin paired-depth DANN | Aggregate information only")
+        canvas.drawString(48, 25, "Benin paired-depth training | Method handover")
         canvas.drawRightString(A4[0] - 48, 25, str(doc.page))
     doc = SimpleDocTemplate(str(output), pagesize=A4, leftMargin=48, rightMargin=48, topMargin=42, bottomMargin=52,
-                            title="Benin paired-depth adaptation: internship handover", author="Luis Falke")
+                            title="Benin paired-depth training: method handover", author="")
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
 
 

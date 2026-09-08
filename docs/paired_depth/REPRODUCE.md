@@ -1,261 +1,267 @@
-# Benin-only paired-depth DANN
+# Reproducing Benin paired-depth training
 
-This entrypoint is separate from the existing SA DANN trainer. Existing commands
-and model state-dict keys remain unchanged. This study uses supervised Benin TB
-and pathology labels at both depths. It does not evaluate South Africa.
+Run these commands from the repository root on a Linux NVIDIA GPU machine or
+inside a cluster job. No RCP account or scheduler is required. See [the method](REPORT.md)
+for the architecture and [optional RCP execution](../../rcp/paired_depth/README.md)
+for that deployment route.
 
-## Current verified status
+## 1. Environment
 
-- Base commit: `dba7e2d4b9318df8662fc2eeef8437d1b772beb0`.
-- Dataset revision: `12cd0de88e25f39adf279e0105b8cdaf138593b4`.
-- Existing RCP videos: 9,995; 8,087,878,316 bytes; all fully decoded successfully.
-- Mixed image/video metadata matching groups: 6,015.
-- Available labeled pairs before conflict checks: 2,807 across 470 patients.
-- After excluding unresolved acquisition metadata conflicts: 2,774 pairs across
-  467 patients. The matched test cohort has 563 pairs across 94 patients.
-- The five patient split files share one 101-patient test cohort. Report these as
-  training/validation partitions, never independent test folds.
-- Private HF authentication and revision hash verification are still required
-  before research training. No new scientific AUROC/AP result is claimed.
-
-## Environment and access
-
-Connect the EPFL VPN and authenticate Run:AI on `jumphost.rcp.epfl.ch`. The current
-verified SSH route is:
+Use Python 3.11, PyTorch 2.8.0, torchvision 0.23.0 and CUDA 12.6 wheels. The
+[official PyTorch instructions](https://pytorch.org/get-started/previous-versions/#v2-8-0)
+document this wheel combination. Supporting dependencies are pinned in
+`requirements/paired-depth-support.lock`. A compatible NVIDIA driver is required.
 
 ```bash
-ssh -o HostName=10.92.14.13 -o HostKeyAlias=haas001.rcp.epfl.ch \
-  -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no rcp
-runai login
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements/paired-depth-cu126.txt
+python -m pip check
+python -m ultrai.paired_depth --help
+python -m pytest tests/paired_depth -q
 ```
 
-The IP is an observed September 6, 2026 route, not a permanent DNS replacement.
-The known host key was verified; do not disable SSH host-key verification.
+Use one GPU per process, with enough memory for every eligible scan in a patient
+bag. Microbatch one preserves the effective optimizer batch through accumulation.
+Keep sites and frame counts matched across comparison arms.
 
-The study uses project `light-falke`, namespace `runai-light-falke`. Jumphost
-storage is `/mnt/light/scratch/users/falke/benin-paired-depth-dann`; the corresponding
-container directory is `/scratch/users/falke/benin-paired-depth-dann`. Write only
-within that directory. Benin input is mounted read-only at
-`/benin/datasets/ULTR-AI/LusBeninVideos`.
+The optional digest-pinned container works without RCP:
 
-`rcp/paired_depth/job.py` renders a supported `TrainingWorkload` with the existing
-`light-scratch` PVC. This cluster disallows direct NFS volumes and direct user
-creation of `RunaiJob` objects. Its workload schema does not support PVC subpaths;
-the PVC has separate read-only input and writable scratch mounts. The writable
-mount exposes LIGHT scratch, but study commands write only in the user's isolated
-directory. The container starts in `/tmp` and then changes directory after UID/GID
-setup to avoid NFS root-squash startup failures. Verify the rendered pod's `/benin`
-volume mount has `readOnly: true`.
-
-Runtime image:
-
-```text
-pytorch/pytorch@sha256:dab81780fd94483b67b4b5679cc0024939b08e48540d39476d284cb29002ed69
+```bash
+docker build -f rcp/paired_depth/Dockerfile -t benin-paired-depth:torch2.8-cu126 .
+docker run --rm --gpus all benin-paired-depth:torch2.8-cu126 --help
 ```
 
-This contains Python 3.11.13, PyTorch 2.8.0+cu126, torchvision 0.23.0+cu126 and
-CUDA 12.6. Supporting dependencies are fully version-locked in
-`rcp/paired_depth/support.lock`; each run additionally saves the installed package
-versions. `rcp/paired_depth/setup.sh` creates a private scratch virtual environment.
-The CLIP revision is pinned to `3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268`.
-GPU compatibility is checked with an actual forward/backward before using a pool.
-The A100 40 GB and V100 32 GB checks passed. Do not use the historical NVIDIA
-25.08 image for V100.
+Mount input data read-only and a separate writable study directory. Generate
+configurations using paths visible inside the container and keep mounts stable.
+Mount metadata and splits for preparation: the image excludes `Data/` and patient
+outputs. Docker is optional; the Python commands below work directly in the venv.
 
-For a standalone image, build with
-`docker build -f rcp/paired_depth/Dockerfile -t benin-paired-depth:torch2.8-cu126 .`.
-The Dockerfile-specific ignore file excludes clinical data, predictions and weights
-from the build context. On RCP the equivalent pinned base plus scratch environment
-was used, avoiding a new container registry dependency.
+## 2. Paths and access
 
-## Inventory, manifest, and decoding
+Replace these examples with absolute paths on your machine. Keep the study directory
+outside the checkout and on storage appropriate for patient data.
 
-Authenticate HF with a read token that can access the private dataset. Keep the
-token out of scripts, Git, logs and job arguments. On the jumphost the prepared CLI
-is `/mnt/light/scratch/users/falke/benin-paired-depth-dann/env/hf/bin/hf`.
+```bash
+umask 077
+export BENIN_STUDY_ROOT=/absolute/path/to/benin-study
+export BENIN_EXISTING_VIDEOS=/absolute/path/to/existing/BeninVideos
+export BENIN_METADATA=/absolute/path/to/processed_files_2.csv
+export BENIN_LABELS=/absolute/path/to/labels_multidiagnosis.csv
+export BENIN_SPLITS=/absolute/path/to/test_files
+mkdir -p "$BENIN_STUDY_ROOT/artifacts"
+hf auth login
+```
 
-Inside the prepared runtime, from the repository root:
+Use a read token authorized for `TrustBeninVideos/Trust-Benin-Videos`. The pinned
+dataset revision is `12cd0de88e25f39adf279e0105b8cdaf138593b4`. Use Hugging Face's
+credential store; do not put tokens in configurations or command history. CLIP
+downloads from a pinned public revision. Offline setups can set `clip_snapshot`
+to a complete local copy of that revision before training.
+
+| Input | Required structure |
+|---|---|
+| Videos | MP4 files referenced by acquisition metadata and verified against the pinned inventory. |
+| Metadata | Existing `processed_files_2.csv` schema, including original/renamed filenames and depth; see `manifest.py` for parsing. |
+| Labels | Existing `labels_multidiagnosis.csv` schema with patient TB labels and site pathology columns; missing pathology is masked. |
+| Splits | `Fold_0.csv` through `Fold_4.csv`, with `train_ids`, `valid_ids`, `test_ids`. Nonempty, patient-disjoint partitions sharing the same test cohort. |
+
+The preparation CLI also has defaults for the repository's original `Data/` paths.
+Explicit paths make input provenance and deployment clearer.
+
+## 3. Verify and prepare
 
 ```bash
 python -m ultrai.paired_depth inventory \
-  --output /scratch/users/falke/benin-paired-depth-dann/artifacts/hf-inventory.json
-python -m ultrai.paired_depth prepare \
-  --videos /benin/datasets/ULTR-AI/LusBeninVideos \
-  --inventory /scratch/users/falke/benin-paired-depth-dann/artifacts/hf-inventory.json \
-  --output /scratch/users/falke/benin-paired-depth-dann/artifacts/data \
-  --workers 8
-```
-
-The first command can also run on the authenticated jumphost with its `env/hf`
-Python and `PYTHONPATH` set to the study checkout; inventory generation imports no
-PyTorch. Transfer only the resulting inventory JSON to the runtime, not the token.
-The present CPU audit omitted `--inventory`, so its manifest explicitly remains
-unverified and cannot train.
-
-If pinned files are missing, first verify every present file and create an overlay:
-
-```bash
+  --output "$BENIN_STUDY_ROOT/artifacts/hf-inventory.json"
 python -m ultrai.paired_depth.inventory \
-  --existing /benin/datasets/ULTR-AI/LusBeninVideos \
-  --destination /scratch/users/falke/benin-paired-depth-dann/artifacts/videos \
-  --inventory /scratch/users/falke/benin-paired-depth-dann/artifacts/hf-inventory.json
+  --existing "$BENIN_EXISTING_VIDEOS" \
+  --destination "$BENIN_STUDY_ROOT/artifacts/videos" \
+  --inventory "$BENIN_STUDY_ROOT/artifacts/hf-inventory.json"
+export BENIN_VIDEOS="$BENIN_STUDY_ROOT/artifacts/videos"
+python -m ultrai.paired_depth prepare \
+  --metadata "$BENIN_METADATA" --labels "$BENIN_LABELS" \
+  --splits "$BENIN_SPLITS" --videos "$BENIN_VIDEOS" \
+  --inventory "$BENIN_STUDY_ROOT/artifacts/hf-inventory.json" \
+  --output "$BENIN_STUDY_ROOT/artifacts/data" --workers 8
 ```
 
-The overlay links existing verified files and downloads only missing files at the
-pinned revision. Rerun `prepare` on that overlay and set `videos` accordingly.
-Do not rewrite the existing data. Full frame decoding checks truncation as well
-as empty videos. Conflicting original acquisition filenames are excluded even
-when their renamed file keys match. Matching identifiers do not imply temporal
-synchronization.
+The overlay verifies all existing files before downloading missing ones. It links
+verified videos without rewriting originals and rejects conflicting files. An empty
+existing directory can be used for an initial download. Preserve original paths:
+the overlay uses symbolic links.
 
-To avoid repeating video decoding in every epoch, the CPU-only frame cache stores
-the same deterministically resized uint8 pixels, keyed by source video SHA256,
-frame count and image size:
+Preparation decodes every frame, verifies hashes, deduplicates identical metadata,
+excludes unresolved conflicts/corrupt recordings, joins labels and splits, and pairs
+exact depths by patient, anatomical site and recording counter. Inspect `data/summary.json`
+and restricted `audit.json`. A `--skip-decode` manifest cannot train. Matching identifiers
+do not establish synchronized frames.
+
+Optional CPU cache with identical deterministic pixels to video decoding:
 
 ```bash
 python -m ultrai.paired_depth.cache_frames \
-  --manifest /scratch/users/falke/benin-paired-depth-dann/artifacts/data/manifest.json \
-  --videos /benin/datasets/ULTR-AI/LusBeninVideos \
-  --output /scratch/users/falke/benin-paired-depth-dann/artifacts/frames32
+  --manifest "$BENIN_STUDY_ROOT/artifacts/data/manifest.json" \
+  --videos "$BENIN_VIDEOS" \
+  --output "$BENIN_STUDY_ROOT/artifacts/frames32" --workers 8
 ```
 
-This reproducible restricted cache uses approximately 45 GB for the current
-eligible videos and contains no learned statistics. Tests verify exact decoded
-pixel equivalence. The `frame_cache` YAML setting controls its use.
+The resized uint8 cache is keyed by video hash, frame count and image size. It has
+no learned statistics and can exceed compressed video size substantially. Omit
+`--frame-cache` below to decode videos directly.
 
-## Tests and GPU checks
+## 4. Verify the GPU and generate configurations
 
 ```bash
-python -m pytest tests/paired_depth -q
 python -m ultrai.paired_depth.verification \
-  --output /scratch/users/falke/benin-paired-depth-dann/artifacts/verification/a100-40g
+  --output "$BENIN_STUDY_ROOT/artifacts/verification"
+python -m scripts.paired_depth.experiments configure \
+  --root "$BENIN_STUDY_ROOT" --videos "$BENIN_VIDEOS" \
+  --frame-cache "$BENIN_STUDY_ROOT/artifacts/frames32" \
+  --partition 0 --seed 42 --epochs 6
 ```
 
-Tests cover exact depths, identical duplicates, conflicting acquisitions, missing
-and corrupt files, split leakage, pair mappings, padding, training-only donors,
-Fourier phase and temporal consistency, GRL signs, detached conditioning,
-class-frequency weights, nonzero representation gradients, disabled-loss
-equivalence, checkpoint reload, actual-loop signal interruption and exact resume,
-and paired bootstrap behavior. Synthetic overfit/GPU outputs are software checks,
-not research results. Follow them with a two-microbatch real-data smoke run using
-`python -m ultrai.paired_depth smoke --config ...` after revision verification.
+Verification exercises CUDA forward/backward, real HMV-MIL representation gradients,
+synthetic classifier overfit and exact checkpoint prediction regeneration. These
+are software checks, not patient model evaluations.
 
-## Experiment configurations and launch
+Configuration generation writes resolved JSON (valid YAML) in `artifacts/configs`;
+it neither submits jobs nor overwrites files. Comparisons share a source checkpoint,
+six epochs and a frozen CLIP encoder. Source pretraining targets at most 200 epochs,
+stops after 50 non-improving epochs and has a ten-hour process limit. Comparisons
+have a three-hour process limit. Source architecture/settings come from
+`configs/cscs/train.yaml`; study settings and arms are in `configs/paired_depth/`.
 
-The six comparison definitions and the finite weight grid are recorded before
-test access in `configs/paired_depth/study.yaml`. Generate resolved JSON (also
-valid YAML) configurations with:
+For a new protocol, choose an epoch schedule using timing checks before viewing
+comparison validation scores. Keep preprocessing, initialization and update budgets
+matched. Time-limited runs may not finish their schedule: inspect `progress.json`,
+including applied and AMP-skipped updates, and identify under-budget runs explicitly.
+
+## 5. Train and resume
 
 ```bash
-python -m rcp.paired_depth.experiments configure \
-  --output /scratch/users/falke/benin-paired-depth-dann/artifacts/configs \
-  --partition 0 --seed 42 --epochs 20
+python -m ultrai.paired_depth train \
+  --config "$BENIN_STUDY_ROOT/artifacts/configs/source-p0-s42.json"
+for arm in source15 both_supervised consistency dann conditional full grid0 grid1 grid2 stress-dann stress-conditional; do
+  python -m ultrai.paired_depth train \
+    --config "$BENIN_STUDY_ROOT/artifacts/configs/${arm}-p0-s42.json" || break
+done
 ```
 
-The 20-epoch adaptation default must be confirmed or reduced from timing-only
-smoke evidence before examining validation scores, so all comparisons can finish
-with equal training budgets. Source models target the existing 200-epoch schedule,
-bounded by 10 GPU-hours per source run. The evaluation baseline is a 15 cm
-supervised continuation of that same source checkpoint, matched to the adaptation
-stage's updates and frozen backbone. The both-depth supervised baseline shares
-the initialization, normalization and update schedule with the adaptation arms.
+Start comparisons after the source has completed validated epochs and saved
+`best.pt` and `last.pt`. The `source15` comparison is a supervised continuation,
+with the same frozen encoder and budget as adaptation. The source-only checkpoint
+is a separate stage, not the matched comparison baseline.
 
-Each patient bag includes every eligible recording for its view. Source training
-uses all exact 15 cm recordings; paired training uses the matched 5/15 acquisitions.
-All arms use 32 uniformly sampled frames at 224 x 224 and the existing deterministic
-ImageNet normalization. This removes the legacy train/evaluation normalization
-mismatch. Missing pathology labels are masked. No validation or test patient can
-supply a style donor.
+Validation runs after each epoch. Best checkpoints maximize all-site 15 cm AUROC
+for `all15` training and matched 5 cm AUROC for paired training. Test evaluation
+requires a separate explicit command and protocol freeze.
 
-The source retains the architecture, parameter-group learning rates, pathology
-weights and cosine restart schedule from `configs/cscs/train.yaml`. With one GPU,
-microbatch one and accumulation preserve an effective 280-patient batch. Legacy
-pathology, patient, and representation phase gradient routing is retained; the
-four disjoint pathology heads share one forward. All groups step at a common
-accumulation boundary and the partial final batch is normalized by its actual
-size. Representation updates occur each microbatch, fixing the legacy alternating
-backbone update condition that can miss an accumulation boundary. These are
-explicit implementation corrections; the run is not a bitwise replay of the old
-distributed source trainer.
-
-On the jumphost, submit through the budget ledger (not raw `runai submit`):
+Send SIGTERM, SIGINT or SIGUSR1 to interrupt and allow checkpoint-writing time.
+Resume using the original configuration:
 
 ```bash
-python3 /mnt/light/scratch/users/falke/benin-paired-depth-dann/code/rcp/paired_depth/launch.py submit \
-  --name bd-source-p0-s42 --hours 10 --pool a100-40g -- \
-  /scratch/users/falke/benin-paired-depth-dann/env/runtime/bin/python \
-  -m ultrai.paired_depth train \
-  --config /scratch/users/falke/benin-paired-depth-dann/artifacts/configs/source-p0-s42.json
-python3 /mnt/light/scratch/users/falke/benin-paired-depth-dann/code/rcp/paired_depth/launch.py watch
+python -m ultrai.paired_depth train \
+  --config "$BENIN_STUDY_ROOT/artifacts/configs/consistency-p0-s42.json" \
+  --resume "$BENIN_STUDY_ROOT/artifacts/runs/consistency-p0-s42/last.pt"
 ```
 
-The watcher reserves at most 180 GPU-hours for training and retains 20 for final
-evaluation. It meters GPU allocation from scheduling through termination, including
-startup, and enforces at most three study/project GPU allocations. Per-job `timeout`
-also bounds execution independently. The watcher must remain running and CLI
-authentication must remain valid. It never deletes jobs outside this study ledger.
-To resume a stopped run, submit a new job name with the same config and
-`--resume /.../runs/<run>/last.pt`. The model, optimizer, scheduler, AMP scaler,
-accumulated gradients, RNG state, and sampler cursor are restored. Changing the
-resolved config or manifest is an error.
+State includes model/domain heads, optimizer, scheduler, scaler, random generators,
+sampler position, accumulated gradients and elapsed process time. Resumption does
+not grant a new time budget. Loading requires the original code snapshot and exact
+resolved configuration, paths and manifest. Preserve the original software snapshot
+with older checkpoints for exact resumption and evaluation.
 
-Priority: source and six partition-0 comparisons, the predefined grid, selected
-method plus both supervised baselines across partitions 1-4, then extra seeds 43
-and 44 while the cap permits. Run prevalence stress separately for ordinary and
-class-balanced conditional DANN. That stress deterministically retains half the
-positive 5 cm domain examples and half the negative 15 cm domain examples in the
-adversarial stream; TB supervision stays available. Weights use only the resulting
-training-domain counts. This isolates domain-class-prior confounding.
+## 6. Select and replicate
 
-## Freeze and final evaluation
-
-Select on partition 0 validation only:
+After all predefined partition-0 comparisons finish:
 
 ```bash
-python -m rcp.paired_depth.experiments select \
-  --run-root /scratch/users/falke/benin-paired-depth-dann/artifacts/runs \
-  --output /scratch/users/falke/benin-paired-depth-dann/artifacts/selection.json
+python -m scripts.paired_depth.experiments select \
+  --run-root "$BENIN_STUDY_ROOT/artifacts/runs" \
+  --output "$BENIN_STUDY_ROOT/artifacts/selection.json"
 ```
 
-This enforces the 0.01 15 cm validation retention constraint when feasible, then
-maximizes matched-5 cm AUROC, breaking ties by fewer components. If no candidate
-meets retention, that failure is explicit. Incomplete or unequal-epoch comparisons
-cannot win selection. Fix the selected settings for the remaining partitions and
-seeds; do not run a new search on them.
+The fixed rule considers completed candidates, applies a maximum 0.01 ordinary
+15 cm AUROC loss against `source15`, then maximizes matched 5 cm validation AUROC
+with a simpler-component tie break. If none passes retention, the immutable output
+records `retention_constraint_satisfied: false`; that fallback is not a successful
+retention result. Prevalence-stress arms are excluded from selection.
 
-Use `ultrai.paired_depth.reporting.freeze(config_paths, output, selection)` to save
-the resolved configs, validation evidence and exact checkpoint hashes before
-opening the shared test cohort. The freeze file cannot be overwritten. Then:
+Repeat the selected method and both supervised baselines over partitions 1-4, then
+prioritize seeds 43 and 44 across all five partitions. Generate each set with the
+appropriate `--partition` and `--seed`. Train its matching source first. Do not
+reselect on later partitions. If a grid entry is selected, copy its exact loss/style
+settings into new candidate configurations before training; preserve the matching
+source checkpoint and all other settings.
+
+Wrap the same `train` command with SLURM, Kubernetes or another scheduler if needed.
+Request one GPU per process and allow checkpoint time before scheduler termination.
+The trainer limits process time; it does **not** enforce a shared allocation budget
+across independent manual jobs. Study policy is at most three GPUs and 200 allocated
+GPU-hours, reserving 20 hours for final evaluation. Account for setup, failures and
+idle allocations through the scheduler. The optional RCP controller implements this.
+
+## 7. Freeze and evaluate
+
+List every completed configuration for final comparisons across all included
+partitions/seeds. Freeze the full list before test access. This example shows one
+pair; `consistency` here is a command example, not a stated selection outcome:
 
 ```bash
-python -m ultrai.paired_depth freeze --configs /.../run1.json /.../run2.json \
-  --selection /.../selection.json --output /.../frozen-test-protocol.json
+python -m ultrai.paired_depth freeze \
+  --configs "$BENIN_STUDY_ROOT/artifacts/configs/source15-p0-s42.json" \
+            "$BENIN_STUDY_ROOT/artifacts/configs/consistency-p0-s42.json" \
+  --selection "$BENIN_STUDY_ROOT/artifacts/selection.json" \
+  --output "$BENIN_STUDY_ROOT/artifacts/frozen-test-protocol.json"
+for arm in source15 consistency; do
+  python -m ultrai.paired_depth evaluate \
+    --config "$BENIN_STUDY_ROOT/artifacts/configs/${arm}-p0-s42.json" \
+    --checkpoint "$BENIN_STUDY_ROOT/artifacts/runs/${arm}-p0-s42/best.pt" \
+    --split test \
+    --freeze-file "$BENIN_STUDY_ROOT/artifacts/frozen-test-protocol.json" || break
+done
 ```
+
+The freeze records configurations, validation selection/metrics and checkpoint
+hashes. It refuses overwrite and freezing after test predictions already exist.
+Test evaluation rejects a checkpoint absent from the freeze. To verify regeneration
+before test access, evaluate with `--split valid` and no freeze argument; compare
+against a preserved copy of the original predictions/metrics. Keep paths and code
+unchanged.
+
+## 8. Generate separate analysis artifacts
+
+Create a restricted JSON list of `[baseline_run_directory, candidate_run_directory]`
+pairs using absolute paths, one pair per matching partition/seed. Then run:
 
 ```bash
-python -m ultrai.paired_depth evaluate --config /.../config.json \
-  --checkpoint /.../runs/<run>/best.pt --split test \
-  --freeze-file /.../frozen-test-protocol.json
-python -m ultrai.paired_depth.reporting --summary /.../data/summary.json \
-  --comparisons /.../paired-run-directories.json --output /.../aggregate-report
+python -m ultrai.paired_depth.reporting \
+  --summary "$BENIN_STUDY_ROOT/artifacts/data/summary.json" \
+  --comparisons "$BENIN_STUDY_ROOT/artifacts/paired-run-directories.json" \
+  --output "$BENIN_STUDY_ROOT/artifacts/analysis"
 ```
 
-`paired-run-directories.json` is a list of `[baseline_directory, candidate_directory]`
-for matching partitions and seeds. Reporting rejects patient-cohort mismatches;
-it never silently intersects predictions. It jointly bootstraps patients across
-all runs, reports average per-run metrics rather than an ensemble, and separates
-variation across partitions within seeds from variation across seeds within
-partitions. Regenerate metrics from saved checkpoints to verify the report.
+Aggregation requires identical patients and labels across runs within each view;
+it rejects duplicate predictions and unequal cohorts rather than intersecting them.
+It reports patient AUROC/AP, paired differences and 95% intervals from 2,000 joint
+patient-bootstrap samples. Metrics are averaged across runs, not ensembled.
+Partition variation within seeds and seed variation within partitions are separate
+from patient uncertainty. Do not pool differing validation cohorts with this shared-test
+aggregator. An interval including zero makes a difference inconclusive. Report the
+0.01 retention threshold and absolute 15 cm AUROC 0.82 criterion separately.
 
-## Restricted outputs and future SA extension
+## Artifacts and verification boundaries
 
-Keep manifests, acquisition audits, predictions, checkpoints and clinical metadata
-in restricted storage. Commit only source, configuration templates, aggregate
-counts/results and the English report. No report or messages are sent by this
-pipeline.
+Run directories save `resolved_config.json`, `provenance.json`, `executions.json`,
+`training_domain_frequencies.json`, `progress.json`, `history.json`, checkpoints and
+validation outputs. Explicit evaluation adds metrics and prediction files. Preserve
+the complete code snapshot, including uncommitted changes: a commit alone does not
+identify an edited checkout. Keep manifests, predictions, weights, credentials and
+generated analyses outside the handover branch.
 
-Future unlabeled SA data can implement the `PatientBags` input contract with
-`tb_labels = -1` and pathology labels `-1`, a separate target domain, no paired
-indices, and target losses disabled where labels are absent. Its patient split,
-normalization, model selection and label-shift policy require a separate protocol.
-The present CLI deliberately has no SA data path or SA evaluation mode.
+Tests cover exact depths, conflicts, missing/corrupt files, patient separation,
+padding/pairs, donor exclusion, GRL signs, detached conditioning, class weights,
+scan gradients, disabled-loss equivalence, interruption/resumption, AMP recovery
+and joint patient bootstrap behavior. Passing tests verifies these software properties;
+it does not establish training convergence or a performance outcome.

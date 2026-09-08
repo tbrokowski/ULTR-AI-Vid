@@ -5,6 +5,11 @@
 !NetworkArchitecture/**
 !configs/
 !configs/**
+!requirements/
+!requirements/**
+!scripts/
+!scripts/paired_depth/
+!scripts/paired_depth/**
 !rcp/
 !rcp/paired_depth/
 !rcp/paired_depth/**

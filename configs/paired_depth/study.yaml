@@ -21,7 +21,8 @@ selection:
     - {adversarial: 0.05, feature: 0.1, prediction: 0.1}
     - {adversarial: 0.01, feature: 0.5, prediction: 0.1}
 experiments:
-  source15: {training_view: all15, source_checkpoint: null, freeze_backbone: false}
+  # Every comparison continues the matching source with a frozen CLIP encoder.
+  source15: {training_view: all15}
   both_supervised: {training_view: paired, scan_domain: 0, patient_domain: 0, feature: 0, prediction: 0}
   consistency: {training_view: paired, scan_domain: 0, patient_domain: 0, feature: 0.1, prediction: 0.1}
   dann: {training_view: paired, scan_domain: 0.01, patient_domain: 0.01, feature: 0.1, prediction: 0.1}

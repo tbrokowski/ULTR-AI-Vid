@@ -6,9 +6,35 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+import pytest
 
 from ultrai.paired_depth import engine
 from ultrai.paired_depth.data import collate
+
+
+def test_amp_overflow_skips_update_and_recovers():
+    parameter = torch.nn.Parameter(torch.tensor([1.0]))
+    optimizer = torch.optim.SGD([parameter], lr=0.1)
+    scaler = torch.amp.GradScaler("cpu", init_scale=1024.0)
+    scaler.scale(parameter.square().sum()).backward()
+    parameter.grad.fill_(float("inf"))
+    assert not engine.optimizer_step(optimizer, scaler)
+    assert parameter.item() == 1.0
+    assert parameter.grad is None
+    assert scaler.get_scale() == 512.0
+    scaler.scale(parameter.square().sum()).backward()
+    assert engine.optimizer_step(optimizer, scaler)
+    assert parameter.item() < 1.0
+    assert scaler.get_scale() == 512.0
+
+
+def test_nonfinite_full_precision_gradient_fails_without_updating():
+    parameter = torch.nn.Parameter(torch.tensor([1.0]))
+    optimizer = torch.optim.SGD([parameter], lr=0.1)
+    parameter.grad = torch.tensor([float("nan")])
+    with pytest.raises(FloatingPointError, match="without mixed-precision"):
+        engine.optimizer_step(optimizer, torch.amp.GradScaler("cpu", enabled=False))
+    assert parameter.item() == 1.0
 
 
 class LoopModel(torch.nn.Module):

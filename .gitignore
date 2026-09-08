@@ -13,3 +13,13 @@ logs/
 HF_Token.txt
 core
 core.*
+# Generated paired-depth study records stay outside the handover.
+.venv/
+.pytest_cache/
+docs/paired_depth/validation*.json
+docs/paired_depth/STATUS.md
+test_predictions.json
+valid_predictions.json
+aggregate_results.json
+frozen-test-protocol.json
+selection.json

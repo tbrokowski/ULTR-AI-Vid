@@ -5,8 +5,10 @@ reserves each job's upper bound plus startup margin, and checkpoints/stops jobs
 before the study cap. The final 20 GPU-hours cannot be spent on training.
 """
 import argparse
+from contextlib import contextmanager
 import datetime as dt
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -20,10 +22,38 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 ROOT = Path("/mnt/light/scratch/users/falke/benin-paired-depth-dann")
 NAMESPACE = "runai-light-falke"
+CONTROL_DIRECTORY = Path("/var/tmp") / f"benin-paired-depth-dann-{os.getuid()}"
+
+
+@contextmanager
+def controller_lock(name, wait_seconds=30):
+    """Coordinate this study on one jumphost without NFSv3 advisory locks."""
+    namespace = hashlib.sha256(str(ROOT).encode()).hexdigest()[:16]
+    directory = CONTROL_DIRECTORY / namespace
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if directory.stat().st_uid != os.getuid():
+        raise PermissionError("Controller lock directory has a different owner")
+    path = directory / (hashlib.sha256(name.encode()).hexdigest() + ".lock")
+    with path.open("a") as lock:
+        path.chmod(0o600)
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Controller lock busy: {name}")
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def kubectl(*args, stdin=None):
-    return subprocess.check_output(["kubectl", *args, "-n", NAMESPACE], input=stdin, text=True)
+    return subprocess.check_output(["kubectl", "--request-timeout=45s", *args, "-n", NAMESPACE],
+                                   input=stdin, text=True, timeout=60)
 
 
 def save(path, obj):
@@ -69,8 +99,7 @@ def launch(name, command, hours, pool, final=False, gpu=1):
     directory = ROOT / "artifacts" / "scheduler"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "ledger.json"
-    with (directory / "ledger.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with controller_lock("ledger"):
         ledger = json.loads(path.read_text()) if path.exists() else {"cap": 200, "evaluation_reserve": 20, "jobs": []}
         pods = json.loads(kubectl("get", "pods", "-o", "json"))["items"]
         refresh(ledger, pods)
@@ -106,8 +135,7 @@ def watch(once=False):
     directory = ROOT / "artifacts" / "scheduler"
     path = directory / "ledger.json"
     while True:
-        with (directory / "ledger.lock").open("a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with controller_lock("ledger"):
             ledger = json.loads(path.read_text())
             pods = json.loads(kubectl("get", "pods", "-o", "json"))["items"]
             refresh(ledger, pods)

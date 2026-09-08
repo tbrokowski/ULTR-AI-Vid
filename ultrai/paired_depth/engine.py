@@ -123,6 +123,27 @@ def to_device(batch, device):
             "views": {d: {k: v.to(device) for k, v in b.items()} for d, b in batch["views"].items()}}
 
 
+def optimizer_step(optimizer, scaler):
+    """Let AMP skip overflowed updates; reject nonfinite full-precision gradients."""
+    scaler.unscale_(optimizer)
+    parameters = [p for group in optimizer.param_groups for p in group["params"] if p.grad is not None]
+    if not parameters:
+        raise RuntimeError("No gradients reached the optimizer")
+    finite = torch.stack([p.grad.isfinite().all() for p in parameters]).all().item()
+    if finite:
+        torch.nn.utils.clip_grad_norm_(parameters, 1.0, error_if_nonfinite=True)
+    elif not scaler.is_enabled():
+        raise FloatingPointError("Nonfinite gradients without mixed-precision scaling")
+    # unscale_ has recorded overflows, so step skips the update and update lowers
+    # the scale. Do not clip infinite gradients or count a skipped optimizer step.
+    scaler.step(optimizer)
+    scaler.update()
+    optimizer.zero_grad(set_to_none=True)
+    if not finite and scaler.get_scale() < 1:
+        raise FloatingPointError("Nonfinite gradients persist below AMP loss scale 1")
+    return bool(finite)
+
+
 def losses(model, heads, batch, cfg, strength, weights, domain_selection=None):
     outputs, supervised = {}, []
     for depth, inputs in batch["views"].items():
@@ -327,10 +348,11 @@ def _run(args):
                                                          "weights": weights.tolist() if weights is not None else None,
                                                          "keep_rates": domain_selection["keep_rates"]})
     optimizer, scheduler = optimizers(model, heads, source, cfg)
-    scaler = torch.amp.GradScaler(cfg["device"], enabled=cfg["amp"] and cfg["device"] == "cuda")
+    scaler = torch.amp.GradScaler(cfg["device"], enabled=cfg["amp"] and cfg["device"] == "cuda",
+                                 init_scale=float(cfg["amp_initial_scale"]))
     sampler = StatefulOrder(len(train), cfg["seed"])
     progress = {"microsteps": 0, "updates": 0, "accumulated": 0, "best": -1.0, "bad_epochs": 0,
-                "elapsed_seconds": 0.0, "history": [], "status": "running"}
+                "elapsed_seconds": 0.0, "history": [], "status": "running", "amp_skipped_updates": 0}
     if args.resume:
         state = load_checkpoint(args.resume, model, heads, optimizer, scheduler, scaler, sampler, cfg, manifest_hash)
         progress = state["progress"]
@@ -369,14 +391,15 @@ def _run(args):
         progress["microsteps"] += 1
         progress["accumulated"] += len(indices)
         if progress["accumulated"] >= cfg["effective_batch_size"] or sampler.cursor == len(train):
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_([p for group in optimizer.param_groups for p in group["params"]], 1.0, error_if_nonfinite=True)
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad(set_to_none=True)
+            applied = optimizer_step(optimizer, scaler)
             progress["accumulated"] = 0
-            progress["updates"] += 1
-            scheduler.step(sampler.epoch + sampler.cursor / len(train))
+            if applied:
+                progress["updates"] += 1
+                scheduler.step(sampler.epoch + sampler.cursor / len(train))
+            else:
+                progress["amp_skipped_updates"] += 1
+                print(json.dumps({"amp_overflow": True, "loss_scale": scaler.get_scale(),
+                                  "skipped_updates": progress["amp_skipped_updates"]}), flush=True)
         del batch
         if progress["microsteps"] % 10 == 0:
             print(json.dumps({"epoch": sampler.epoch, "patient_cursor": sampler.cursor, "updates": progress["updates"], "loss": details}), flush=True)
@@ -397,7 +420,7 @@ def _run(args):
             print(json.dumps({"completed_epoch": sampler.epoch, "validation": metrics}), flush=True)
         progress["elapsed_seconds"] = prior_seconds + time.monotonic() - started
         budget_stop = progress["elapsed_seconds"] >= cfg["max_hours"] * 3600 - 180
-        smoke_stop = args.stage == "smoke" and progress["microsteps"] >= 2
+        smoke_stop = args.stage == "smoke" and progress["microsteps"] >= 2 and progress["updates"] >= 1
         finished = sampler.epoch >= cfg["epochs"] or progress["bad_epochs"] >= cfg["early_stopping_patience"]
         if stop["requested"] or budget_stop or smoke_stop or finished or time.monotonic() - last_saved >= cfg["checkpoint_interval_seconds"]:
             progress["status"] = "interrupted" if stop["requested"] else "budget_exhausted" if budget_stop else "complete" if finished else "smoke_complete" if smoke_stop else "running"

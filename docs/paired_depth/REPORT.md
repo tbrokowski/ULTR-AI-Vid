@@ -1,50 +1,152 @@
-# Benin paired-depth adaptation: internship handover
+# Benin paired-depth training: method handover
 
-## Study status
+## Purpose and scope
 
-No completed, frozen-test Benin results are available yet. The email's approximately +0.03 AUROC improvement has not been reproduced. No South African evaluation was performed. Twenty software tests and GPU checks on A100 40 GB, V100 32 GB and A100 80 GB passed. Private Hugging Face authentication is needed to finish revision verification before research training.
+This implementation studies sensitivity to acquisition depth using Benin lung
+ultrasound videos recorded at exactly 5 and 15 cm. It retains the existing HMV-MIL
+attention-pooling architecture and provides controlled comparisons of supervision,
+paired consistency, domain adversarial losses and synthetic acquisition styles.
+Available TB and pathology labels are used at both depths: this is supervised
+within-Benin training. South African data are not an input to this workflow.
 
-## Method
+The implementation branches from `dba7e2d4b9318df8662fc2eeef8437d1b772beb0`.
+The separate `ultrai.paired_depth` entrypoint preserves the existing training
+commands and model state-dict names. This handover describes the software and
+protocol; generated research outputs are kept in a separate study directory.
 
-The study uses exact 5 cm and 15 cm Benin ultrasound recordings to learn representations that are less sensitive to acquisition depth. HMV-MIL's existing CLIP ViT-B/32 backbone, attention frame selector, pathology heads, anatomical integration, and patient attention pooling are retained. The source model uses exact 15 cm recordings. Subsequent training uses available TB and pathology labels at both depths, so this is **supervised within-Benin training**.
+## Inputs and patient bags
 
-The ablations add scan-level and patient-level gradient reversal, paired cosine feature consistency, masked pathology and patient prediction consistency, detached TB-prediction conditioning, training-only class-frequency correction, and synthetic acquisition styles. The low-frequency Fourier transformation mixes amplitudes with a training-patient donor while preserving source phase. The transformations share parameters across each clip. Matching recording identifiers establish paired acquisitions, not synchronized frames; no frame-to-frame correspondence is assumed.
+The dataset is `TrustBeninVideos/Trust-Benin-Videos`, pinned at
+`12cd0de88e25f39adf279e0105b8cdaf138593b4`. Preparation verifies existing file hashes
+before downloading missing videos, fully decodes recordings and joins the original
+acquisition metadata, patient labels and split files. It deduplicates identical
+records and excludes unresolved conflicts, missing labels/files and undecodable
+videos. The generated audit records the exclusion reasons and input hashes.
 
-Mechanisms: [DANN](https://www.jmlr.org/beta/papers/v17/15-239.html), [conditional adversarial adaptation](https://papers.nips.cc/paper_files/paper/2018/hash/ab88b15733f543179858600245108dd8-Abstract.html), [Fourier domain adaptation](https://openaccess.thecvf.com/content_CVPR_2020/html/Yang_FDA_Fourier_Domain_Adaptation_for_Semantic_Segmentation_CVPR_2020_paper.html).
+Pairs require the same patient, anatomical site and recording counter, with one
+exact 5 cm and one exact 15 cm acquisition. These identifiers establish paired
+acquisitions, not synchronized frames. The model processes uniformly sampled clips
+and compares scan representations; it does not impose frame-to-frame alignment.
 
-## Data reconciliation and evaluation
+Each bag contains all eligible recordings for its view. Paired bags use matched
+acquisitions at both depths; ordinary 15 cm bags include all eligible sites. Clips
+contain 32 uniformly sampled frames, resized to 224 by 224 and normalized consistently
+for training and evaluation. Padding masks exclude absent scans. Missing pathology
+annotations remain unknown rather than becoming negative labels. Every recording
+and synthetic derivative follows its patient's existing partition.
 
-The original 6,015 count combines image and video metadata matching groups. The available labeled video inventory yields 2,807 pairs across 470 patients before ambiguity and decoding checks. The current audit retains **2774 pairs across 467 patients**. The private dataset is pinned at `12cd0de88e25f39adf279e0105b8cdaf138593b4`; revision verification is **False**. Detailed exclusion counts are in the aggregate audit summary.
+## Architecture and training stages
 
-All recordings and synthetic derivatives inherit their patient's original partition. The five training/validation partitions share the same 101-patient test cohort; they are not independent test folds. Cross-depth evaluation uses matched-site patient bags at each depth. Ordinary 15 cm evaluation uses all eligible sites. Missing pathology annotations are masked, rather than treated as negative.
+CLIP ViT-B/32 encodes the frames, using model revision
+`3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268`. HMV-MIL retains its learned attention
+frame selector, scan representations, pathology heads, anatomical integration,
+patient attention pooling and TB classification head.
 
-The protocol requires freezing configurations and checkpoint hashes using validation data before test evaluation. AUROC and average precision are calculated per patient. Paired 95% bootstrap intervals jointly resample the same patients across every model run. Partition and seed variation must be shown separately from patient-sampling uncertainty. A +0.03 cross-depth AUROC change is a target, not an acceptance criterion for selecting test results. A difference whose confidence interval includes zero is inconclusive. Stable 15 cm performance means no more than a 0.01 AUROC loss; reaching 0.82 absolute AUROC is reported separately.
+Source training uses exact 15 cm videos and available Benin labels. It retains the
+source parameter groups and learning rates in `configs/cscs/train.yaml`, including
+CLIP fine-tuning. Pathology, patient and backbone phases retain the legacy gradient
+routing. Microbatch one with accumulation targets an effective batch of 280 patients;
+the final partial accumulation window uses its actual patient count.
 
-## Evidence table
+All comparison arms then load the same matching source checkpoint for a given
+partition and seed. The CLIP encoder is frozen; downstream representation and
+classification layers remain trainable. The 15 cm supervised comparison receives
+the same continuation budget as both-depth training. It is distinct from the
+source-only checkpoint. Comparisons use a common epoch schedule selected before
+viewing their validation scores.
 
-| Evidence type | Value | Interpretation |
-|---|---|---|
-| Historical report: source | AUROC 0.8853 ± 0.0128; AP 0.8729 ± 0.0247 | Earlier report values; not measured by this pipeline or directly comparable without protocol reconciliation. |
-| Historical report: DANN, SA | AUROC 0.6932 ± 0.0647; AP 0.1803 ± 0.0718 | Earlier SA experiment; no SA data used in the present study. |
-| Historical report: Benin retention | AUROC 0.8321 ± 0.0398; AP 0.7589 ± 0.0519 | Earlier reported result, not present-study replication. |
-| August 29 email claim | About +0.03 Benin cross-depth AUROC | Unverified until the new frozen-test comparisons finish. |
-| Newly measured Benin results | Pending. | Only completed pipeline outputs qualify as measured evidence. |
-| Email SA forecast | AUROC about 0.75; AP about 0.27 | Untested expectation. Benin experiments cannot establish these values. |
+| Configuration | Additions to the matched continuation |
+|---|---|
+| `source15` | Exact 15 cm supervision using all eligible sites. |
+| `both_supervised` | Supervision on matched bags at both depths. |
+| `consistency` | Both-depth supervision plus paired feature and prediction consistency. |
+| `dann` | Consistency plus scan and patient domain adversarial losses. |
+| `conditional` | Detached TB-prediction conditioning and training-class balancing. |
+| `full` | Conditional training plus gain, speckle, resampling and Fourier styles. |
 
-## Reproduction and limitations
+## Objectives and transformations
 
-Start at Git commit `dba7e2d4b9318df8662fc2eeef8437d1b772beb0` and use branch `codex/benin-paired-depth-dann`. Follow `docs/paired_depth/REPRODUCE.md` for exact commands. Each run stores its resolved configuration, dataset-manifest hash, seed, source-checkpoint hash, software versions, model, optimizer, scheduler, scaler, random-number state, sampler position, and accumulated gradients in restricted LIGHT scratch. Public outputs contain aggregates only.
+The supervised objective combines patient TB classification and masked pathology
+classification. Additional terms have independent weights in `losses`:
+`scan_domain`, `patient_domain`, `feature` and `prediction`. Zero weights disable
+the corresponding terms. `grl_max` sets the gradient-reversal schedule's maximum;
+`conditioning` and `class_balance` switch the corresponding domain mechanisms.
 
-The compute limit is 200 allocated GPU-hours with at most three GPUs, including a 20 GPU-hour reserve for final evaluation. Epoch targets may be curtailed by that cap; incomplete or under-trained runs must be identified explicitly. This study does not validate geographic transfer, clinical deployment, or South African performance. An unlabeled SA adapter is a future extension, subject to separate access and evaluation protocols.
+The domain heads predict acquisition depth from differentiable scan and patient
+representations. Gradient reversal negates and scales the representation gradient
+while the domain classifiers learn to minimize their classification loss. Scan
+losses are first averaged within patients and then across domains, avoiding extra
+weight for patients with more recordings. Detached diagnostic features cannot supply
+these training losses. This follows the mechanism of
+[Domain-Adversarial Training of Neural Networks](https://www.jmlr.org/papers/v17/15-239.html).
 
-## Core reproduction commands
+Conditioning forms an outer product of the representation and the detached binary
+TB prediction probabilities. The conditioning path cannot update TB predictions.
+Class weights use training-only TB frequencies within each domain. They are not
+renormalized by each microbatch's weight sum, which would cancel balancing at batch
+size one. This implements a binary prediction-conditioning variant inspired by
+[Conditional Adversarial Domain Adaptation](https://papers.nips.cc/paper_files/paper/2018/hash/ab88b15733f543179858600245108dd8-Abstract.html).
+A separate prevalence-stress option changes the patients contributing to the domain
+losses by class and depth; the supervised patient population remains unchanged.
 
-Run inside the pinned runtime from the repository root, after authenticating the private inventory and completing the preparation commands in the reproduction guide. This is the partition-0, seed-42 source and matched baseline sequence; final test evaluation additionally requires the immutable freeze file and saved selection.
+Feature consistency uses cosine distance between matched scan representations,
+averaged with equal patient weight. Prediction consistency compares patient TB
+probabilities and corresponding known pathology predictions, using pair mappings
+and validity masks. It does not compare unaligned individual frames.
 
-```bash
-BENIN_STUDY_ROOT=/scratch/users/falke/benin-paired-depth-dann
-python -m rcp.paired_depth.experiments configure --output "$BENIN_STUDY_ROOT/artifacts/configs" --partition 0 --seed 42 --epochs 20
-python -m ultrai.paired_depth train --config "$BENIN_STUDY_ROOT/artifacts/configs/source-p0-s42.json"
-python -m ultrai.paired_depth train --config "$BENIN_STUDY_ROOT/artifacts/configs/source15-p0-s42.json"
-python -m ultrai.paired_depth evaluate --config "$BENIN_STUDY_ROOT/artifacts/configs/source15-p0-s42.json" --checkpoint "$BENIN_STUDY_ROOT/artifacts/runs/source15-p0-s42/best.pt" --split test --freeze-file "$BENIN_STUDY_ROOT/artifacts/frozen-test-protocol.json"
-```
+Style transformations use clip-wide parameters: multiplicative gain, a shared
+speckle field, downsampling followed by upsampling, and low-frequency Fourier
+amplitude mixing. Fourier donors are drawn only from training patients, with
+amplitude averaged over donor time. The Fourier mixing step preserves source phase;
+the final transformed intensities are clipped to the valid input range. The
+mechanism follows [Fourier Domain Adaptation](https://openaccess.thecvf.com/content_CVPR_2020/html/Yang_FDA_Fourier_Domain_Adaptation_for_Semantic_Segmentation_CVPR_2020_paper.html).
+Each transformation has a YAML switch; Fourier extent and blending have explicit
+settings. Donors never come from validation or test patients.
+
+<!-- pagebreak -->
+
+## Evaluation protocol
+
+Preserve the five original training/validation partitions, which share one test
+cohort. They are not independent test folds. Evaluate patient TB predictions on
+matched-site bags at each depth and on all eligible 15 cm sites. Select settings
+using partition-0 validation and a predefined search space, then retain that choice
+for other partitions and seeds. Freeze every final configuration and checkpoint
+hash before opening the test cohort.
+
+Patient AUROC and average precision are computed for each run. Paired differences
+use joint patient-bootstrap samples across all compared models; report 95% intervals.
+An interval containing zero leaves the difference inconclusive. Model variation
+across partitions within a seed and across seeds within a partition is reported
+separately. Do not pool different validation cohorts into the shared-test analysis.
+Retention uses a maximum 0.01 ordinary 15 cm AUROC loss relative to the matched
+baseline; absolute 15 cm AUROC 0.82 is a separate protocol criterion.
+
+The study settings define at most three concurrent single-GPU jobs and 200 allocated
+GPU-hours, including 20 hours reserved for evaluation. A portable manual run needs
+scheduler accounting to enforce the shared cap; the trainer itself enforces a
+per-process deadline. Under-budget or interrupted comparisons must be identified
+explicitly. These software/protocol choices do not establish geographic transfer
+or clinical performance.
+
+## Reproduction and continuation
+
+Follow `docs/paired_depth/REPRODUCE.md` for environment installation, private input
+verification, optional frame caching, portable configuration generation, source
+training, matched comparisons, validation selection, freezing and evaluation.
+The main command is `python -m ultrai.paired_depth`; configuration generation is
+`python -m scripts.paired_depth.experiments`. RCP is optional.
+
+Each run records resolved settings, seeds, input/code/checkpoint hashes and installed
+package versions. Checkpoints also save optimizer, scheduler, scaler, random-number,
+sampler and accumulated-gradient state. Resume using the identical code snapshot,
+configuration and storage paths. Missing validation classes and incompatible
+checkpoints fail explicitly. Keep clinical manifests, predictions and checkpoints
+on restricted storage outside the repository.
+
+A future unlabeled target-domain adapter can provide target videos, explicit domain
+identifiers and supervision masks to the data/loss interfaces. It must exclude
+unlabeled target records from supervised TB/pathology losses, prevent target test
+data from entering training or donor pools, and define a separate evaluation
+protocol. The current Benin CLI requires labeled patients; it does not implement
+an unlabeled South Africa ingestion path.
