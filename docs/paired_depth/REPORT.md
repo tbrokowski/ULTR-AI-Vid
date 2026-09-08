@@ -11,8 +11,7 @@ within-Benin training. South African data are not an input to this workflow.
 
 The implementation branches from `dba7e2d4b9318df8662fc2eeef8437d1b772beb0`.
 The separate `ultrai.paired_depth` entrypoint preserves the existing training
-commands and model state-dict names. This handover describes the software and
-protocol; generated research outputs are kept in a separate study directory.
+commands and model state-dict names.
 
 ## Inputs and patient bags
 
@@ -126,8 +125,7 @@ The study settings define at most three concurrent single-GPU jobs and 200 alloc
 GPU-hours, including 20 hours reserved for evaluation. A portable manual run needs
 scheduler accounting to enforce the shared cap; the trainer itself enforces a
 per-process deadline. Under-budget or interrupted comparisons must be identified
-explicitly. These software/protocol choices do not establish geographic transfer
-or clinical performance.
+explicitly.
 
 ## Reproduction and continuation
 
@@ -141,8 +139,7 @@ Each run records resolved settings, seeds, input/code/checkpoint hashes and inst
 package versions. Checkpoints also save optimizer, scheduler, scaler, random-number,
 sampler and accumulated-gradient state. Resume using the identical code snapshot,
 configuration and storage paths. Missing validation classes and incompatible
-checkpoints fail explicitly. Keep clinical manifests, predictions and checkpoints
-on restricted storage outside the repository.
+checkpoints fail explicitly.
 
 A future unlabeled target-domain adapter can provide target videos, explicit domain
 identifiers and supervision masks to the data/loss interfaces. It must exclude

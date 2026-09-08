@@ -32,15 +32,13 @@ docker build -f rcp/paired_depth/Dockerfile -t benin-paired-depth:torch2.8-cu126
 docker run --rm --gpus all benin-paired-depth:torch2.8-cu126 --help
 ```
 
-Mount input data read-only and a separate writable study directory. Generate
-configurations using paths visible inside the container and keep mounts stable.
-Mount metadata and splits for preparation: the image excludes `Data/` and patient
-outputs. Docker is optional; the Python commands below work directly in the venv.
+Generate configurations using paths visible inside the container and keep mounts
+stable. Mount the videos, metadata and split files for preparation. Docker is
+optional; the Python commands below work directly in the venv.
 
 ## 2. Paths and access
 
-Replace these examples with absolute paths on your machine. Keep the study directory
-outside the checkout and on storage appropriate for patient data.
+Replace these examples with absolute paths accessible to your training jobs.
 
 ```bash
 umask 077
@@ -122,8 +120,7 @@ python -m scripts.paired_depth.experiments configure \
 ```
 
 Verification exercises CUDA forward/backward, real HMV-MIL representation gradients,
-synthetic classifier overfit and exact checkpoint prediction regeneration. These
-are software checks, not patient model evaluations.
+synthetic classifier overfit and exact checkpoint prediction regeneration.
 
 Configuration generation writes resolved JSON (valid YAML) in `artifacts/configs`;
 it neither submits jobs nor overwrites files. Comparisons share a source checkpoint,
@@ -184,9 +181,9 @@ python -m scripts.paired_depth.experiments select \
 
 The fixed rule considers completed candidates, applies a maximum 0.01 ordinary
 15 cm AUROC loss against `source15`, then maximizes matched 5 cm validation AUROC
-with a simpler-component tie break. If none passes retention, the immutable output
-records `retention_constraint_satisfied: false`; that fallback is not a successful
-retention result. Prevalence-stress arms are excluded from selection.
+with a simpler-component tie break. If none passes retention, `selection.json`
+records `retention_constraint_satisfied: false` and selects the candidate with the
+highest matched 5 cm validation AUROC. Prevalence-stress arms are excluded from selection.
 
 Repeat the selected method and both supervised baselines over partitions 1-4, then
 prioritize seeds 43 and 44 across all five partitions. Generate each set with the
@@ -206,7 +203,7 @@ idle allocations through the scheduler. The optional RCP controller implements t
 
 List every completed configuration for final comparisons across all included
 partitions/seeds. Freeze the full list before test access. This example shows one
-pair; `consistency` here is a command example, not a stated selection outcome:
+pair. Replace `consistency` with the method recorded in `selection.json`:
 
 ```bash
 python -m ultrai.paired_depth freeze \
@@ -230,7 +227,7 @@ before test access, evaluate with `--split valid` and no freeze argument; compar
 against a preserved copy of the original predictions/metrics. Keep paths and code
 unchanged.
 
-## 8. Generate separate analysis artifacts
+## 8. Compute paired metrics
 
 Create a restricted JSON list of `[baseline_run_directory, candidate_run_directory]`
 pairs using absolute paths, one pair per matching partition/seed. Then run:
@@ -251,17 +248,12 @@ from patient uncertainty. Do not pool differing validation cohorts with this sha
 aggregator. An interval including zero makes a difference inconclusive. Report the
 0.01 retention threshold and absolute 15 cm AUROC 0.82 criterion separately.
 
-## Artifacts and verification boundaries
+## Checkpoints and verification
 
-Run directories save `resolved_config.json`, `provenance.json`, `executions.json`,
-`training_domain_frequencies.json`, `progress.json`, `history.json`, checkpoints and
-validation outputs. Explicit evaluation adds metrics and prediction files. Preserve
-the complete code snapshot, including uncommitted changes: a commit alone does not
-identify an edited checkout. Keep manifests, predictions, weights, credentials and
-generated analyses outside the handover branch.
+Exact resumption requires the complete code snapshot, including uncommitted changes:
+a commit alone does not identify an edited checkout.
 
 Tests cover exact depths, conflicts, missing/corrupt files, patient separation,
 padding/pairs, donor exclusion, GRL signs, detached conditioning, class weights,
 scan gradients, disabled-loss equivalence, interruption/resumption, AMP recovery
-and joint patient bootstrap behavior. Passing tests verifies these software properties;
-it does not establish training convergence or a performance outcome.
+and joint patient bootstrap behavior.

@@ -19,6 +19,3 @@ Use `python -m ultrai.paired_depth` for preparation, training and evaluation, an
 Run commands from the repository root. The guide describes the required private
 videos, labels, metadata and patient partitions, and execution on a Linux NVIDIA
 GPU machine. Existing training entrypoints remain available.
-
-The handover documents the implementation and protocol. Experiment outputs belong
-in a separate study directory.

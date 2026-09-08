@@ -19,9 +19,7 @@ The study defaults are:
 | Runtime Python | `/scratch/users/falke/benin-paired-depth-dann/env/runtime/bin/python` |
 
 `job.py` renders a supported TrainingWorkload against the existing `light-scratch`
-PVC. Input is mounted read-only; generated artifacts go into the isolated user
-study directory. The writable PVC exposes wider scratch, so commands must retain
-the isolated output paths. The container establishes UID/GID before entering the
+PVC. Input is mounted read-only. The container establishes UID/GID before entering the
 checkout to accommodate NFS root squash. Keep the code under the study root's
 `code/` directory and do not replace a snapshot used by active training.
 
@@ -73,7 +71,4 @@ must run on the same jumphost to share these local locks. Lock and Kubernetes re
 have finite timeouts. Compare ledger and plan-status modification times with the
 current time: an existing process ID alone does not show that accounting advances.
 
-Patient predictions and checkpoints stay on restricted storage. CPU-only
-`validation_review.py` and `replication_review.py` produce separate analysis outputs;
-they are not part of this method handover. Final test evaluation still requires the
-portable workflow's explicit checkpoint freeze.
+Final test evaluation requires the portable workflow's explicit checkpoint freeze.
